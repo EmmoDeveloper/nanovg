@@ -24,6 +24,7 @@
 enum FONSflags {
 	FONS_ZERO_TOPLEFT = 1,
 	FONS_ZERO_BOTTOMLEFT = 2,
+	FONS_EXTERNAL_TEXTURE = 4,  // Don't allocate internal texture buffer, backend provides texture
 };
 
 enum FONSalign {
@@ -54,6 +55,9 @@ enum FONSerrorCode {
 	FONS_STATES_UNDERFLOW = 4,
 };
 
+// Forward declaration for callback
+struct FONSglyph;
+
 struct FONSparams {
 	int width, height;
 	unsigned char flags;
@@ -63,6 +67,7 @@ struct FONSparams {
 	void (*renderUpdate)(void* uptr, int* rect, const unsigned char* data);
 	void (*renderDraw)(void* uptr, const float* verts, const float* tcoords, const unsigned int* colors, int nverts);
 	void (*renderDelete)(void* uptr);
+	void (*glyphAdded)(void* uptr, struct FONSglyph* glyph, int fontIndex, const unsigned char* data, int width, int height);  // Callback after glyph is fully initialized
 };
 typedef struct FONSparams FONSparams;
 
@@ -767,9 +772,20 @@ FONScontext* fonsCreateInternal(FONSparams* params)
 	// Create texture for the cache.
 	stash->itw = 1.0f/stash->params.width;
 	stash->ith = 1.0f/stash->params.height;
-	stash->texData = (unsigned char*)malloc(stash->params.width * stash->params.height);
-	if (stash->texData == NULL) goto error;
-	memset(stash->texData, 0, stash->params.width * stash->params.height);
+
+	// If using external texture (virtual atlas), don't allocate full texture buffer
+	// Instead allocate small buffer for single glyph rasterization
+	if (stash->params.flags & FONS_EXTERNAL_TEXTURE) {
+		// Allocate buffer for one large glyph (256x256 max)
+		stash->texData = (unsigned char*)malloc(256 * 256);
+		if (stash->texData == NULL) goto error;
+		memset(stash->texData, 0, 256 * 256);
+	} else {
+		// Normal mode: allocate full atlas texture
+		stash->texData = (unsigned char*)malloc(stash->params.width * stash->params.height);
+		if (stash->texData == NULL) goto error;
+		memset(stash->texData, 0, stash->params.width * stash->params.height);
+	}
 
 	stash->dirtyRect[0] = stash->params.width;
 	stash->dirtyRect[1] = stash->params.height;
@@ -1171,41 +1187,76 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	}
 
 	// Rasterize
-	dst = &stash->texData[(glyph->x0+pad) + (glyph->y0+pad) * stash->params.width];
-	fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw-pad*2,gh-pad*2, stash->params.width, scale, scale, g);
+	if (stash->params.flags & FONS_EXTERNAL_TEXTURE) {
+		// External texture mode: rasterize into small buffer at (0,0)
+		// Backend (virtual atlas) will upload to correct position
+		dst = &stash->texData[pad + pad * gw];
+		fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw-pad*2, gh-pad*2, gw, scale, scale, g);
 
-	// Make sure there is one pixel empty border.
-	dst = &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];
-	for (y = 0; y < gh; y++) {
-		dst[y*stash->params.width] = 0;
-		dst[gw-1 + y*stash->params.width] = 0;
-	}
-	for (x = 0; x < gw; x++) {
-		dst[x] = 0;
-		dst[x + (gh-1)*stash->params.width] = 0;
-	}
-
-	// Debug code to color the glyph background
-/*	unsigned char* fdst = &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];
-	for (y = 0; y < gh; y++) {
-		for (x = 0; x < gw; x++) {
-			int a = (int)fdst[x+y*stash->params.width] + 20;
-			if (a > 255) a = 255;
-			fdst[x+y*stash->params.width] = a;
+		// Make sure there is one pixel empty border
+		dst = &stash->texData[0];
+		for (y = 0; y < gh; y++) {
+			dst[y*gw] = 0;
+			dst[gw-1 + y*gw] = 0;
 		}
-	}*/
+		for (x = 0; x < gw; x++) {
+			dst[x] = 0;
+			dst[x + (gh-1)*gw] = 0;
+		}
 
-	// Blur
-	if (iblur > 0) {
-		stash->nscratch = 0;
-		bdst = &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];
-		fons__blur(stash, bdst, gw, gh, stash->params.width, iblur);
+		// Blur
+		if (iblur > 0) {
+			stash->nscratch = 0;
+			bdst = &stash->texData[0];
+			fons__blur(stash, bdst, gw, gh, gw, iblur);
+		}
+	} else {
+		// Normal mode: rasterize into full atlas at correct position
+		dst = &stash->texData[(glyph->x0+pad) + (glyph->y0+pad) * stash->params.width];
+		fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw-pad*2,gh-pad*2, stash->params.width, scale, scale, g);
+
+		// Make sure there is one pixel empty border.
+		dst = &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];
+		for (y = 0; y < gh; y++) {
+			dst[y*stash->params.width] = 0;
+			dst[gw-1 + y*stash->params.width] = 0;
+		}
+		for (x = 0; x < gw; x++) {
+			dst[x] = 0;
+			dst[x + (gh-1)*stash->params.width] = 0;
+		}
+
+		// Blur
+		if (iblur > 0) {
+			stash->nscratch = 0;
+			bdst = &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];
+			fons__blur(stash, bdst, gw, gh, stash->params.width, iblur);
+		}
+
+		stash->dirtyRect[0] = fons__mini(stash->dirtyRect[0], glyph->x0);
+		stash->dirtyRect[1] = fons__mini(stash->dirtyRect[1], glyph->y0);
+		stash->dirtyRect[2] = fons__maxi(stash->dirtyRect[2], glyph->x1);
+		stash->dirtyRect[3] = fons__maxi(stash->dirtyRect[3], glyph->y1);
 	}
 
-	stash->dirtyRect[0] = fons__mini(stash->dirtyRect[0], glyph->x0);
-	stash->dirtyRect[1] = fons__mini(stash->dirtyRect[1], glyph->y0);
-	stash->dirtyRect[2] = fons__maxi(stash->dirtyRect[2], glyph->x1);
-	stash->dirtyRect[3] = fons__maxi(stash->dirtyRect[3], glyph->y1);
+	// Invoke callback if glyph was fully initialized (after rasterization)
+	if (stash->params.glyphAdded != NULL) {
+		// Find font index by searching through fonts array
+		int idx = -1;
+		for (int i = 0; i < stash->nfonts; i++) {
+			if (stash->fonts[i] == font || stash->fonts[i] == renderFont) {
+				idx = i;
+				break;
+			}
+		}
+		// Pass glyph pixel data to callback
+		// In external texture mode, data is in small buffer starting at texData[0]
+		// In normal mode, data is in atlas at glyph position (but callback can extract it if needed)
+		const unsigned char* glyphData = (stash->params.flags & FONS_EXTERNAL_TEXTURE)
+			? stash->texData
+			: &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];
+		stash->params.glyphAdded(stash->params.userPtr, glyph, idx, glyphData, gw, gh);
+	}
 
 	return glyph;
 }

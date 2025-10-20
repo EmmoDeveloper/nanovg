@@ -318,9 +318,15 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 
 	// Init font rendering
 	memset(&fontParams, 0, sizeof(fontParams));
-	fontParams.width = NVG_INIT_FONTIMAGE_SIZE;
-	fontParams.height = NVG_INIT_FONTIMAGE_SIZE;
+	// Use custom atlas size if specified (for virtual atlas), otherwise default 512x512
+	int atlasSize = (params->fontAtlasSize > 0) ? params->fontAtlasSize : NVG_INIT_FONTIMAGE_SIZE;
+	fontParams.width = atlasSize;
+	fontParams.height = atlasSize;
 	fontParams.flags = FONS_ZERO_TOPLEFT;
+	// Use external texture mode for virtual atlas (backend provides texture)
+	if (atlasSize > NVG_INIT_FONTIMAGE_SIZE) {
+		fontParams.flags |= FONS_EXTERNAL_TEXTURE;
+	}
 	fontParams.renderCreate = NULL;
 	fontParams.renderUpdate = NULL;
 	fontParams.renderDraw = NULL;
