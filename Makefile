@@ -28,12 +28,12 @@ UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(B
 UNIT_TEST_OBJS := $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_unit_platform.o $(BUILD_DIR)/test_unit_memory.o $(BUILD_DIR)/test_unit_memory_leak.o $(BUILD_DIR)/test_atlas_prewarm.o $(BUILD_DIR)/test_instanced_text.o $(BUILD_DIR)/test_pipeline_creation.o $(BUILD_DIR)/test_virtual_atlas.o $(BUILD_DIR)/test_nvg_virtual_atlas.o $(BUILD_DIR)/test_cjk_rendering.o $(BUILD_DIR)/test_real_text_rendering.o $(BUILD_DIR)/test_cjk_real_rendering.o $(BUILD_DIR)/test_cjk_eviction.o $(BUILD_DIR)/test_utils.o
 
 # Integration tests
-INTEGRATION_TESTS := $(BUILD_DIR)/test_integration_render $(BUILD_DIR)/test_integration_text
-INTEGRATION_TEST_OBJS := $(BUILD_DIR)/test_integration_render.o $(BUILD_DIR)/test_integration_text.o
+INTEGRATION_TESTS := $(BUILD_DIR)/test_integration_render $(BUILD_DIR)/test_integration_text $(BUILD_DIR)/test_text_optimizations
+INTEGRATION_TEST_OBJS := $(BUILD_DIR)/test_integration_render.o $(BUILD_DIR)/test_integration_text.o $(BUILD_DIR)/test_text_optimizations.o
 
 # Benchmark tests
-BENCHMARK_TESTS := $(BUILD_DIR)/test_benchmark $(BUILD_DIR)/test_benchmark_text_instancing
-BENCHMARK_TEST_OBJS := $(BUILD_DIR)/test_benchmark.o $(BUILD_DIR)/test_benchmark_text_instancing.o
+BENCHMARK_TESTS := $(BUILD_DIR)/test_benchmark $(BUILD_DIR)/test_benchmark_text_instancing $(BUILD_DIR)/test_performance_baseline
+BENCHMARK_TEST_OBJS := $(BUILD_DIR)/test_benchmark.o $(BUILD_DIR)/test_benchmark_text_instancing.o $(BUILD_DIR)/test_performance_baseline.o
 
 # All tests
 ALL_TESTS := $(SMOKE_TESTS) $(UNIT_TESTS) $(INTEGRATION_TESTS) $(BENCHMARK_TESTS)
@@ -253,6 +253,24 @@ $(BUILD_DIR)/test_benchmark_text_instancing.o: tests/test_benchmark_text_instanc
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/test_benchmark_text_instancing: $(BUILD_DIR)/test_benchmark_text_instancing.o $(BUILD_DIR)/test_utils.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ)
+	@echo "Linking $@..."
+	$(CC) $^ $(LIBS) -o $@
+
+# Integration test: Text optimizations
+$(BUILD_DIR)/test_text_optimizations.o: tests/test_text_optimizations.c tests/test_framework.h tests/test_utils.h | $(BUILD_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_text_optimizations: $(BUILD_DIR)/test_text_optimizations.o $(BUILD_DIR)/test_utils.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ)
+	@echo "Linking $@..."
+	$(CC) $^ $(LIBS) -o $@
+
+# Benchmark test: Performance baseline
+$(BUILD_DIR)/test_performance_baseline.o: tests/test_performance_baseline.c tests/test_framework.h tests/test_utils.h | $(BUILD_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_performance_baseline: $(BUILD_DIR)/test_performance_baseline.o $(BUILD_DIR)/test_utils.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
