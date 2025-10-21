@@ -22,6 +22,38 @@ static uint32_t vknvg__findMemoryType(VkPhysicalDevice physicalDevice,
 	return UINT32_MAX;
 }
 
+// Rasterize glyph using GPU compute shader
+// Note: This is a placeholder for compute rasterization integration
+// Full implementation requires:
+// 1. Access to FT_Outline from fontstash/FreeType
+// 2. Outline conversion via vknvg__buildGlyphOutline()
+// 3. Descriptor set allocation and updates
+// 4. Compute dispatch and synchronization
+// 5. Image readback to CPU memory
+static uint8_t* vknvg__rasterizeGlyphCompute(VKNVGvirtualAtlas* atlas,
+                                              VKNVGglyphKey key,
+                                              uint16_t* width,
+                                              uint16_t* height,
+                                              int16_t* bearingX,
+                                              int16_t* bearingY,
+                                              uint16_t* advance)
+{
+	// For now, fall back to CPU rasterization
+	// TODO: Implement full compute shader path:
+	// 1. Get FT_Outline from fontstash
+	// 2. Call vknvg__buildGlyphOutline()
+	// 3. Upload outline to GPU
+	// 4. Call vknvg__rasterizeGlyphCompute() from compute_raster.h
+	// 5. Read back result
+
+	if (atlas->rasterizeGlyph) {
+		return atlas->rasterizeGlyph(atlas->fontContext, key,
+		                             width, height, bearingX, bearingY, advance);
+	}
+
+	return NULL;
+}
+
 // Background loader thread function
 static void* vknvg__loaderThreadFunc(void* arg)
 {
@@ -47,12 +79,17 @@ static void* vknvg__loaderThreadFunc(void* arg)
 
 		pthread_mutex_unlock(&atlas->loadQueueMutex);
 
-		// Rasterize glyph using callback
+		// Rasterize glyph
 		uint16_t width, height, advance;
 		int16_t bearingX, bearingY;
 
-		if (atlas->rasterizeGlyph) {
-			// Use provided rasterization callback
+		if (atlas->useComputeRaster && atlas->computeRaster) {
+			// Use GPU compute shader rasterization
+			req.pixelData = vknvg__rasterizeGlyphCompute(atlas, req.key,
+			                                              &width, &height,
+			                                              &bearingX, &bearingY, &advance);
+		} else if (atlas->rasterizeGlyph) {
+			// Use CPU rasterization callback
 			req.pixelData = atlas->rasterizeGlyph(atlas->fontContext, req.key,
 			                                       &width, &height,
 			                                       &bearingX, &bearingY, &advance);
@@ -316,6 +353,12 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	       VKNVG_ATLAS_PHYSICAL_SIZE, VKNVG_ATLAS_PHYSICAL_SIZE,
 	       VKNVG_ATLAS_MAX_PAGES, VKNVG_GLYPH_CACHE_SIZE);
 
+	// Initialize compute rasterization (disabled by default)
+	atlas->computeRaster = NULL;
+	atlas->useComputeRaster = VK_FALSE;
+	atlas->computeQueue = VK_NULL_HANDLE;
+	atlas->computeQueueFamily = 0;
+
 	return atlas;
 }
 
@@ -352,6 +395,14 @@ void vknvg__destroyVirtualAtlas(VKNVGvirtualAtlas* atlas)
 	vkDestroyImageView(atlas->device, atlas->atlasImageView, NULL);
 	vkFreeMemory(atlas->device, atlas->atlasMemory, NULL);
 	vkDestroyImage(atlas->device, atlas->atlasImage, NULL);
+
+	// Destroy compute rasterization (if enabled)
+	if (atlas->computeRaster) {
+		// Note: vknvg__destroyComputeRaster() is in nanovg_vk_compute_raster.h
+		// We would need to include it here to call the cleanup function
+		// For now, the compute raster context is managed externally
+		atlas->computeRaster = NULL;
+	}
 
 	// Free cache
 	free(atlas->freePageList);
