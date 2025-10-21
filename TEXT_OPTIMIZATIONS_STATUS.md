@@ -14,11 +14,11 @@ Four text rendering optimizations have been successfully implemented, tested, an
 2. ✅ **Glyph Instancing** - 75% vertex data reduction through GPU-side quad generation
 3. ✅ **Pre-warmed Font Atlas** - Eliminates first-frame stutters by pre-loading common glyphs
 
-**Phase 2 (In Progress - 3.9/4 Complete)**:
+**Phase 2 (In Progress - 3.75/4 Complete - 94%)**:
 4. ✅ **Batch Text Rendering** - 20-30% draw call reduction by merging compatible text calls (100%)
-5. ⏳ **Text Run Caching Infrastructure** - Render-to-texture framework (50% complete)
+5. ⏳ **Text Run Caching Infrastructure** - Render-to-texture framework (75% complete)
 6. ✅ **Async Glyph Uploads** - Non-blocking uploads via transfer queue (100% complete, integrated)
-7. ⏳ **Compute-based Rasterization** - GPU-accelerated glyph rendering (90% complete)
+7. ✅ **Compute-based Rasterization** - GPU-accelerated glyph rendering (100% complete)
 
 **Test Results**: 50/50 tests passing across all optimization modules
 
@@ -318,16 +318,17 @@ int nvgPrewarmFontCustom(NVGcontext* ctx, int font, const char* glyphs,
 
 ---
 
-### 7. Compute-based Rasterization (100% Infrastructure Complete)
+### 7. Compute-based Rasterization (100% Complete)
 
-**Implementation**: `src/nanovg_vk_compute_raster.h`
+**Implementation**: `src/nanovg_vk_compute_raster.h`, shaders/glyph_raster.comp
 
 **Features**:
 - GPU-accelerated glyph rasterization using compute shaders
 - Glyph outline data structures (points, contours, Bézier curves)
 - Support for MOVE, LINE, QUAD, and CUBIC point types
 - SDF (Signed Distance Field) generation support
-- Vulkan buffer/pipeline/command management
+- Full Vulkan buffer/pipeline/command/dispatch management
+- Complete GPU execution path
 
 **Architecture**:
 - VKNVGglyphPoint: Outline point with x, y, type (32 bytes)
@@ -360,8 +361,18 @@ int nvgPrewarmFontCustom(NVGcontext* ctx, int font, const char* glyphs,
 - ✅ FreeType outline conversion (FT_Outline → VKNVGglyphOutline)
 - ✅ Virtual atlas infrastructure (computeRaster field, useComputeRaster flag)
 - ✅ Runtime integration hooks (vknvg__rasterizeGlyphCompute, loader thread routing)
-- ⏳ GPU dispatch implementation (descriptor sets, compute commands - 10% remaining)
+- ✅ GPU dispatch implementation (command buffers, descriptor updates, compute commands)
+- ✅ Image layout transitions (UNDEFINED → GENERAL → SHADER_READ_ONLY)
+- ✅ Queue submission and synchronization
 - ⏳ Performance benchmarking (pending)
+
+**GPU Dispatch Details**:
+- Command buffer allocation from compute pool
+- Descriptor set allocation and updates (outline buffer, params buffer)
+- Pipeline binding and descriptor set binding
+- Compute dispatch: (width+7)/8 × (height+7)/8 workgroups (8×8 threads each)
+- Automatic image layout management for shader writes
+- Queue submit with fence/semaphore support
 
 **Expected Performance** (when fully integrated):
 - GPU parallelism: 64 threads per glyph (8×8 workgroup)
@@ -380,8 +391,7 @@ int nvgPrewarmFontCustom(NVGcontext* ctx, int font, const char* glyphs,
 The following advanced features are planned but not yet implemented:
 
 ### Phase 2: Performance Enhancements (Remaining)
-- **Text Run Caching Integration** - Complete nvgText() integration (infrastructure 50% done)
-- **Compute Rasterization GPU Dispatch** - Descriptor sets and compute commands (infrastructure 100%, dispatch 10% remaining)
+- **Text Run Caching Integration** - Complete nvgText() integration (infrastructure 75% done, runtime 25% remaining)
 
 ### Phase 3: Advanced Atlas Management
 - **Compute Shader Glyph Packing** - Optimal bin-packing algorithm
@@ -474,16 +484,15 @@ make clean              # Clean build artifacts
 - Glyph Instancing provides 75% vertex data reduction
 - Pre-warmed Atlas eliminates first-frame stutters
 
-**Phase 2 is in progress** with 3.9/4 optimizations complete (97.5%):
+**Phase 2 is in progress** with 3.75/4 optimizations complete (94%):
 - ✅ Batch Text Rendering reduces draw calls by 20-30% in typical UIs (100% complete)
-- ⏳ Text Run Caching infrastructure implemented (50% complete, integration pending)
+- ⏳ Text Run Caching infrastructure implemented (75% complete, runtime integration pending)
 - ✅ Async Glyph Uploads for non-blocking atlas updates (100% complete, integrated)
-- ⏳ Compute-based Rasterization infrastructure (90% complete, GPU dispatch pending)
+- ✅ Compute-based Rasterization with full GPU dispatch (100% complete)
 
 All 50 tests passing (22 unit + 9 integration + 2 benchmark + 17 others).
 
 **Next Steps**:
-1. Complete compute rasterization integration (GPU dispatch implementation - 10% remaining)
-2. Complete text run caching integration (render pass + nvgText() modification - 50% remaining)
-3. Performance benchmarking of all Phase 2 optimizations
-4. Begin Phase 3: Advanced Atlas Management
+1. Complete text run caching integration (render pass + nvgText() modification - 25% remaining)
+2. Performance benchmarking of all Phase 2 optimizations
+3. Begin Phase 3: Advanced Atlas Management
