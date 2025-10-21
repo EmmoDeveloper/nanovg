@@ -81,6 +81,16 @@ static void vknvg__renderDelete(void* uptr)
 		vk->virtualAtlas = NULL;
 	}
 
+	// Cleanup text run cache
+	if (vk->textCache != NULL) {
+		vknvg__destroyTextRunCache(vk->textCache);
+		vk->textCache = NULL;
+	}
+	if (vk->textCacheRenderPass != VK_NULL_HANDLE) {
+		vkDestroyRenderPass(vk->device, vk->textCacheRenderPass, NULL);
+		vk->textCacheRenderPass = VK_NULL_HANDLE;
+	}
+
 	// Cleanup pipelines
 	if (vk->fillPipeline != VK_NULL_HANDLE) {
 		vkDestroyPipeline(vk->device, vk->fillPipeline, NULL);

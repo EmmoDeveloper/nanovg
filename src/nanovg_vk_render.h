@@ -32,6 +32,8 @@
 #include "nanovg_vk_platform.h"
 #include "nanovg_vk_virtual_atlas.h"
 #include "nanovg_vk_batch_text.h"
+#include "nanovg_vk_text_cache.h"
+#include "nanovg_vk_text_cache_integration.h"
 
 __attribute__((unused))
 static double vknvg__getTime() {
@@ -466,6 +468,33 @@ static int vknvg__renderCreate(void* uptr)
 	if (vk->flags & NVG_MULTI_THREADED) {
 		if (!vknvg__initThreadPool(vk)) {
 			return 0;
+		}
+	}
+
+	// Initialize text run cache if requested
+	vk->textCache = NULL;
+	vk->useTextCache = VK_FALSE;
+	vk->textCacheRenderPass = VK_NULL_HANDLE;
+
+	if (vk->flags & NVG_TEXT_CACHE) {
+		// Create render pass for text-to-texture
+		#include "nanovg_vk_text_cache_integration.h"
+		vk->textCacheRenderPass = vknvg__createTextCacheRenderPass(vk->device);
+		if (vk->textCacheRenderPass == VK_NULL_HANDLE) {
+			// Non-fatal: text caching disabled but rendering still works
+			vk->useTextCache = VK_FALSE;
+		} else {
+			// Create text cache
+			#include "nanovg_vk_text_cache.h"
+			vk->textCache = vknvg__createTextRunCache(vk->device,
+			                                           vk->physicalDevice,
+			                                           vk->textCacheRenderPass);
+			if (vk->textCache != NULL) {
+				vk->useTextCache = VK_TRUE;
+			} else {
+				vkDestroyRenderPass(vk->device, vk->textCacheRenderPass, NULL);
+				vk->textCacheRenderPass = VK_NULL_HANDLE;
+			}
 		}
 	}
 

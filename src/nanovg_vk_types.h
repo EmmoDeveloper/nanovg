@@ -35,6 +35,7 @@ enum NVGcreateFlags {
 	NVG_MSDF_TEXT = 1<<13,
 	NVG_COLOR_TEXT = 1<<14,
 	NVG_VIRTUAL_ATLAS = 1<<15,	// Enable virtual atlas for CJK support
+	NVG_TEXT_CACHE = 1<<16,		// Enable text run caching
 	NVG_MSAA = 1<<9,
 	NVG_PROFILING = 1<<10,
 	NVG_MULTI_THREADED = 1<<11,
