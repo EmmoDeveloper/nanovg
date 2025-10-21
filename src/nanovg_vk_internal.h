@@ -26,6 +26,7 @@
 
 // Forward declarations
 typedef struct VKNVGglyphInstanceBuffer VKNVGglyphInstanceBuffer;
+typedef struct VKNVGtextRunCache VKNVGtextRunCache;
 
 enum VKNVGshaderType {
 	NSVG_SHADER_FILLGRAD,
@@ -289,6 +290,10 @@ struct VKNVGcontext {
 		int atlasX, atlasY;
 	} pendingGlyphUploads[256];
 	int pendingGlyphUploadCount;
+	// Text run caching
+	struct VKNVGtextRunCache* textCache;	// Text run cache (NULL if disabled)
+	VkBool32 useTextCache;					// Enable text run caching
+	VkRenderPass textCacheRenderPass;		// Render pass for text-to-texture
 };
 typedef struct VKNVGcontext VKNVGcontext;
 
