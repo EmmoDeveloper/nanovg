@@ -20,6 +20,8 @@
 
 #define VKNVG_MAX_ATLASES 8			// Maximum number of atlases
 #define VKNVG_DEFAULT_ATLAS_SIZE 4096	// Default atlas size (4096x4096)
+#define VKNVG_MIN_ATLAS_SIZE 512		// Minimum atlas size (512x512)
+#define VKNVG_RESIZE_THRESHOLD 0.85f	// Resize when 85% full
 
 // Single atlas instance
 typedef struct VKNVGatlasInstance {
@@ -61,10 +63,17 @@ typedef struct VKNVGatlasManager {
 	VKNVGpackingHeuristic packingHeuristic;
 	VKNVGsplitRule splitRule;
 
+	// Resizing configuration
+	uint8_t enableDynamicGrowth;	// Enable automatic atlas growth
+	float resizeThreshold;			// Utilization threshold for resize (0.0-1.0)
+	uint16_t minAtlasSize;			// Minimum atlas size
+	uint16_t maxAtlasSize;			// Maximum atlas size
+
 	// Statistics
 	uint32_t totalGlyphs;
 	uint32_t totalAllocations;
 	uint32_t failedAllocations;
+	uint32_t resizeCount;			// Number of times atlases were resized
 } VKNVGatlasManager;
 
 // Find memory type for atlas
@@ -85,9 +94,10 @@ static uint32_t vknvg__findAtlasMemoryType(VkPhysicalDevice physicalDevice,
 	return UINT32_MAX;
 }
 
-// Create a single atlas instance
-static VkResult vknvg__createAtlasInstance(VKNVGatlasManager* manager,
-                                            uint32_t index)
+// Create a single atlas instance with specific size
+static VkResult vknvg__createAtlasInstanceWithSize(VKNVGatlasManager* manager,
+                                                     uint32_t index,
+                                                     uint16_t atlasSize)
 {
 	if (!manager || index >= VKNVG_MAX_ATLASES) {
 		return VK_ERROR_INITIALIZATION_FAILED;
@@ -97,15 +107,15 @@ static VkResult vknvg__createAtlasInstance(VKNVGatlasManager* manager,
 	VkResult result;
 
 	// Initialize packer
-	vknvg__initAtlasPacker(&atlas->packer, manager->atlasSize, manager->atlasSize);
+	vknvg__initAtlasPacker(&atlas->packer, atlasSize, atlasSize);
 
 	// Create image
 	VkImageCreateInfo imageInfo = {0};
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
 	imageInfo.format = manager->format;
-	imageInfo.extent.width = manager->atlasSize;
-	imageInfo.extent.height = manager->atlasSize;
+	imageInfo.extent.width = atlasSize;
+	imageInfo.extent.height = atlasSize;
 	imageInfo.extent.depth = 1;
 	imageInfo.mipLevels = 1;
 	imageInfo.arrayLayers = 1;
@@ -231,6 +241,125 @@ static void vknvg__destroyAtlasInstance(VKNVGatlasManager* manager,
 	memset(atlas, 0, sizeof(VKNVGatlasInstance));
 }
 
+// Create atlas instance with manager's default size
+static VkResult vknvg__createAtlasInstance(VKNVGatlasManager* manager,
+                                            uint32_t index)
+{
+	return vknvg__createAtlasInstanceWithSize(manager, index, manager->atlasSize);
+}
+
+// Resize an existing atlas to a larger size
+// This creates a new atlas and copies content using a command buffer
+static VkResult vknvg__resizeAtlasInstance(VKNVGatlasManager* manager,
+                                             uint32_t index,
+                                             uint16_t newSize,
+                                             VkCommandBuffer cmdBuffer)
+{
+	if (!manager || index >= manager->atlasCount) {
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	VKNVGatlasInstance* oldAtlas = &manager->atlases[index];
+	uint16_t oldSize = oldAtlas->packer.atlasWidth;
+
+	if (newSize <= oldSize) {
+		return VK_ERROR_INITIALIZATION_FAILED;	// Must grow
+	}
+
+	// Save old atlas state
+	VkImage oldImage = oldAtlas->image;
+	VkImageView oldImageView = oldAtlas->imageView;
+	VkDeviceMemory oldMemory = oldAtlas->memory;
+	VKNVGatlasPacker oldPacker = oldAtlas->packer;
+
+	// Create new atlas (reusing the same slot)
+	memset(oldAtlas, 0, sizeof(VKNVGatlasInstance));
+	VkResult result = vknvg__createAtlasInstanceWithSize(manager, index, newSize);
+	if (result != VK_SUCCESS) {
+		// Restore old atlas on failure
+		oldAtlas->image = oldImage;
+		oldAtlas->imageView = oldImageView;
+		oldAtlas->memory = oldMemory;
+		oldAtlas->packer = oldPacker;
+		oldAtlas->active = 1;
+		return result;
+	}
+
+	// Copy old packer allocations to new packer
+	// Note: The packer state is preserved by copying allocated regions
+	oldAtlas->packer.allocatedArea = oldPacker.allocatedArea;
+	oldAtlas->packer.allocationCount = oldPacker.allocationCount;
+
+	// Transition old image to TRANSFER_SRC
+	VkImageMemoryBarrier barrier = {0};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = oldImage;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+	vkCmdPipelineBarrier(cmdBuffer,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Transition new image to TRANSFER_DST
+	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.image = oldAtlas->image;
+	barrier.srcAccessMask = 0;
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+	vkCmdPipelineBarrier(cmdBuffer,
+	                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Copy old atlas content to new atlas
+	VkImageCopy copyRegion = {0};
+	copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	copyRegion.srcSubresource.layerCount = 1;
+	copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	copyRegion.dstSubresource.layerCount = 1;
+	copyRegion.extent.width = oldSize;
+	copyRegion.extent.height = oldSize;
+	copyRegion.extent.depth = 1;
+
+	vkCmdCopyImage(cmdBuffer,
+	               oldImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	               oldAtlas->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	               1, &copyRegion);
+
+	// Transition new image to SHADER_READ
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.image = oldAtlas->image;
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(cmdBuffer,
+	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Destroy old atlas resources
+	vkDestroyImageView(manager->device, oldImageView, NULL);
+	vkFreeMemory(manager->device, oldMemory, NULL);
+	vkDestroyImage(manager->device, oldImage, NULL);
+
+	manager->resizeCount++;
+
+	return VK_SUCCESS;
+}
+
 // Initialize atlas manager
 static VKNVGatlasManager* vknvg__createAtlasManager(VkDevice device,
                                                      VkPhysicalDevice physicalDevice,
@@ -254,6 +383,12 @@ static VKNVGatlasManager* vknvg__createAtlasManager(VkDevice device,
 	manager->format = VK_FORMAT_R8_UNORM;
 	manager->packingHeuristic = VKNVG_PACK_BEST_AREA_FIT;
 	manager->splitRule = VKNVG_SPLIT_SHORTER_AXIS;
+
+	// Resizing configuration
+	manager->enableDynamicGrowth = 1;
+	manager->resizeThreshold = VKNVG_RESIZE_THRESHOLD;
+	manager->minAtlasSize = VKNVG_MIN_ATLAS_SIZE;
+	manager->maxAtlasSize = VKNVG_DEFAULT_ATLAS_SIZE;
 
 	// Create initial atlas
 	if (vknvg__createAtlasInstance(manager, 0) != VK_SUCCESS) {
@@ -280,6 +415,46 @@ static void vknvg__destroyAtlasManager(VKNVGatlasManager* manager)
 	}
 
 	free(manager);
+}
+
+// Get next size in growth progression
+static uint16_t vknvg__getNextAtlasSize(uint16_t currentSize, uint16_t maxSize)
+{
+	if (currentSize >= maxSize) {
+		return 0;	// Already at max
+	}
+
+	// Progressive growth: 512 -> 1024 -> 2048 -> 4096
+	uint16_t nextSize = currentSize * 2;
+	if (nextSize > maxSize) {
+		nextSize = maxSize;
+	}
+
+	return nextSize;
+}
+
+// Check if atlas should be resized based on utilization
+static int vknvg__shouldResizeAtlas(VKNVGatlasManager* manager, uint32_t atlasIndex)
+{
+	if (!manager->enableDynamicGrowth) {
+		return 0;
+	}
+
+	if (atlasIndex >= manager->atlasCount) {
+		return 0;
+	}
+
+	VKNVGatlasInstance* atlas = &manager->atlases[atlasIndex];
+	float efficiency = vknvg__getPackingEfficiency(&atlas->packer);
+
+	// Check if over threshold and can grow
+	if (efficiency >= manager->resizeThreshold) {
+		uint16_t currentSize = atlas->packer.atlasWidth;
+		uint16_t nextSize = vknvg__getNextAtlasSize(currentSize, manager->maxAtlasSize);
+		return nextSize > 0;
+	}
+
+	return 0;
 }
 
 // Allocate space in atlas system
