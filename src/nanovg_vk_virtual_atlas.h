@@ -31,6 +31,7 @@ typedef struct VKNVGvirtualAtlas VKNVGvirtualAtlas;
 typedef struct VKNVGglyphCacheEntry VKNVGglyphCacheEntry;
 typedef struct VKNVGatlasPage VKNVGatlasPage;
 typedef struct VKNVGglyphLoadRequest VKNVGglyphLoadRequest;
+typedef struct VKNVGcomputeRaster VKNVGcomputeRaster;
 
 // Glyph identifier (font + codepoint + size)
 typedef struct VKNVGglyphKey {
@@ -160,6 +161,12 @@ struct VKNVGvirtualAtlas {
 	                           uint16_t* width, uint16_t* height,
 	                           int16_t* bearingX, int16_t* bearingY,
 	                           uint16_t* advance);
+
+	// Optional GPU compute rasterization
+	VKNVGcomputeRaster* computeRaster;		// NULL if using CPU rasterization
+	VkBool32 useComputeRaster;				// Enable GPU rasterization
+	VkQueue computeQueue;					// Compute queue for GPU rasterization
+	uint32_t computeQueueFamily;			// Queue family index
 };
 
 // API Functions

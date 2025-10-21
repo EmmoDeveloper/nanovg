@@ -11,6 +11,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+// FreeType support (if available)
+#ifdef FONS_USE_FREETYPE
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_OUTLINE_H
+#endif
+
 #define VKNVG_MAX_GLYPH_CONTOURS 32		// Max contours per glyph
 #define VKNVG_MAX_GLYPH_POINTS 512		// Max points per glyph
 #define VKNVG_COMPUTE_WORKGROUP_SIZE 8		// 8x8 threads per workgroup
@@ -411,10 +418,100 @@ static void vknvg__destroyComputeRaster(VKNVGcomputeRaster* ctx)
 static void vknvg__buildGlyphOutline(VKNVGglyphOutline* outline,
                                      const void* ftOutline)
 {
-	// In a full implementation, this would convert FreeType FT_Outline
-	// to our VKNVGglyphOutline format
-	// For now, just initialize to empty
+	#ifdef FONS_USE_FREETYPE
+	const FT_Outline* ftOut = (const FT_Outline*)ftOutline;
 	memset(outline, 0, sizeof(VKNVGglyphOutline));
+
+	if (!ftOut || ftOut->n_points == 0) {
+		return;
+	}
+
+	// Check capacity
+	if (ftOut->n_contours > VKNVG_MAX_GLYPH_CONTOURS ||
+	    ftOut->n_points > VKNVG_MAX_GLYPH_POINTS) {
+		return;  // Glyph too complex
+	}
+
+	outline->contourCount = (uint32_t)ftOut->n_contours;
+	outline->pointCount = 0;
+
+	// Calculate bounding box
+	outline->boundingBox[0] = 1e10f;  // min_x
+	outline->boundingBox[1] = 1e10f;  // min_y
+	outline->boundingBox[2] = -1e10f; // max_x
+	outline->boundingBox[3] = -1e10f; // max_y
+
+	uint32_t pointIdx = 0;
+	int ftPointIdx = 0;
+
+	for (int c = 0; c < ftOut->n_contours; c++) {
+		int contourEnd = ftOut->contours[c];
+		int contourStart = ftPointIdx;
+
+		outline->contours[c].pointOffset = pointIdx;
+		outline->contours[c].closed = 1;  // FreeType contours are always closed
+
+		// First point is always a MOVE
+		FT_Vector pt = ftOut->points[ftPointIdx];
+		float x = (float)pt.x / 64.0f;  // Convert from 26.6 fixed point
+		float y = (float)pt.y / 64.0f;
+
+		outline->points[pointIdx].x = x;
+		outline->points[pointIdx].y = y;
+		outline->points[pointIdx].type = VKNVG_POINT_MOVE;
+		pointIdx++;
+		ftPointIdx++;
+
+		// Update bounding box
+		if (x < outline->boundingBox[0]) outline->boundingBox[0] = x;
+		if (y < outline->boundingBox[1]) outline->boundingBox[1] = y;
+		if (x > outline->boundingBox[2]) outline->boundingBox[2] = x;
+		if (y > outline->boundingBox[3]) outline->boundingBox[3] = y;
+
+		// Process remaining points in contour
+		while (ftPointIdx <= contourEnd) {
+			pt = ftOut->points[ftPointIdx];
+			x = (float)pt.x / 64.0f;
+			y = (float)pt.y / 64.0f;
+			unsigned char tag = ftOut->tags[ftPointIdx];
+
+			outline->points[pointIdx].x = x;
+			outline->points[pointIdx].y = y;
+
+			// Update bounding box
+			if (x < outline->boundingBox[0]) outline->boundingBox[0] = x;
+			if (y < outline->boundingBox[1]) outline->boundingBox[1] = y;
+			if (x > outline->boundingBox[2]) outline->boundingBox[2] = x;
+			if (y > outline->boundingBox[3]) outline->boundingBox[3] = y;
+
+			// Determine point type from FreeType tag
+			if (tag & FT_CURVE_TAG_ON) {
+				// On-curve point (line endpoint)
+				outline->points[pointIdx].type = VKNVG_POINT_LINE;
+			} else if (tag & FT_CURVE_TAG_CONIC) {
+				// Quadratic Bézier control point
+				outline->points[pointIdx].type = VKNVG_POINT_QUAD;
+			} else if (tag & FT_CURVE_TAG_CUBIC) {
+				// Cubic Bézier control point
+				outline->points[pointIdx].type = VKNVG_POINT_CUBIC;
+			} else {
+				// Default to line
+				outline->points[pointIdx].type = VKNVG_POINT_LINE;
+			}
+
+			pointIdx++;
+			ftPointIdx++;
+		}
+
+		outline->contours[c].pointCount = pointIdx - outline->contours[c].pointOffset;
+	}
+
+	outline->pointCount = pointIdx;
+	#else
+	// No FreeType support, initialize empty
+	memset(outline, 0, sizeof(VKNVGglyphOutline));
+	(void)ftOutline;  // Unused parameter
+	#endif
 }
 
 // Rasterize glyph using compute shader
