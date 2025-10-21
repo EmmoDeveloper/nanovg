@@ -1844,6 +1844,11 @@ static void vknvg__renderFlush(void* uptr)
 		vkQueueSubmit(vk->queue, 1, &submitInfo, vk->frameFences[vk->currentFrame]);
 	}
 
+	// Advance text cache frame for LRU tracking
+	if (vk->useTextCache && vk->textCache) {
+		vknvg__advanceTextCacheFrame(vk);
+	}
+
 	// Reset counters
 	vk->nverts = 0;
 	vk->npaths = 0;
