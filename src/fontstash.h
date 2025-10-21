@@ -455,7 +455,13 @@ int fons__tt_buildGlyphBitmap(FONSttFontImpl *font, int glyph, float size, float
 void fons__tt_renderGlyphBitmap(FONSttFontImpl *font, unsigned char *output, int outWidth, int outHeight, int outStride,
 								float scaleX, float scaleY, int glyph)
 {
+	if (glyph > 1000) printf("DEBUG STB: Calling stbtt_MakeGlyphBitmap g=%d\n", glyph);
 	stbtt_MakeGlyphBitmap(&font->font, output, outWidth, outHeight, outStride, scaleX, scaleY, glyph);
+	if (glyph > 1000) {
+		int nonZero = 0;
+		for (int i = 0; i < 100 && i < outWidth * outHeight; i++) if (output[i] != 0) nonZero++;
+		printf("DEBUG STB: After rasterizing, first 100 bytes have %d non-zero\n", nonZero);
+	}
 }
 
 int fons__tt_getGlyphKernAdvance(FONSttFontImpl *font, int glyph1, int glyph2)
@@ -1126,6 +1132,7 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 
 	// Create a new glyph or rasterize bitmap data for a cached glyph.
 	g = fons__tt_getGlyphIndex(&font->font, codepoint);
+	if (codepoint >= 0x4E00) printf("DEBUG fontstash: codepoint=0x%X glyphIndex=%d\n", codepoint, g);
 	// Try to find the glyph in fallback fonts.
 	if (g == 0) {
 		for (i = 0; i < font->nfallbacks; ++i) {
@@ -1144,6 +1151,7 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	fons__tt_buildGlyphBitmap(&renderFont->font, g, size, scale, &advance, &lsb, &x0, &y0, &x1, &y1);
 	gw = x1-x0 + pad*2;
 	gh = y1-y0 + pad*2;
+	if (codepoint >= 0x4E00) printf("DEBUG fontstash: bbox x0=%d y0=%d x1=%d y1=%d gw=%d gh=%d\n", x0, y0, x1, y1, gw, gh);
 
 	// Determines the spot to draw glyph in the atlas.
 	if (bitmapOption == FONS_GLYPH_BITMAP_REQUIRED) {
@@ -1190,25 +1198,33 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	if (stash->params.flags & FONS_EXTERNAL_TEXTURE) {
 		// External texture mode: rasterize into small buffer at (0,0)
 		// Backend (virtual atlas) will upload to correct position
-		dst = &stash->texData[pad + pad * gw];
-		fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw-pad*2, gh-pad*2, gw, scale, scale, g);
-
-		// Make sure there is one pixel empty border
+		// Clear texData before rasterizing (buffer is reused for each glyph)
+		memset(stash->texData, 0, gw * gh);
+		// Rasterize directly at offset 0 (no internal padding needed since we already cleared)
 		dst = &stash->texData[0];
-		for (y = 0; y < gh; y++) {
-			dst[y*gw] = 0;
-			dst[gw-1 + y*gw] = 0;
+		if (codepoint >= 0x4E00) printf("DEBUG fontstash: calling renderGlyphBitmap dst=%p outW=%d outH=%d outStride=%d scale=%f g=%d\n",
+		                                 (void*)dst, gw, gh, gw, scale, g);
+		fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw, gh, gw, scale, scale, g);
+
+		if (glyph->codepoint >= 0x4E00) {
+			int nonZero = 0;
+			for (int i = 0; i < 100; i++) if (stash->texData[i] != 0) nonZero++;
+			printf("DEBUG fontstash: Right after rasterization, texData has %d non-zero in first 100 bytes\n", nonZero);
 		}
-		for (x = 0; x < gw; x++) {
-			dst[x] = 0;
-			dst[x + (gh-1)*gw] = 0;
-		}
+
+		// Border already cleared by memset above - don't re-clear or it corrupts the glyph data!
 
 		// Blur
 		if (iblur > 0) {
+			if (glyph->codepoint >= 0x4E00) printf("DEBUG fontstash: Applying blur iblur=%d\n", iblur);
 			stash->nscratch = 0;
 			bdst = &stash->texData[0];
 			fons__blur(stash, bdst, gw, gh, gw, iblur);
+			if (glyph->codepoint >= 0x4E00) {
+				int nonZero = 0;
+				for (int i = 0; i < 100; i++) if (stash->texData[i] != 0) nonZero++;
+				printf("DEBUG fontstash: After blur, first 100 bytes have %d non-zero\n", nonZero);
+			}
 		}
 	} else {
 		// Normal mode: rasterize into full atlas at correct position
@@ -1255,6 +1271,11 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 		const unsigned char* glyphData = (stash->params.flags & FONS_EXTERNAL_TEXTURE)
 			? stash->texData
 			: &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];
+		if (glyph->codepoint >= 0x4E00) {
+			int nonZero = 0;
+			for (int i = 0; i < 100; i++) if (glyphData[i] != 0) nonZero++;
+			printf("DEBUG fontstash: Before callback, glyphData has %d non-zero in first 100 bytes\n", nonZero);
+		}
 		stash->params.glyphAdded(stash->params.userPtr, glyph, idx, glyphData, gw, gh);
 	}
 

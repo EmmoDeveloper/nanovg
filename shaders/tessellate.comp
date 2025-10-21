@@ -1,0 +1,95 @@
+#version 450
+
+// Workgroup size for compute shader
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+// Input path data
+struct PathVertex {
+	vec2 position;
+	vec2 uv;
+};
+
+struct PathSegment {
+	uint startVertex;
+	uint vertexCount;
+	uint type;		// 0=fill, 1=stroke
+	uint padding;
+};
+
+// Storage buffers
+layout(set = 0, binding = 0) readonly buffer InputPaths {
+	PathSegment segments[];
+} inputPaths;
+
+layout(set = 0, binding = 1) readonly buffer InputVertices {
+	PathVertex vertices[];
+} inputVertices;
+
+layout(set = 0, binding = 2) writeonly buffer OutputVertices {
+	vec4 outVertices[];	// xyz=position (z=0), w=u coordinate
+} outputVertices;
+
+layout(set = 0, binding = 3) buffer OutputCounts {
+	uint vertexCounts[];
+} outputCounts;
+
+// Push constants for parameters
+layout(push_constant) uniform PushConstants {
+	uint segmentCount;
+	uint totalInputVertices;
+	float tessellationFactor;
+	uint padding;
+} pushConstants;
+
+// Simple linear interpolation for path tessellation
+void tessellatePath(uint segmentIndex) {
+	if (segmentIndex >= pushConstants.segmentCount) return;
+
+	PathSegment segment = inputPaths.segments[segmentIndex];
+	uint startIdx = segment.startVertex;
+	uint count = segment.vertexCount;
+
+	if (count < 2) {
+		outputCounts.vertexCounts[segmentIndex] = 0;
+		return;
+	}
+
+	// Calculate number of output vertices based on tessellation factor
+	uint outputCount = 0;
+	uint outputBase = 0;
+
+	// Calculate output base index (sum of all previous segment outputs)
+	for (uint i = 0; i < segmentIndex; i++) {
+		outputBase += outputCounts.vertexCounts[i];
+	}
+
+	// Tessellate each line segment
+	for (uint i = 0; i < count - 1; i++) {
+		PathVertex v0 = inputVertices.vertices[startIdx + i];
+		PathVertex v1 = inputVertices.vertices[startIdx + i + 1];
+
+		vec2 delta = v1.position - v0.position;
+		float length = length(delta);
+
+		// Calculate number of subdivisions based on length and tessellation factor
+		uint subdivisions = max(1, uint(length * pushConstants.tessellationFactor));
+
+		// Generate tessellated vertices
+		for (uint j = 0; j <= subdivisions; j++) {
+			float t = float(j) / float(subdivisions);
+			vec2 pos = mix(v0.position, v1.position, t);
+			vec2 uv = mix(v0.uv, v1.uv, t);
+
+			uint outIdx = outputBase + outputCount;
+			outputVertices.outVertices[outIdx] = vec4(pos, 0.0, uv.x);
+			outputCount++;
+		}
+	}
+
+	outputCounts.vertexCounts[segmentIndex] = outputCount;
+}
+
+void main() {
+	uint segmentIndex = gl_GlobalInvocationID.x;
+	tessellatePath(segmentIndex);
+}

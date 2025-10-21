@@ -1,2 +1,8 @@
 .github/
 .idea/
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.ppm
