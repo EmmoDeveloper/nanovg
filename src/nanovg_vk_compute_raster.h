@@ -98,6 +98,7 @@ typedef struct VKNVGcomputeRaster {
 static uint32_t vknvg__findMemoryTypeCompute(VkPhysicalDevice physicalDevice,
                                               uint32_t typeFilter,
                                               VkMemoryPropertyFlags properties);
+static void vknvg__destroyComputeRaster(VKNVGcomputeRaster* ctx);
 
 // Find memory type
 static uint32_t vknvg__findMemoryTypeCompute(VkPhysicalDevice physicalDevice,
@@ -176,6 +177,119 @@ static VkResult vknvg__createComputeBuffer(VKNVGcomputeRaster* ctx,
 	return VK_SUCCESS;
 }
 
+// Load compute shaders
+static VkResult vknvg__loadComputeShaders(VKNVGcomputeRaster* ctx)
+{
+	// Include SPIR-V binary
+	#include "../shaders/glyph_raster.comp.spv.h"
+
+	// Create shader module
+	VkShaderModuleCreateInfo createInfo = {0};
+	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	createInfo.codeSize = glyph_raster_comp_spv_len;
+	createInfo.pCode = (const uint32_t*)glyph_raster_comp_spv;
+
+	VkResult result = vkCreateShaderModule(ctx->device, &createInfo, NULL, &ctx->rasterShader);
+	if (result != VK_SUCCESS) {
+		return result;
+	}
+
+	// For now, use same shader for both raster and SDF (shader handles both modes)
+	ctx->sdfShader = ctx->rasterShader;
+
+	return VK_SUCCESS;
+}
+
+// Create compute pipeline
+static VkResult vknvg__createComputePipeline(VKNVGcomputeRaster* ctx)
+{
+	VkResult result;
+
+	// Create descriptor set layout
+	VkDescriptorSetLayoutBinding bindings[3] = {0};
+
+	// Binding 0: Glyph outline (storage buffer)
+	bindings[0].binding = 0;
+	bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	bindings[0].descriptorCount = 1;
+	bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	// Binding 1: Raster params (uniform buffer)
+	bindings[1].binding = 1;
+	bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	bindings[1].descriptorCount = 1;
+	bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	// Binding 2: Output image (storage image)
+	bindings[2].binding = 2;
+	bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	bindings[2].descriptorCount = 1;
+	bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 3;
+	layoutInfo.pBindings = bindings;
+
+	result = vkCreateDescriptorSetLayout(ctx->device, &layoutInfo, NULL, &ctx->descriptorLayout);
+	if (result != VK_SUCCESS) {
+		return result;
+	}
+
+	// Create pipeline layout
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &ctx->descriptorLayout;
+
+	result = vkCreatePipelineLayout(ctx->device, &pipelineLayoutInfo, NULL, &ctx->pipelineLayout);
+	if (result != VK_SUCCESS) {
+		return result;
+	}
+
+	// Create compute pipeline
+	VkPipelineShaderStageCreateInfo shaderStage = {0};
+	shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	shaderStage.module = ctx->rasterShader;
+	shaderStage.pName = "main";
+
+	VkComputePipelineCreateInfo pipelineInfo = {0};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	pipelineInfo.stage = shaderStage;
+	pipelineInfo.layout = ctx->pipelineLayout;
+
+	result = vkCreateComputePipelines(ctx->device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &ctx->rasterPipeline);
+	if (result != VK_SUCCESS) {
+		return result;
+	}
+
+	// Use same pipeline for SDF (shader handles both modes via uniform)
+	ctx->sdfPipeline = ctx->rasterPipeline;
+
+	// Create descriptor pool
+	VkDescriptorPoolSize poolSizes[3] = {0};
+	poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	poolSizes[0].descriptorCount = 10;
+	poolSizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSizes[1].descriptorCount = 10;
+	poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	poolSizes[2].descriptorCount = 10;
+
+	VkDescriptorPoolCreateInfo poolInfo = {0};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 3;
+	poolInfo.pPoolSizes = poolSizes;
+	poolInfo.maxSets = 10;
+
+	result = vkCreateDescriptorPool(ctx->device, &poolInfo, NULL, &ctx->descriptorPool);
+	if (result != VK_SUCCESS) {
+		return result;
+	}
+
+	return VK_SUCCESS;
+}
+
 // Create compute rasterization context
 static VKNVGcomputeRaster* vknvg__createComputeRaster(VkDevice device,
                                                        VkPhysicalDevice physicalDevice,
@@ -228,8 +342,16 @@ static VKNVGcomputeRaster* vknvg__createComputeRaster(VkDevice device,
 		return NULL;
 	}
 
-	// Note: Shader modules and pipelines would be created here in a full implementation
-	// For now, the infrastructure is in place
+	// Load shader and create pipeline
+	if (vknvg__loadComputeShaders(ctx) != VK_SUCCESS) {
+		vknvg__destroyComputeRaster(ctx);
+		return NULL;
+	}
+
+	if (vknvg__createComputePipeline(ctx) != VK_SUCCESS) {
+		vknvg__destroyComputeRaster(ctx);
+		return NULL;
+	}
 
 	return ctx;
 }
@@ -239,15 +361,12 @@ static void vknvg__destroyComputeRaster(VKNVGcomputeRaster* ctx)
 {
 	if (!ctx) return;
 
-	if (ctx->sdfPipeline != VK_NULL_HANDLE) {
-		vkDestroyPipeline(ctx->device, ctx->sdfPipeline, NULL);
-	}
+	// Destroy pipelines (sdfPipeline and rasterPipeline are the same)
 	if (ctx->rasterPipeline != VK_NULL_HANDLE) {
 		vkDestroyPipeline(ctx->device, ctx->rasterPipeline, NULL);
 	}
-	if (ctx->sdfShader != VK_NULL_HANDLE) {
-		vkDestroyShaderModule(ctx->device, ctx->sdfShader, NULL);
-	}
+
+	// Destroy shader module (sdfShader and rasterShader are the same)
 	if (ctx->rasterShader != VK_NULL_HANDLE) {
 		vkDestroyShaderModule(ctx->device, ctx->rasterShader, NULL);
 	}
