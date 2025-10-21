@@ -1,6 +1,7 @@
 // nanovg_vk_virtual_atlas.c - Implementation of Virtual Atlas System
 
 #include "nanovg_vk_virtual_atlas.h"
+#include "nanovg_vk_async_upload.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -359,6 +360,12 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	atlas->computeQueue = VK_NULL_HANDLE;
 	atlas->computeQueueFamily = 0;
 
+	// Initialize async upload (disabled by default)
+	atlas->asyncUpload = NULL;
+	atlas->useAsyncUpload = VK_FALSE;
+	atlas->transferQueue = VK_NULL_HANDLE;
+	atlas->transferQueueFamily = 0;
+
 	return atlas;
 }
 
@@ -402,6 +409,12 @@ void vknvg__destroyVirtualAtlas(VKNVGvirtualAtlas* atlas)
 		// We would need to include it here to call the cleanup function
 		// For now, the compute raster context is managed externally
 		atlas->computeRaster = NULL;
+	}
+
+	// Destroy async upload (if enabled)
+	if (atlas->asyncUpload) {
+		vknvg__destroyAsyncUpload(atlas->asyncUpload);
+		atlas->asyncUpload = NULL;
 	}
 
 	// Free cache
@@ -679,6 +692,41 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 		return;
 	}
 
+	// Route to async upload path if enabled
+	if (atlas->useAsyncUpload && atlas->asyncUpload) {
+		// Queue all uploads to async upload system
+		for (uint32_t i = 0; i < atlas->uploadQueueCount; i++) {
+			VKNVGglyphUploadRequest* upload = &atlas->uploadQueue[i];
+			size_t dataSize = upload->width * upload->height;
+
+			VkResult result = vknvg__queueAsyncUpload(atlas->asyncUpload,
+			                                           atlas->atlasImage,
+			                                           upload->pixelData,
+			                                           dataSize,
+			                                           upload->atlasX, upload->atlasY,
+			                                           upload->width, upload->height);
+
+			if (result == VK_SUCCESS) {
+				// Update entry state
+				upload->entry->state = VKNVG_GLYPH_UPLOADED;
+				atlas->uploads++;
+			}
+
+			// Free pixel data (async upload made a copy to staging buffer)
+			free(upload->pixelData);
+		}
+
+		// Submit all queued uploads
+		vknvg__submitAsyncUploads(atlas->asyncUpload);
+
+		atlas->uploadQueueCount = 0;
+		atlas->imageInitialized = true;
+		pthread_mutex_unlock(&atlas->uploadQueueMutex);
+		return;
+	}
+
+	// Fall through to synchronous upload path
+
 	// Transition atlas to transfer dst layout
 	VkImageMemoryBarrier barrier = {0};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -810,4 +858,47 @@ void vknvg__setAtlasFontContext(VKNVGvirtualAtlas* atlas,
 		atlas->fontContext = fontContext;
 		atlas->rasterizeGlyph = rasterizeCallback;
 	}
+}
+
+// Enable async uploads
+VkResult vknvg__enableAsyncUploads(VKNVGvirtualAtlas* atlas,
+                                    VkQueue transferQueue,
+                                    uint32_t transferQueueFamily)
+{
+	if (!atlas) return VK_ERROR_INITIALIZATION_FAILED;
+
+	// Already enabled
+	if (atlas->asyncUpload) return VK_SUCCESS;
+
+	// Create async upload context
+	// Use 1MB staging buffer per frame
+	VkDeviceSize stagingBufferSize = 1024 * 1024;
+
+	atlas->asyncUpload = vknvg__createAsyncUpload(atlas->device,
+	                                               atlas->physicalDevice,
+	                                               transferQueue,
+	                                               transferQueueFamily,
+	                                               stagingBufferSize);
+
+	if (!atlas->asyncUpload) {
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	atlas->useAsyncUpload = VK_TRUE;
+	atlas->transferQueue = transferQueue;
+	atlas->transferQueueFamily = transferQueueFamily;
+
+	printf("Async uploads enabled: 3 frames, 1MB staging buffer per frame\n");
+
+	return VK_SUCCESS;
+}
+
+// Get upload semaphore for graphics queue synchronization
+VkSemaphore vknvg__getUploadSemaphore(VKNVGvirtualAtlas* atlas)
+{
+	if (!atlas || !atlas->asyncUpload) {
+		return VK_NULL_HANDLE;
+	}
+
+	return vknvg__getUploadCompleteSemaphore(atlas->asyncUpload);
 }

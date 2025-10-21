@@ -9,10 +9,12 @@
 
 #include <vulkan/vulkan.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 #include <pthread.h>
 
 #define VKNVG_MAX_UPLOAD_FRAMES 3		// Triple buffering for uploads
-#define VKNVG_UPLOAD_QUEUE_SIZE 128		// Max pending uploads per frame
+#define VKNVG_ASYNC_UPLOAD_BATCH_SIZE 128		// Max pending uploads per frame
 
 // Upload command
 typedef struct VKNVGuploadCommand {
@@ -35,7 +37,7 @@ typedef struct VKNVGuploadFrame {
 	VkDeviceSize stagingSize;
 	VkDeviceSize stagingUsed;
 
-	VKNVGuploadCommand commands[VKNVG_UPLOAD_QUEUE_SIZE];
+	VKNVGuploadCommand commands[VKNVG_ASYNC_UPLOAD_BATCH_SIZE];
 	uint32_t commandCount;
 
 	VkBool32 inUse;
@@ -300,7 +302,7 @@ static VkResult vknvg__queueAsyncUpload(VKNVGasyncUpload* ctx,
 	}
 
 	// Check if we have space for more commands
-	if (frame->commandCount >= VKNVG_UPLOAD_QUEUE_SIZE) {
+	if (frame->commandCount >= VKNVG_ASYNC_UPLOAD_BATCH_SIZE) {
 		return VK_ERROR_TOO_MANY_OBJECTS;
 	}
 

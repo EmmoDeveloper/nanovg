@@ -84,12 +84,12 @@ TEST(frame_rotation)
 // Test: Upload queue capacity
 TEST(upload_queue_capacity)
 {
-	printf("    Max uploads per frame: %d\n", VKNVG_UPLOAD_QUEUE_SIZE);
+	printf("    Max uploads per frame: %d\n", VKNVG_ASYNC_UPLOAD_BATCH_SIZE);
 	printf("    Max concurrent frames: %d\n", VKNVG_MAX_UPLOAD_FRAMES);
 	printf("    Total capacity: %d uploads\n",
-	       VKNVG_UPLOAD_QUEUE_SIZE * VKNVG_MAX_UPLOAD_FRAMES);
+	       VKNVG_ASYNC_UPLOAD_BATCH_SIZE * VKNVG_MAX_UPLOAD_FRAMES);
 
-	ASSERT_TRUE(VKNVG_UPLOAD_QUEUE_SIZE == 128);
+	ASSERT_TRUE(VKNVG_ASYNC_UPLOAD_BATCH_SIZE == 128);
 	ASSERT_TRUE(VKNVG_MAX_UPLOAD_FRAMES == 3);
 }
 
@@ -135,15 +135,15 @@ TEST(command_count_limits)
 	frame.commandCount = 0;
 
 	// Fill up command buffer
-	while (frame.commandCount < VKNVG_UPLOAD_QUEUE_SIZE) {
+	while (frame.commandCount < VKNVG_ASYNC_UPLOAD_BATCH_SIZE) {
 		frame.commandCount++;
 	}
 
 	printf("    Command buffer full: %u commands\n", frame.commandCount);
-	ASSERT_TRUE(frame.commandCount == VKNVG_UPLOAD_QUEUE_SIZE);
+	ASSERT_TRUE(frame.commandCount == VKNVG_ASYNC_UPLOAD_BATCH_SIZE);
 
 	// Check we can't add more
-	VkBool32 canAdd = (frame.commandCount < VKNVG_UPLOAD_QUEUE_SIZE) ? VK_TRUE : VK_FALSE;
+	VkBool32 canAdd = (frame.commandCount < VKNVG_ASYNC_UPLOAD_BATCH_SIZE) ? VK_TRUE : VK_FALSE;
 	ASSERT_TRUE(canAdd == VK_FALSE);
 	printf("    Cannot add more commands when full: OK\n");
 }

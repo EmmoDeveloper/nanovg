@@ -32,6 +32,7 @@ typedef struct VKNVGglyphCacheEntry VKNVGglyphCacheEntry;
 typedef struct VKNVGatlasPage VKNVGatlasPage;
 typedef struct VKNVGglyphLoadRequest VKNVGglyphLoadRequest;
 typedef struct VKNVGcomputeRaster VKNVGcomputeRaster;
+typedef struct VKNVGasyncUpload VKNVGasyncUpload;
 
 // Glyph identifier (font + codepoint + size)
 typedef struct VKNVGglyphKey {
@@ -167,6 +168,12 @@ struct VKNVGvirtualAtlas {
 	VkBool32 useComputeRaster;				// Enable GPU rasterization
 	VkQueue computeQueue;					// Compute queue for GPU rasterization
 	uint32_t computeQueueFamily;			// Queue family index
+
+	// Optional async upload system
+	VKNVGasyncUpload* asyncUpload;			// NULL if using synchronous uploads
+	VkBool32 useAsyncUpload;				// Enable async uploads
+	VkQueue transferQueue;					// Transfer queue for async uploads
+	uint32_t transferQueueFamily;			// Transfer queue family index
 };
 
 // API Functions
@@ -219,6 +226,17 @@ VKNVGglyphCacheEntry* vknvg__addGlyphDirect(VKNVGvirtualAtlas* atlas,
                                              uint16_t width, uint16_t height,
                                              int16_t bearingX, int16_t bearingY,
                                              uint16_t advance);
+
+// Enable async uploads (creates async upload context)
+// Call after virtual atlas creation, before any glyph uploads
+// Returns VK_SUCCESS on success, error code otherwise
+VkResult vknvg__enableAsyncUploads(VKNVGvirtualAtlas* atlas,
+                                    VkQueue transferQueue,
+                                    uint32_t transferQueueFamily);
+
+// Get semaphore to wait on for async uploads (for graphics queue synchronization)
+// Returns VK_NULL_HANDLE if no uploads are pending
+VkSemaphore vknvg__getUploadSemaphore(VKNVGvirtualAtlas* atlas);
 
 // Internal functions
 
