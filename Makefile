@@ -24,8 +24,8 @@ SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/t
 SMOKE_TEST_OBJS := $(BUILD_DIR)/test_compile.o $(BUILD_DIR)/test_simple.o $(BUILD_DIR)/test_init.o
 
 # Unit tests
-UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(BUILD_DIR)/test_unit_memory $(BUILD_DIR)/test_unit_memory_leak $(BUILD_DIR)/test_atlas_prewarm $(BUILD_DIR)/test_instanced_text $(BUILD_DIR)/test_pipeline_creation $(BUILD_DIR)/test_virtual_atlas $(BUILD_DIR)/test_nvg_virtual_atlas $(BUILD_DIR)/test_cjk_rendering $(BUILD_DIR)/test_real_text_rendering $(BUILD_DIR)/test_cjk_real_rendering $(BUILD_DIR)/test_cjk_eviction $(BUILD_DIR)/test_text_cache $(BUILD_DIR)/test_async_upload
-UNIT_TEST_OBJS := $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_unit_platform.o $(BUILD_DIR)/test_unit_memory.o $(BUILD_DIR)/test_unit_memory_leak.o $(BUILD_DIR)/test_atlas_prewarm.o $(BUILD_DIR)/test_instanced_text.o $(BUILD_DIR)/test_pipeline_creation.o $(BUILD_DIR)/test_virtual_atlas.o $(BUILD_DIR)/test_nvg_virtual_atlas.o $(BUILD_DIR)/test_cjk_rendering.o $(BUILD_DIR)/test_real_text_rendering.o $(BUILD_DIR)/test_cjk_real_rendering.o $(BUILD_DIR)/test_cjk_eviction.o $(BUILD_DIR)/test_text_cache.o $(BUILD_DIR)/test_async_upload.o $(BUILD_DIR)/test_utils.o
+UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(BUILD_DIR)/test_unit_memory $(BUILD_DIR)/test_unit_memory_leak $(BUILD_DIR)/test_atlas_prewarm $(BUILD_DIR)/test_instanced_text $(BUILD_DIR)/test_pipeline_creation $(BUILD_DIR)/test_virtual_atlas $(BUILD_DIR)/test_nvg_virtual_atlas $(BUILD_DIR)/test_cjk_rendering $(BUILD_DIR)/test_real_text_rendering $(BUILD_DIR)/test_cjk_real_rendering $(BUILD_DIR)/test_cjk_eviction $(BUILD_DIR)/test_text_cache $(BUILD_DIR)/test_async_upload $(BUILD_DIR)/test_compute_raster
+UNIT_TEST_OBJS := $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_unit_platform.o $(BUILD_DIR)/test_unit_memory.o $(BUILD_DIR)/test_unit_memory_leak.o $(BUILD_DIR)/test_atlas_prewarm.o $(BUILD_DIR)/test_instanced_text.o $(BUILD_DIR)/test_pipeline_creation.o $(BUILD_DIR)/test_virtual_atlas.o $(BUILD_DIR)/test_nvg_virtual_atlas.o $(BUILD_DIR)/test_cjk_rendering.o $(BUILD_DIR)/test_real_text_rendering.o $(BUILD_DIR)/test_cjk_real_rendering.o $(BUILD_DIR)/test_cjk_eviction.o $(BUILD_DIR)/test_text_cache.o $(BUILD_DIR)/test_async_upload.o $(BUILD_DIR)/test_compute_raster.o $(BUILD_DIR)/test_utils.o
 
 # Integration tests
 INTEGRATION_TESTS := $(BUILD_DIR)/test_integration_render $(BUILD_DIR)/test_integration_text $(BUILD_DIR)/test_text_optimizations $(BUILD_DIR)/test_batch_text
@@ -355,6 +355,15 @@ $(BUILD_DIR)/test_async_upload.o: tests/test_async_upload.c tests/test_framework
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/test_async_upload: $(BUILD_DIR)/test_async_upload.o
+	@echo "Linking $@..."
+	$(CC) $^ $(LIBS) -o $@
+
+# Unit test: Compute rasterization
+$(BUILD_DIR)/test_compute_raster.o: tests/test_compute_raster.c tests/test_framework.h src/nanovg_vk_compute_raster.h | $(BUILD_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_compute_raster: $(BUILD_DIR)/test_compute_raster.o
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
