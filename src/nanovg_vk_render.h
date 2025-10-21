@@ -31,6 +31,7 @@
 #include "nanovg_vk_threading.h"
 #include "nanovg_vk_platform.h"
 #include "nanovg_vk_virtual_atlas.h"
+#include "nanovg_vk_batch_text.h"
 
 __attribute__((unused))
 static double vknvg__getTime() {
@@ -1500,6 +1501,9 @@ static void vknvg__renderFlush(void* uptr)
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
 	vkCmdPushConstants(cmd, vk->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float) * 2, vk->view);
+
+	// Batch consecutive text rendering calls to reduce draw call overhead
+	vk->ncalls = vknvg__batchTextCalls(vk);
 
 	// Execute draw calls
 	for (i = 0; i < vk->ncalls; i++) {
