@@ -525,6 +525,8 @@ static VkResult vknvg__rasterizeGlyphCompute(VKNVGcomputeRaster* ctx,
 {
 	if (!ctx || !outline) return VK_ERROR_INITIALIZATION_FAILED;
 
+	VkResult result;
+
 	// Copy outline to GPU buffer
 	memcpy(ctx->outlineMapped, outline, sizeof(VKNVGglyphOutline));
 
@@ -536,11 +538,146 @@ static VkResult vknvg__rasterizeGlyphCompute(VKNVGcomputeRaster* ctx,
 	params->sdfRadius = sdfRadius;
 	params->generateSDF = generateSDF ? 1 : 0;
 
-	// In a full implementation, would:
-	// 1. Allocate command buffer
-	// 2. Record compute dispatch
-	// 3. Submit to compute queue
-	// 4. Return semaphore for synchronization
+	// Allocate command buffer
+	VkCommandBuffer cmd = VK_NULL_HANDLE;
+	VkCommandBufferAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool = ctx->commandPool;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = 1;
+
+	result = vkAllocateCommandBuffers(ctx->device, &allocInfo, &cmd);
+	if (result != VK_SUCCESS) return result;
+
+	// Begin command buffer
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	result = vkBeginCommandBuffer(cmd, &beginInfo);
+	if (result != VK_SUCCESS) {
+		vkFreeCommandBuffers(ctx->device, ctx->commandPool, 1, &cmd);
+		return result;
+	}
+
+	// Allocate descriptor set
+	VkDescriptorSetAllocateInfo descAllocInfo = {0};
+	descAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descAllocInfo.descriptorPool = ctx->descriptorPool;
+	descAllocInfo.descriptorSetCount = 1;
+	descAllocInfo.pSetLayouts = &ctx->descriptorLayout;
+
+	VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+	result = vkAllocateDescriptorSets(ctx->device, &descAllocInfo, &descriptorSet);
+	if (result != VK_SUCCESS) {
+		vkEndCommandBuffer(cmd);
+		vkFreeCommandBuffers(ctx->device, ctx->commandPool, 1, &cmd);
+		return result;
+	}
+
+	// Update descriptor set
+	VkDescriptorBufferInfo outlineBufferInfo = {0};
+	outlineBufferInfo.buffer = ctx->outlineBuffer;
+	outlineBufferInfo.offset = 0;
+	outlineBufferInfo.range = sizeof(VKNVGglyphOutline);
+
+	VkDescriptorBufferInfo paramsBufferInfo = {0};
+	paramsBufferInfo.buffer = ctx->paramsBuffer;
+	paramsBufferInfo.offset = 0;
+	paramsBufferInfo.range = sizeof(VKNVGcomputeRasterParams);
+
+	VkDescriptorImageInfo imageInfo = {0};
+	imageInfo.imageView = VK_NULL_HANDLE;  // TODO: Need image view for dstImage
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+	VkWriteDescriptorSet writes[3] = {0};
+	// Binding 0: Outline buffer
+	writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[0].dstSet = descriptorSet;
+	writes[0].dstBinding = 0;
+	writes[0].descriptorCount = 1;
+	writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	writes[0].pBufferInfo = &outlineBufferInfo;
+
+	// Binding 1: Params buffer
+	writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[1].dstSet = descriptorSet;
+	writes[1].dstBinding = 1;
+	writes[1].descriptorCount = 1;
+	writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	writes[1].pBufferInfo = &paramsBufferInfo;
+
+	// Binding 2: Output image (commented out until we have image view)
+	// writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	// writes[2].dstSet = descriptorSet;
+	// writes[2].dstBinding = 2;
+	// writes[2].descriptorCount = 1;
+	// writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	// writes[2].pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(ctx->device, 2, writes, 0, NULL);
+
+	// Transition image to GENERAL layout for compute shader writes
+	VkImageMemoryBarrier barrier = {0};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = dstImage;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.srcAccessMask = 0;
+	barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+
+	vkCmdPipelineBarrier(cmd,
+	                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Bind pipeline and descriptor set
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, ctx->rasterPipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+	                        ctx->pipelineLayout, 0, 1, &descriptorSet, 0, NULL);
+
+	// Dispatch compute shader (8×8 workgroup size)
+	uint32_t groupsX = (width + 7) / 8;
+	uint32_t groupsY = (height + 7) / 8;
+	vkCmdDispatch(cmd, groupsX, groupsY, 1);
+
+	// Transition image back to SHADER_READ_ONLY for sampling
+	barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(cmd,
+	                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &barrier);
+
+	vkEndCommandBuffer(cmd);
+
+	// Submit to compute queue
+	VkSubmitInfo submitInfo = {0};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &cmd;
+
+	result = vkQueueSubmit(ctx->computeQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	if (result != VK_SUCCESS) {
+		vkFreeCommandBuffers(ctx->device, ctx->commandPool, 1, &cmd);
+		return result;
+	}
+
+	// Wait for completion (in production, use fences/semaphores)
+	vkQueueWaitIdle(ctx->computeQueue);
+
+	// Free command buffer
+	vkFreeCommandBuffers(ctx->device, ctx->commandPool, 1, &cmd);
 
 	ctx->glyphsRasterized++;
 	if (generateSDF) {
