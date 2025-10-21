@@ -14,11 +14,11 @@ Four text rendering optimizations have been successfully implemented, tested, an
 2. ✅ **Glyph Instancing** - 75% vertex data reduction through GPU-side quad generation
 3. ✅ **Pre-warmed Font Atlas** - Eliminates first-frame stutters by pre-loading common glyphs
 
-**Phase 2 (In Progress - 3.25/4 Complete)**:
+**Phase 2 (In Progress - 3.4/4 Complete)**:
 4. ✅ **Batch Text Rendering** - 20-30% draw call reduction by merging compatible text calls (100%)
 5. ⏳ **Text Run Caching Infrastructure** - Render-to-texture framework (50% complete)
 6. ✅ **Async Glyph Uploads** - Non-blocking uploads via transfer queue (100% infrastructure)
-7. ✅ **Compute-based Rasterization** - GPU-accelerated glyph rendering (85% complete)
+7. ✅ **Compute-based Rasterization** - GPU-accelerated glyph rendering (90% complete)
 
 **Test Results**: 50/50 tests passing across all optimization modules
 
@@ -356,7 +356,8 @@ int nvgPrewarmFontCustom(NVGcontext* ctx, int font, const char* glyphs,
 - ✅ Compute pipeline and descriptor sets created
 - ✅ FreeType outline conversion (FT_Outline → VKNVGglyphOutline)
 - ✅ Virtual atlas infrastructure (computeRaster field, useComputeRaster flag)
-- ⏳ Runtime integration (atlas rasterization path - pending)
+- ✅ Runtime integration hooks (vknvg__rasterizeGlyphCompute, loader thread routing)
+- ⏳ GPU dispatch implementation (descriptor sets, compute commands - 10% remaining)
 - ⏳ Performance benchmarking (pending)
 
 **Expected Performance** (when fully integrated):
