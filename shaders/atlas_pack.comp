@@ -1,0 +1,115 @@
+#version 450
+
+// Atlas Packing Compute Shader
+// Assists with atlas management: finding free space, copying rects, analyzing fragmentation
+
+layout (local_size_x = 8, local_size_y = 8) in;
+
+// Uniforms
+layout (binding = 0) uniform PackingParams {
+	uint atlasWidth;
+	uint atlasHeight;
+	uint operation;		// 0=analyze, 1=copy, 2=clear
+	uint padding;
+} params;
+
+// Free rectangles buffer (read/write)
+layout (binding = 1) buffer FreeRects {
+	uvec4 rects[];	// x, y, width, height
+} freeRects;
+
+// Atlas texture (for copy operations)
+layout (binding = 2, r8) uniform image2D atlasImage;
+
+// Results buffer
+layout (binding = 3) buffer Results {
+	uint freeRectCount;
+	uint totalFreeArea;
+	uint largestFreeRect;
+	uint fragmentation;	// Number of free rects (higher = more fragmented)
+} results;
+
+// Shared memory for reduction
+shared uint sharedArea[64];
+shared uint sharedCount[64];
+
+void analyzeFragmentation()
+{
+	uint threadId = gl_LocalInvocationID.x + gl_LocalInvocationID.y * 8;
+	uint globalId = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 8;
+
+	// Each thread analyzes one free rectangle
+	uint localArea = 0;
+	uint localCount = 0;
+
+	if (globalId < freeRects.rects.length()) {
+		uvec4 rect = freeRects.rects[globalId];
+		if (rect.z > 0 && rect.w > 0) {	// width, height
+			localArea = rect.z * rect.w;
+			localCount = 1;
+		}
+	}
+
+	// Store in shared memory
+	sharedArea[threadId] = localArea;
+	sharedCount[threadId] = localCount;
+
+	barrier();
+
+	// Parallel reduction
+	for (uint stride = 32; stride > 0; stride >>= 1) {
+		if (threadId < stride) {
+			sharedArea[threadId] += sharedArea[threadId + stride];
+			sharedCount[threadId] += sharedCount[threadId + stride];
+		}
+		barrier();
+	}
+
+	// First thread writes result
+	if (threadId == 0) {
+		atomicAdd(results.totalFreeArea, sharedArea[0]);
+		atomicAdd(results.freeRectCount, sharedCount[0]);
+	}
+}
+
+void copyRect()
+{
+	// Copy a rectangle from one location to another in the atlas
+	// Used for defragmentation
+
+	uint srcX = params.operation >> 16;
+	uint srcY = params.operation & 0xFFFF;
+	uint dstX = gl_GlobalInvocationID.x;
+	uint dstY = gl_GlobalInvocationID.y;
+
+	if (dstX < params.atlasWidth && dstY < params.atlasHeight) {
+		// Read from source
+		float value = imageLoad(atlasImage, ivec2(srcX + gl_LocalInvocationID.x,
+		                                            srcY + gl_LocalInvocationID.y)).r;
+
+		// Write to destination
+		imageStore(atlasImage, ivec2(dstX, dstY), vec4(value, 0, 0, 0));
+	}
+}
+
+void clearRect()
+{
+	// Clear a rectangle in the atlas (set to 0)
+	uint x = gl_GlobalInvocationID.x;
+	uint y = gl_GlobalInvocationID.y;
+
+	if (x < params.atlasWidth && y < params.atlasHeight) {
+		imageStore(atlasImage, ivec2(x, y), vec4(0, 0, 0, 0));
+	}
+}
+
+void main()
+{
+	if (params.operation == 0) {
+		analyzeFragmentation();
+	} else if (params.operation == 1) {
+		copyRect();
+	} else if (params.operation == 2) {
+		clearRect();
+	}
+}
