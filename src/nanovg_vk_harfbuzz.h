@@ -167,17 +167,7 @@ void vknvg__getHarfBuzzStats(VKNVGharfbuzzContext* ctx,
 void vknvg__resetHarfBuzzStats(VKNVGharfbuzzContext* ctx);
 
 // Internal helper functions
-
-// Convert HarfBuzz direction to VKNVGtextDirection
-static inline VKNVGtextDirection vknvg__hbDirectionToVKNVG(int hbDirection);
-
-// Convert VKNVGscript to HarfBuzz script
-static inline uint32_t vknvg__scriptToHarfBuzz(VKNVGscript script);
-
-// Analyze text for script and direction
-static void vknvg__analyzeText(const char* text, uint32_t textLen,
-                               VKNVGscript* outScript,
-                               VKNVGtextDirection* outDirection);
+// (Implementations in nanovg_vk_harfbuzz.c)
 
 // Common OpenType feature tags
 #define VKNVG_FEATURE_LIGA "liga"	// Standard ligatures (fi, fl)
