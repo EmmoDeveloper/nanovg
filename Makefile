@@ -32,6 +32,10 @@ INTL_TEXT_OBJ := $(BUILD_DIR)/nanovg_vk_intl_text.o
 SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/test_init
 SMOKE_TEST_OBJS := $(BUILD_DIR)/test_compile.o $(BUILD_DIR)/test_simple.o $(BUILD_DIR)/test_init.o
 
+# Fun tests (Halloween special! 🎃)
+FUN_TESTS := $(BUILD_DIR)/test_bad_apple
+FUN_TEST_OBJS := $(BUILD_DIR)/test_bad_apple.o
+
 # Unit tests
 UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(BUILD_DIR)/test_unit_memory $(BUILD_DIR)/test_unit_memory_leak $(BUILD_DIR)/test_atlas_prewarm $(BUILD_DIR)/test_instanced_text $(BUILD_DIR)/test_pipeline_creation $(BUILD_DIR)/test_virtual_atlas $(BUILD_DIR)/test_nvg_virtual_atlas $(BUILD_DIR)/test_cjk_rendering $(BUILD_DIR)/test_real_text_rendering $(BUILD_DIR)/test_cjk_real_rendering $(BUILD_DIR)/test_cjk_eviction $(BUILD_DIR)/test_text_cache $(BUILD_DIR)/test_async_upload $(BUILD_DIR)/test_compute_raster $(BUILD_DIR)/test_atlas_packing $(BUILD_DIR)/test_multi_atlas $(BUILD_DIR)/test_atlas_resize $(BUILD_DIR)/test_atlas_defrag $(BUILD_DIR)/test_harfbuzz $(BUILD_DIR)/test_bidi $(BUILD_DIR)/test_intl_text
 UNIT_TEST_OBJS := $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_unit_platform.o $(BUILD_DIR)/test_unit_memory.o $(BUILD_DIR)/test_unit_memory_leak.o $(BUILD_DIR)/test_atlas_prewarm.o $(BUILD_DIR)/test_instanced_text.o $(BUILD_DIR)/test_pipeline_creation.o $(BUILD_DIR)/test_virtual_atlas.o $(BUILD_DIR)/test_nvg_virtual_atlas.o $(BUILD_DIR)/test_cjk_rendering.o $(BUILD_DIR)/test_real_text_rendering.o $(BUILD_DIR)/test_cjk_real_rendering.o $(BUILD_DIR)/test_cjk_eviction.o $(BUILD_DIR)/test_text_cache.o $(BUILD_DIR)/test_async_upload.o $(BUILD_DIR)/test_compute_raster.o $(BUILD_DIR)/test_atlas_packing.o $(BUILD_DIR)/test_multi_atlas.o $(BUILD_DIR)/test_atlas_resize.o $(BUILD_DIR)/test_atlas_defrag.o $(BUILD_DIR)/test_harfbuzz.o $(BUILD_DIR)/test_bidi.o $(BUILD_DIR)/test_intl_text.o $(BUILD_DIR)/test_utils.o
@@ -45,10 +49,10 @@ BENCHMARK_TESTS := $(BUILD_DIR)/test_benchmark $(BUILD_DIR)/test_benchmark_text_
 BENCHMARK_TEST_OBJS := $(BUILD_DIR)/test_benchmark.o $(BUILD_DIR)/test_benchmark_text_instancing.o $(BUILD_DIR)/test_performance_baseline.o
 
 # All tests
-ALL_TESTS := $(SMOKE_TESTS) $(UNIT_TESTS) $(INTEGRATION_TESTS) $(BENCHMARK_TESTS)
-ALL_TEST_OBJS := $(SMOKE_TEST_OBJS) $(UNIT_TEST_OBJS) $(INTEGRATION_TEST_OBJS) $(BENCHMARK_TEST_OBJS) $(BUILD_DIR)/test_utils.o
+ALL_TESTS := $(SMOKE_TESTS) $(UNIT_TESTS) $(INTEGRATION_TESTS) $(BENCHMARK_TESTS) $(FUN_TESTS)
+ALL_TEST_OBJS := $(SMOKE_TEST_OBJS) $(UNIT_TEST_OBJS) $(INTEGRATION_TEST_OBJS) $(BENCHMARK_TEST_OBJS) $(FUN_TEST_OBJS) $(BUILD_DIR)/test_utils.o
 
-.PHONY: all clean tests unit-tests integration-tests benchmark-tests smoke-tests run-tests check-deps help
+.PHONY: all clean tests unit-tests integration-tests benchmark-tests smoke-tests fun-tests run-tests check-deps help
 
 all: check-deps tests
 
@@ -62,6 +66,7 @@ help:
 	@echo "  unit-tests          - Build unit tests only"
 	@echo "  integration-tests   - Build integration tests only"
 	@echo "  benchmark-tests     - Build benchmark tests only"
+	@echo "  fun-tests           - Build fun tests (Bad Apple!! 🎃)"
 	@echo "  run-tests           - Build and run all tests"
 	@echo "  clean               - Remove build artifacts"
 	@echo "  check-deps          - Verify dependencies"
@@ -72,6 +77,7 @@ help:
 	@echo ""
 	@echo "Example:"
 	@echo "  make NANOVG_DIR=/path/to/nanovg"
+	@echo "  make fun-tests && ./build/test_bad_apple  # Happy Halloween! 🎃"
 
 check-deps:
 	@echo "Checking dependencies..."
@@ -137,6 +143,15 @@ $(BUILD_DIR)/test_simple: $(BUILD_DIR)/test_simple.o $(NANOVG_OBJ) $(VIRTUAL_ATL
 	$(CC) $^ $(LIBS) -o $@
 
 $(BUILD_DIR)/test_init: $(BUILD_DIR)/test_init.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ)
+	@echo "Linking $@..."
+	$(CC) $^ $(LIBS) -o $@
+
+# Fun tests (Halloween special! 🎃)
+$(BUILD_DIR)/test_bad_apple.o: tests/test_bad_apple.c | $(BUILD_DIR)
+	@echo "Compiling $<... (Bad Apple!! Touhou Edition)"
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_bad_apple: $(BUILD_DIR)/test_bad_apple.o
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
@@ -326,6 +341,9 @@ integration-tests: $(INTEGRATION_TESTS)
 
 benchmark-tests: $(BENCHMARK_TESTS)
 	@echo "✓ Benchmark tests built successfully"
+
+fun-tests: $(FUN_TESTS)
+	@echo "✓ Fun tests built successfully (Bad Apple!! 🎃👻)"
 
 tests: $(ALL_TESTS)
 	@echo "✓ All tests built successfully"

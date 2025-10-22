@@ -27,6 +27,11 @@
 #define VKNVG_UPLOAD_QUEUE_SIZE 256			// Max glyphs pending upload per frame
 #define VKNVG_LOAD_QUEUE_SIZE 1024			// Background loading queue size
 
+// Phase 1: Legacy page system constants (will be removed in Phase 3)
+#define VKNVG_ATLAS_PAGE_SIZE 64			// 64x64 pixel pages
+#define VKNVG_ATLAS_MAX_PAGES ((VKNVG_ATLAS_PHYSICAL_SIZE / VKNVG_ATLAS_PAGE_SIZE) * \
+                               (VKNVG_ATLAS_PHYSICAL_SIZE / VKNVG_ATLAS_PAGE_SIZE))
+
 // Phase 3 integration flags
 #define VKNVG_USE_GUILLOTINE_PACKING 1		// Use Guillotine packing instead of pages
 #define VKNVG_USE_MULTI_ATLAS 1				// Enable multi-atlas support
@@ -39,6 +44,14 @@ typedef struct VKNVGglyphCacheEntry VKNVGglyphCacheEntry;
 typedef struct VKNVGglyphLoadRequest VKNVGglyphLoadRequest;
 typedef struct VKNVGcomputeRaster VKNVGcomputeRaster;
 typedef struct VKNVGasyncUpload VKNVGasyncUpload;
+
+// Phase 1: Legacy page structure (will be removed in Phase 3)
+typedef struct VKNVGatlasPage {
+	uint16_t x, y;
+	uint8_t used;
+	uint8_t flags;
+	uint32_t lastAccessFrame;
+} VKNVGatlasPage;
 
 // Glyph identifier (font + codepoint + size)
 typedef struct VKNVGglyphKey {
@@ -67,6 +80,9 @@ struct VKNVGglyphCacheEntry {
 	uint8_t state;				// Loading state
 	uint8_t padding[3];			// Alignment
 
+	// Phase 1: Legacy page system (will be removed in Phase 3)
+	uint16_t pageIndex;			// Page index in legacy system
+
 	// LRU list pointers
 	VKNVGglyphCacheEntry* lruPrev;
 	VKNVGglyphCacheEntry* lruNext;
@@ -90,6 +106,7 @@ struct VKNVGglyphLoadRequest {
 
 // Upload request (for GPU upload between frames)
 typedef struct VKNVGglyphUploadRequest {
+	uint32_t atlasIndex;			// Phase 3 Advanced: Which atlas to upload to
 	uint16_t atlasX, atlasY;
 	uint16_t width, height;
 	uint8_t* pixelData;
@@ -174,6 +191,16 @@ struct VKNVGvirtualAtlas {
 	VkBool32 useAsyncUpload;				// Enable async uploads
 	VkQueue transferQueue;					// Transfer queue for async uploads
 	uint32_t transferQueueFamily;			// Transfer queue family index
+
+	// Phase 1: Legacy page system (will be removed in Phase 3)
+	VKNVGatlasPage pages[VKNVG_ATLAS_MAX_PAGES];	// Page allocation array
+	uint16_t* freePageList;					// List of free page indices
+	uint16_t freePageCount;					// Number of free pages
+
+	// Phase 1: Legacy single atlas resources (will be removed with multi-atlas)
+	VkImage atlasImage;						// Single physical atlas image
+	VkImageView atlasImageView;				// Image view for atlas
+	VkDeviceMemory atlasMemory;				// Device memory for atlas
 };
 
 // API Functions

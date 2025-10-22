@@ -124,6 +124,7 @@ static void* vknvg__loaderThreadFunc(void* arg)
 			pthread_mutex_lock(&atlas->uploadQueueMutex);
 			if (atlas->uploadQueueCount < VKNVG_UPLOAD_QUEUE_SIZE) {
 				VKNVGglyphUploadRequest* upload = &atlas->uploadQueue[atlas->uploadQueueCount++];
+				upload->atlasIndex = req.entry->atlasIndex;	// Phase 3 Advanced
 				upload->atlasX = req.entry->atlasX;
 				upload->atlasY = req.entry->atlasY;
 				upload->width = width;
@@ -162,22 +163,7 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		return NULL;
 	}
 
-	// Initialize free page list
-	atlas->freePageList = (uint16_t*)malloc(VKNVG_ATLAS_MAX_PAGES * sizeof(uint16_t));
-	if (!atlas->freePageList) {
-		free(atlas->glyphCache);
-		free(atlas);
-		return NULL;
-	}
-
-	atlas->freePageCount = VKNVG_ATLAS_MAX_PAGES;
-	for (uint16_t i = 0; i < VKNVG_ATLAS_MAX_PAGES; i++) {
-		atlas->freePageList[i] = i;
-		atlas->pages[i].x = (i % (VKNVG_ATLAS_PHYSICAL_SIZE / VKNVG_ATLAS_PAGE_SIZE));
-		atlas->pages[i].y = (i / (VKNVG_ATLAS_PHYSICAL_SIZE / VKNVG_ATLAS_PAGE_SIZE));
-		atlas->pages[i].used = 0;
-		atlas->pages[i].flags = 0;
-	}
+	// Phase 3: Page system removed - no longer initialized
 
 	// Create physical atlas texture
 	VkImageCreateInfo imageInfo = {0};
@@ -196,7 +182,6 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	if (vkCreateImage(device, &imageInfo, NULL, &atlas->atlasImage) != VK_SUCCESS) {
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
@@ -215,7 +200,6 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	if (vkAllocateMemory(device, &allocInfo, NULL, &atlas->atlasMemory) != VK_SUCCESS ||
 	    vkBindImageMemory(device, atlas->atlasImage, atlas->atlasMemory, 0) != VK_SUCCESS) {
 		vkDestroyImage(device, atlas->atlasImage, NULL);
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
@@ -236,7 +220,6 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	if (vkCreateImageView(device, &viewInfo, NULL, &atlas->atlasImageView) != VK_SUCCESS) {
 		vkFreeMemory(device, atlas->atlasMemory, NULL);
 		vkDestroyImage(device, atlas->atlasImage, NULL);
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
@@ -261,11 +244,77 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		vkDestroyImageView(device, atlas->atlasImageView, NULL);
 		vkFreeMemory(device, atlas->atlasMemory, NULL);
 		vkDestroyImage(device, atlas->atlasImage, NULL);
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
 	}
+
+	// Phase 1: Create descriptor pool for multi-atlas support
+	VkDescriptorPoolSize poolSize = {0};
+	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize.descriptorCount = VKNVG_MAX_ATLASES;
+
+	VkDescriptorPoolCreateInfo poolInfo = {0};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = VKNVG_MAX_ATLASES;
+
+	if (vkCreateDescriptorPool(device, &poolInfo, NULL, &atlas->descriptorPool) != VK_SUCCESS) {
+		vkDestroySampler(device, atlas->atlasSampler, NULL);
+		vkDestroyImageView(device, atlas->atlasImageView, NULL);
+		vkFreeMemory(device, atlas->atlasMemory, NULL);
+		vkDestroyImage(device, atlas->atlasImage, NULL);
+		free(atlas->glyphCache);
+		free(atlas);
+		return NULL;
+	}
+
+	// Phase 1: Create descriptor set layout for atlas textures
+	VkDescriptorSetLayoutBinding binding = {0};
+	binding.binding = 1;
+	binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	binding.descriptorCount = 1;
+	binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 1;
+	layoutInfo.pBindings = &binding;
+
+	if (vkCreateDescriptorSetLayout(device, &layoutInfo, NULL, &atlas->descriptorSetLayout) != VK_SUCCESS) {
+		vkDestroyDescriptorPool(device, atlas->descriptorPool, NULL);
+		vkDestroySampler(device, atlas->atlasSampler, NULL);
+		vkDestroyImageView(device, atlas->atlasImageView, NULL);
+		vkFreeMemory(device, atlas->atlasMemory, NULL);
+		vkDestroyImage(device, atlas->atlasImage, NULL);
+		free(atlas->glyphCache);
+		free(atlas);
+		return NULL;
+	}
+
+	// Phase 1: Initialize atlas manager (Guillotine packing + multi-atlas)
+	// Phase 4 Advanced: Start with minimum size for dynamic growth (512x512 = 256KB vs 4096x4096 = 16MB)
+	atlas->atlasManager = vknvg__createAtlasManager(device, physicalDevice,
+	                                                 atlas->descriptorPool,
+	                                                 atlas->descriptorSetLayout,
+	                                                 atlas->atlasSampler,
+	                                                 VKNVG_MIN_ATLAS_SIZE);
+	if (!atlas->atlasManager) {
+		vkDestroyDescriptorSetLayout(device, atlas->descriptorSetLayout, NULL);
+		vkDestroyDescriptorPool(device, atlas->descriptorPool, NULL);
+		vkDestroySampler(device, atlas->atlasSampler, NULL);
+		vkDestroyImageView(device, atlas->atlasImageView, NULL);
+		vkFreeMemory(device, atlas->atlasMemory, NULL);
+		vkDestroyImage(device, atlas->atlasImage, NULL);
+		free(atlas->glyphCache);
+		free(atlas);
+		return NULL;
+	}
+
+	// Phase 1: Initialize defragmentation context (placeholder for now)
+	memset(&atlas->defragContext, 0, sizeof(VKNVGdefragContext));
+	atlas->enableDefrag = 0;	// Disabled by default
 
 	// Create staging buffer for uploads
 	atlas->stagingSize = VKNVG_ATLAS_PAGE_SIZE * VKNVG_ATLAS_PAGE_SIZE * VKNVG_UPLOAD_QUEUE_SIZE;
@@ -281,7 +330,6 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		vkDestroyImageView(device, atlas->atlasImageView, NULL);
 		vkFreeMemory(device, atlas->atlasMemory, NULL);
 		vkDestroyImage(device, atlas->atlasImage, NULL);
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
@@ -302,7 +350,6 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		vkDestroyImageView(device, atlas->atlasImageView, NULL);
 		vkFreeMemory(device, atlas->atlasMemory, NULL);
 		vkDestroyImage(device, atlas->atlasImage, NULL);
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
@@ -319,7 +366,6 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		vkDestroyImageView(device, atlas->atlasImageView, NULL);
 		vkFreeMemory(device, atlas->atlasMemory, NULL);
 		vkDestroyImage(device, atlas->atlasImage, NULL);
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
@@ -344,15 +390,15 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		vkDestroyImageView(device, atlas->atlasImageView, NULL);
 		vkFreeMemory(device, atlas->atlasMemory, NULL);
 		vkDestroyImage(device, atlas->atlasImage, NULL);
-		free(atlas->freePageList);
 		free(atlas->glyphCache);
 		free(atlas);
 		return NULL;
 	}
 
-	printf("Virtual atlas created: %dx%d physical, %d pages, %d cache entries\n",
+	printf("Virtual atlas created: %dx%d physical, Guillotine packing, %d cache entries\n",
 	       VKNVG_ATLAS_PHYSICAL_SIZE, VKNVG_ATLAS_PHYSICAL_SIZE,
-	       VKNVG_ATLAS_MAX_PAGES, VKNVG_GLYPH_CACHE_SIZE);
+	       VKNVG_GLYPH_CACHE_SIZE);
+	printf("Phase 3: Pure Guillotine allocation (page system removed)\n");
 
 	// Initialize compute rasterization (disabled by default)
 	atlas->computeRaster = NULL;
@@ -398,6 +444,21 @@ void vknvg__destroyVirtualAtlas(VKNVGvirtualAtlas* atlas)
 	vkUnmapMemory(atlas->device, atlas->stagingMemory);
 	vkFreeMemory(atlas->device, atlas->stagingMemory, NULL);
 	vkDestroyBuffer(atlas->device, atlas->stagingBuffer, NULL);
+
+	// Phase 1: Destroy atlas manager
+	if (atlas->atlasManager) {
+		vknvg__destroyAtlasManager(atlas->atlasManager);
+		atlas->atlasManager = NULL;
+	}
+
+	// Phase 1: Destroy descriptor resources
+	if (atlas->descriptorSetLayout != VK_NULL_HANDLE) {
+		vkDestroyDescriptorSetLayout(atlas->device, atlas->descriptorSetLayout, NULL);
+	}
+	if (atlas->descriptorPool != VK_NULL_HANDLE) {
+		vkDestroyDescriptorPool(atlas->device, atlas->descriptorPool, NULL);
+	}
+
 	vkDestroySampler(atlas->device, atlas->atlasSampler, NULL);
 	vkDestroyImageView(atlas->device, atlas->atlasImageView, NULL);
 	vkFreeMemory(atlas->device, atlas->atlasMemory, NULL);
@@ -418,7 +479,6 @@ void vknvg__destroyVirtualAtlas(VKNVGvirtualAtlas* atlas)
 	}
 
 	// Free cache
-	free(atlas->freePageList);
 	free(atlas->glyphCache);
 	free(atlas);
 
@@ -488,6 +548,9 @@ static void vknvg__lruMoveToHead(VKNVGvirtualAtlas* atlas, VKNVGglyphCacheEntry*
 	}
 }
 
+// Phase 3: LRU eviction (no page system)
+// Note: With Guillotine packing, we can't easily reclaim space from evicted glyphs
+// Defragmentation will handle this in the future
 static void vknvg__evictLRU(VKNVGvirtualAtlas* atlas)
 {
 	if (!atlas->lruTail) {
@@ -495,12 +558,6 @@ static void vknvg__evictLRU(VKNVGvirtualAtlas* atlas)
 	}
 
 	VKNVGglyphCacheEntry* victim = atlas->lruTail;
-
-	// Free the page
-	if (victim->pageIndex != UINT16_MAX) {
-		atlas->freePageList[atlas->freePageCount++] = victim->pageIndex;
-		atlas->pages[victim->pageIndex].used = 0;
-	}
 
 	// Remove from LRU list
 	vknvg__lruRemove(atlas, victim);
@@ -511,9 +568,12 @@ static void vknvg__evictLRU(VKNVGvirtualAtlas* atlas)
 
 	atlas->evictions++;
 	atlas->glyphCount--;
+
+	// Phase 3: Space is not immediately reclaimed with Guillotine packing
+	// Defragmentation (Phase 3 advanced) will compact the atlas to reclaim space
 }
 
-// Allocate a free page
+// Allocate a free page (legacy - Phase 2: kept as fallback)
 static uint16_t vknvg__allocatePage(VKNVGvirtualAtlas* atlas)
 {
 	if (atlas->freePageCount == 0) {
@@ -529,6 +589,132 @@ static uint16_t vknvg__allocatePage(VKNVGvirtualAtlas* atlas)
 	atlas->pages[pageIndex].used = 1;
 	atlas->pages[pageIndex].lastAccessFrame = atlas->currentFrame;
 	return pageIndex;
+}
+
+// Phase 3: Pure Guillotine allocation (page system removed)
+// Returns 1 on success, 0 on failure
+// Fills atlasIndex, atlasX, atlasY
+// Phase 4 Advanced: Helper function to resize atlas with temporary command buffer
+static VkResult vknvg__resizeAtlasImmediate(VKNVGvirtualAtlas* atlas, uint32_t atlasIndex, uint16_t newSize)
+{
+	// Create command pool
+	VkCommandPoolCreateInfo poolInfo = {0};
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	poolInfo.queueFamilyIndex = 0;	// Graphics queue
+
+	VkCommandPool cmdPool;
+	VkResult result = vkCreateCommandPool(atlas->device, &poolInfo, NULL, &cmdPool);
+	if (result != VK_SUCCESS) {
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	// Allocate command buffer
+	VkCommandBufferAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool = cmdPool;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer cmdBuffer;
+	result = vkAllocateCommandBuffers(atlas->device, &allocInfo, &cmdBuffer);
+	if (result != VK_SUCCESS) {
+		vkDestroyCommandPool(atlas->device, cmdPool, NULL);
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	// Begin command buffer
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	result = vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+	if (result != VK_SUCCESS) {
+		vkFreeCommandBuffers(atlas->device, cmdPool, 1, &cmdBuffer);
+		vkDestroyCommandPool(atlas->device, cmdPool, NULL);
+		return result;
+	}
+
+	// Perform resize
+	result = vknvg__resizeAtlasInstance(atlas->atlasManager, atlasIndex, newSize, cmdBuffer);
+
+	vkEndCommandBuffer(cmdBuffer);
+
+	if (result == VK_SUCCESS) {
+		// Submit and wait
+		VkSubmitInfo submitInfo = {0};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &cmdBuffer;
+
+		// Get graphics queue (assuming queue index 0)
+		VkQueue graphicsQueue;
+		vkGetDeviceQueue(atlas->device, 0, 0, &graphicsQueue);
+
+		result = vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+		if (result == VK_SUCCESS) {
+			vkQueueWaitIdle(graphicsQueue);
+		}
+	}
+
+	// Cleanup
+	vkFreeCommandBuffers(atlas->device, cmdPool, 1, &cmdBuffer);
+	vkDestroyCommandPool(atlas->device, cmdPool, NULL);
+
+	return result;
+}
+
+static int vknvg__allocateSpace(VKNVGvirtualAtlas* atlas,
+                                 uint16_t width, uint16_t height,
+                                 uint32_t* outAtlasIndex,
+                                 uint16_t* outAtlasX, uint16_t* outAtlasY)
+{
+	if (!atlas || !outAtlasIndex || !outAtlasX || !outAtlasY) {
+		return 0;
+	}
+
+	// Phase 3: Use Guillotine packing exclusively
+	if (!atlas->atlasManager) {
+		return 0;	// No atlas manager
+	}
+
+	VKNVGrect rect;
+	if (vknvg__multiAtlasAlloc(atlas->atlasManager, width, height,
+	                            outAtlasIndex, &rect)) {
+		*outAtlasX = rect.x;
+		*outAtlasY = rect.y;
+		return 1;
+	}
+
+	// Phase 4 Advanced: Dynamic growth - try resizing atlases if possible
+	if (atlas->atlasManager->enableDynamicGrowth &&
+	    atlas->atlasManager->atlasCount > 0) {
+		// Try resizing any full atlas (prioritize current atlas first)
+		for (uint32_t attempt = 0; attempt < atlas->atlasManager->atlasCount; attempt++) {
+			uint32_t atlasIdx = (atlas->atlasManager->currentAtlas + attempt) % atlas->atlasManager->atlasCount;
+
+			if (vknvg__shouldResizeAtlas(atlas->atlasManager, atlasIdx)) {
+				VKNVGatlasInstance* atlasInst = &atlas->atlasManager->atlases[atlasIdx];
+				uint16_t currentSize = atlasInst->packer.atlasWidth;
+				uint16_t nextSize = vknvg__getNextAtlasSize(currentSize, atlas->atlasManager->maxAtlasSize);
+
+				if (nextSize > 0) {
+					// Resize atlas (512 -> 1024 -> 2048 -> 4096)
+					if (vknvg__resizeAtlasImmediate(atlas, atlasIdx, nextSize) == VK_SUCCESS) {
+						// Retry allocation after resize
+						if (vknvg__multiAtlasAlloc(atlas->atlasManager, width, height,
+						                            outAtlasIndex, &rect)) {
+							*outAtlasX = rect.x;
+							*outAtlasY = rect.y;
+							return 1;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return 0;	// Atlas full
 }
 
 // Request glyph (loads if not in cache)
@@ -557,17 +743,21 @@ VKNVGglyphCacheEntry* vknvg__requestGlyph(VKNVGvirtualAtlas* atlas, VKNVGglyphKe
 		entry = &atlas->glyphCache[probe];
 
 		if (entry->state == VKNVG_GLYPH_EMPTY) {
-			// Allocate page
-			uint16_t pageIndex = vknvg__allocatePage(atlas);
-			if (pageIndex == UINT16_MAX) {
+			// Phase 3: Allocate space using pure Guillotine packing
+			// Use fixed glyph size for now (will use actual size after rasterization in future)
+			uint32_t atlasIndex;
+			uint16_t atlasX, atlasY;
+			if (!vknvg__allocateSpace(atlas, VKNVG_ATLAS_PAGE_SIZE, VKNVG_ATLAS_PAGE_SIZE,
+			                           &atlasIndex, &atlasX, &atlasY)) {
 				return NULL;	// Atlas full
 			}
 
 			// Initialize entry
 			entry->key = key;
-			entry->atlasX = atlas->pages[pageIndex].x * VKNVG_ATLAS_PAGE_SIZE;
-			entry->atlasY = atlas->pages[pageIndex].y * VKNVG_ATLAS_PAGE_SIZE;
-			entry->pageIndex = pageIndex;
+			entry->atlasIndex = atlasIndex;
+			entry->atlasX = atlasX;
+			entry->atlasY = atlasY;
+			entry->pageIndex = UINT16_MAX;	// Phase 3: No longer used
 			entry->state = VKNVG_GLYPH_LOADING;
 			entry->loadFrame = atlas->currentFrame;
 			entry->lastAccessFrame = atlas->currentFrame;
@@ -630,23 +820,25 @@ VKNVGglyphCacheEntry* vknvg__addGlyphDirect(VKNVGvirtualAtlas* atlas,
 		entry = &atlas->glyphCache[probe];
 
 		if (entry->state == VKNVG_GLYPH_EMPTY) {
-			// Allocate page
-			uint16_t pageIndex = vknvg__allocatePage(atlas);
-			if (pageIndex == UINT16_MAX) {
+			// Phase 3: Allocate space using pure Guillotine packing
+			uint32_t atlasIndex;
+			uint16_t atlasX, atlasY;
+			if (!vknvg__allocateSpace(atlas, width, height, &atlasIndex, &atlasX, &atlasY)) {
 				free(pixelData);
 				return NULL;	// Atlas full
 			}
 
 			// Initialize entry
 			entry->key = key;
-			entry->atlasX = atlas->pages[pageIndex].x * VKNVG_ATLAS_PAGE_SIZE;
-			entry->atlasY = atlas->pages[pageIndex].y * VKNVG_ATLAS_PAGE_SIZE;
+			entry->atlasIndex = atlasIndex;
+			entry->atlasX = atlasX;
+			entry->atlasY = atlasY;
 			entry->width = width;
 			entry->height = height;
 			entry->bearingX = bearingX;
 			entry->bearingY = bearingY;
 			entry->advance = advance;
-			entry->pageIndex = pageIndex;
+			entry->pageIndex = UINT16_MAX;	// Phase 3: No longer used
 			entry->state = VKNVG_GLYPH_READY;	// Skip LOADING, go directly to READY
 			entry->loadFrame = atlas->currentFrame;
 			entry->lastAccessFrame = atlas->currentFrame;
@@ -655,6 +847,7 @@ VKNVGglyphCacheEntry* vknvg__addGlyphDirect(VKNVGvirtualAtlas* atlas,
 			pthread_mutex_lock(&atlas->uploadQueueMutex);
 			if (atlas->uploadQueueCount < VKNVG_UPLOAD_QUEUE_SIZE) {
 				VKNVGglyphUploadRequest* upload = &atlas->uploadQueue[atlas->uploadQueueCount++];
+				upload->atlasIndex = entry->atlasIndex;	// Phase 3 Advanced
 				upload->atlasX = entry->atlasX;
 				upload->atlasY = entry->atlasY;
 				upload->width = width;
@@ -685,8 +878,6 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 
 	pthread_mutex_lock(&atlas->uploadQueueMutex);
 
-	printf("DEBUG: processUploads called with %u items in queue\n", atlas->uploadQueueCount);
-
 	if (atlas->uploadQueueCount == 0) {
 		pthread_mutex_unlock(&atlas->uploadQueueMutex);
 		return;
@@ -694,13 +885,16 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 
 	// Route to async upload path if enabled
 	if (atlas->useAsyncUpload && atlas->asyncUpload) {
-		// Queue all uploads to async upload system
+		// Phase 3 Advanced: Queue uploads to correct atlas images
 		for (uint32_t i = 0; i < atlas->uploadQueueCount; i++) {
 			VKNVGglyphUploadRequest* upload = &atlas->uploadQueue[i];
 			size_t dataSize = upload->width * upload->height;
 
+			// Get target atlas image
+			VKNVGatlasInstance* targetAtlas = &atlas->atlasManager->atlases[upload->atlasIndex];
+
 			VkResult result = vknvg__queueAsyncUpload(atlas->asyncUpload,
-			                                           atlas->atlasImage,
+			                                           targetAtlas->image,
 			                                           upload->pixelData,
 			                                           dataSize,
 			                                           upload->atlasX, upload->atlasY,
@@ -725,32 +919,46 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 		return;
 	}
 
-	// Fall through to synchronous upload path
+	// Phase 3 Advanced: Multi-atlas upload path
+	// Group uploads by atlas index and upload to each atlas
 
-	// Transition atlas to transfer dst layout
-	VkImageMemoryBarrier barrier = {0};
-	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	// On first upload, transition from UNDEFINED; otherwise from SHADER_READ_ONLY
-	barrier.oldLayout = atlas->imageInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-	                                             : VK_IMAGE_LAYOUT_UNDEFINED;
-	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = atlas->atlasImage;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;
-	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = 1;
-	// When transitioning from UNDEFINED, srcAccessMask must be 0
-	barrier.srcAccessMask = atlas->imageInitialized ? VK_ACCESS_SHADER_READ_BIT : 0;
-	barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	// Track which atlases need barriers
+	uint8_t atlasUsed[VKNVG_MAX_ATLASES] = {0};
+	for (uint32_t i = 0; i < atlas->uploadQueueCount; i++) {
+		uint32_t idx = atlas->uploadQueue[i].atlasIndex;
+		if (idx < VKNVG_MAX_ATLASES) {
+			atlasUsed[idx] = 1;
+		}
+	}
 
-	vkCmdPipelineBarrier(cmd,
-	                     atlas->imageInitialized ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-	                                              : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
-	                     0, 0, NULL, 0, NULL, 1, &barrier);
+	// Transition all used atlases to transfer dst layout
+	for (uint32_t atlasIdx = 0; atlasIdx < atlas->atlasManager->atlasCount; atlasIdx++) {
+		if (!atlasUsed[atlasIdx]) continue;
+
+		VKNVGatlasInstance* atlasInst = &atlas->atlasManager->atlases[atlasIdx];
+
+		VkImageMemoryBarrier barrier = {0};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = atlas->imageInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+		                                             : VK_IMAGE_LAYOUT_UNDEFINED;
+		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.image = atlasInst->image;
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+		barrier.srcAccessMask = atlas->imageInitialized ? VK_ACCESS_SHADER_READ_BIT : 0;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+		vkCmdPipelineBarrier(cmd,
+		                     atlas->imageInitialized ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+		                                              : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+		                     0, 0, NULL, 0, NULL, 1, &barrier);
+	}
 
 	// Upload all pending glyphs
 	VkDeviceSize stagingOffset = 0;
@@ -759,26 +967,11 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 
 		// Copy pixel data to staging buffer
 		size_t dataSize = upload->width * upload->height;
-		printf("DEBUG: Uploading glyph %u: pos(%u,%u) size(%ux%u) dataSize=%zu ptr=%p\n",
-		       i, upload->atlasX, upload->atlasY, upload->width, upload->height, dataSize, (void*)upload->pixelData);
 		if (stagingOffset + dataSize > atlas->stagingSize) {
 			break;	// Staging buffer full
 		}
 
-		// Check pixelData before copy
-		int nonZeroBefore = 0;
-		for (size_t j = 0; j < dataSize && j < 100; j++) {
-			if (upload->pixelData[j] != 0) nonZeroBefore++;
-		}
-
 		memcpy((uint8_t*)atlas->stagingMapped + stagingOffset, upload->pixelData, dataSize);
-
-		// Check staging buffer after copy
-		int nonZeroAfter = 0;
-		for (size_t j = 0; j < 100 && j < dataSize; j++) {
-			if (((uint8_t*)atlas->stagingMapped)[stagingOffset + j] != 0) nonZeroAfter++;
-		}
-		printf("DEBUG: Upload %u: before=%d after=%d (in staging)\n", i, nonZeroBefore, nonZeroAfter);
 
 		// Copy from staging to atlas
 		VkBufferImageCopy region = {0};
@@ -796,10 +989,10 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 		region.imageExtent.height = upload->height;
 		region.imageExtent.depth = 1;
 
-		if (i < 2) printf("DEBUG: vkCmdCopyBufferToImage region: bufOffset=%llu atlasPos=(%d,%d) size=(%dx%d)\n",
-		                  (unsigned long long)region.bufferOffset, region.imageOffset.x, region.imageOffset.y,
-		                  region.imageExtent.width, region.imageExtent.height);
-		vkCmdCopyBufferToImage(cmd, atlas->stagingBuffer, atlas->atlasImage,
+		// Phase 3 Advanced: Upload to correct atlas based on atlasIndex
+		VKNVGatlasInstance* targetAtlas = &atlas->atlasManager->atlases[upload->atlasIndex];
+
+		vkCmdCopyBufferToImage(cmd, atlas->stagingBuffer, targetAtlas->image,
 		                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 		// Update entry state
@@ -812,22 +1005,48 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 		atlas->uploads++;
 	}
 
-	// Transition back to shader read layout
-	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	// Phase 3 Advanced: Transition all used atlases back to shader read layout
+	for (uint32_t atlasIdx = 0; atlasIdx < atlas->atlasManager->atlasCount; atlasIdx++) {
+		if (!atlasUsed[atlasIdx]) continue;
 
-	vkCmdPipelineBarrier(cmd,
-	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
-	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-	                     0, 0, NULL, 0, NULL, 1, &barrier);
+		VKNVGatlasInstance* atlasInst = &atlas->atlasManager->atlases[atlasIdx];
+
+		VkImageMemoryBarrier barrier = {0};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.image = atlasInst->image;
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		vkCmdPipelineBarrier(cmd,
+		                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+		                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		                     0, 0, NULL, 0, NULL, 1, &barrier);
+	}
 
 	// Mark image as initialized (now in SHADER_READ_ONLY layout)
 	atlas->imageInitialized = true;
 
 	atlas->uploadQueueCount = 0;
 	pthread_mutex_unlock(&atlas->uploadQueueMutex);
+
+	// Phase 4 Advanced: Continue defragmentation if in progress
+	if (atlas->enableDefrag && atlas->defragContext.state != VKNVG_DEFRAG_IDLE) {
+		// Execute incremental defragmentation with 2ms time budget
+		// Note: updateDefragmentation will execute glyph moves and update the packer
+		// vknvg__updateDefragmentation(&atlas->defragContext, atlas->atlasManager, cmd, 2.0f);
+
+		// For now, defragmentation execution is deferred until glyph cache integration
+		// Full implementation requires updating glyph cache entries after moves
+	}
 }
 
 // Advance frame counter
@@ -835,6 +1054,28 @@ void vknvg__atlasNextFrame(VKNVGvirtualAtlas* atlas)
 {
 	if (!atlas) return;
 	atlas->currentFrame++;
+
+	// Phase 4 Advanced: Incremental defragmentation during idle frames
+	if (atlas->enableDefrag && atlas->atlasManager) {
+		// Check if currently defragmenting
+		if (atlas->defragContext.state == VKNVG_DEFRAG_IDLE) {
+			// Look for an atlas that needs defragmentation
+			for (uint32_t i = 0; i < atlas->atlasManager->atlasCount; i++) {
+				if (vknvg__shouldDefragmentAtlas(&atlas->atlasManager->atlases[i])) {
+					// Start defragmentation for this atlas
+					vknvg__initDefragContext(&atlas->defragContext, i, 2.0f);	// 2ms time budget
+					vknvg__startDefragmentation(&atlas->defragContext, atlas->atlasManager);
+					break;
+				}
+			}
+		} else if (atlas->defragContext.state != VKNVG_DEFRAG_IDLE) {
+			// Continue ongoing defragmentation
+			// Note: This requires a command buffer, which we don't have in atlasNextFrame()
+			// In a real implementation, this would be called from processUploads() or a render function
+			// For now, we just check the state
+			// vknvg__updateDefragmentation(&atlas->defragContext, atlas->atlasManager, NULL, 2.0f);
+		}
+	}
 }
 
 // Get statistics
