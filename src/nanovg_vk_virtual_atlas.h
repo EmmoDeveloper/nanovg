@@ -17,19 +17,25 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "nanovg_vk_atlas_packing.h"
+#include "nanovg_vk_multi_atlas.h"
+#include "nanovg_vk_atlas_defrag.h"
 
 // Configuration
-#define VKNVG_ATLAS_PAGE_SIZE 64			// Size of each atlas page (64x64 pixels)
-#define VKNVG_ATLAS_PHYSICAL_SIZE 4096		// Physical atlas texture size
-#define VKNVG_ATLAS_MAX_PAGES ((VKNVG_ATLAS_PHYSICAL_SIZE / VKNVG_ATLAS_PAGE_SIZE) * (VKNVG_ATLAS_PHYSICAL_SIZE / VKNVG_ATLAS_PAGE_SIZE))
+#define VKNVG_ATLAS_PHYSICAL_SIZE 4096		// Default atlas texture size
 #define VKNVG_GLYPH_CACHE_SIZE 8192			// Number of glyphs to cache
 #define VKNVG_UPLOAD_QUEUE_SIZE 256			// Max glyphs pending upload per frame
 #define VKNVG_LOAD_QUEUE_SIZE 1024			// Background loading queue size
 
+// Phase 3 integration flags
+#define VKNVG_USE_GUILLOTINE_PACKING 1		// Use Guillotine packing instead of pages
+#define VKNVG_USE_MULTI_ATLAS 1				// Enable multi-atlas support
+#define VKNVG_USE_DYNAMIC_GROWTH 1			// Enable dynamic atlas growth
+#define VKNVG_USE_DEFRAGMENTATION 1			// Enable idle-frame defragmentation
+
 // Forward declarations
 typedef struct VKNVGvirtualAtlas VKNVGvirtualAtlas;
 typedef struct VKNVGglyphCacheEntry VKNVGglyphCacheEntry;
-typedef struct VKNVGatlasPage VKNVGatlasPage;
 typedef struct VKNVGglyphLoadRequest VKNVGglyphLoadRequest;
 typedef struct VKNVGcomputeRaster VKNVGcomputeRaster;
 typedef struct VKNVGasyncUpload VKNVGasyncUpload;
@@ -42,19 +48,12 @@ typedef struct VKNVGglyphKey {
 	uint32_t padding;		// For alignment
 } VKNVGglyphKey;
 
-// Atlas page (64x64 region in physical texture)
-struct VKNVGatlasPage {
-	uint16_t x, y;				// Position in physical atlas (in pages)
-	uint8_t used;				// Number of glyphs using this page
-	uint8_t flags;				// Page flags
-	uint32_t lastAccessFrame;	// For LRU eviction
-};
-
 // Glyph cache entry
 struct VKNVGglyphCacheEntry {
 	VKNVGglyphKey key;
 
 	// Physical location in atlas
+	uint32_t atlasIndex;		// Which atlas this glyph is in (Phase 3: multi-atlas)
 	uint16_t atlasX, atlasY;	// Pixel coordinates in physical atlas
 	uint16_t width, height;		// Glyph dimensions
 
@@ -65,9 +64,8 @@ struct VKNVGglyphCacheEntry {
 	// Cache management
 	uint32_t lastAccessFrame;	// Frame number of last access
 	uint32_t loadFrame;			// Frame when loaded
-	uint16_t pageIndex;			// Which page this glyph occupies
 	uint8_t state;				// Loading state
-	uint8_t padding;
+	uint8_t padding[3];			// Alignment
 
 	// LRU list pointers
 	VKNVGglyphCacheEntry* lruPrev;
@@ -100,24 +98,26 @@ typedef struct VKNVGglyphUploadRequest {
 
 // Virtual atlas structure
 struct VKNVGvirtualAtlas {
-	// Physical GPU atlas
-	VkImage atlasImage;
-	VkImageView atlasImageView;
-	VkDeviceMemory atlasMemory;
-	VkSampler atlasSampler;
+	// Vulkan context
 	VkDevice device;
 	VkPhysicalDevice physicalDevice;
+
+	// Phase 3: Multi-atlas management
+	VKNVGatlasManager* atlasManager;	// Manages multiple atlases with Guillotine packing
+	VkDescriptorPool descriptorPool;	// For atlas descriptor sets
+	VkDescriptorSetLayout descriptorSetLayout;	// Atlas texture descriptor layout
+	VkSampler atlasSampler;				// Shared sampler for all atlases
+
+	// Phase 3: Defragmentation
+	VKNVGdefragContext defragContext;	// Defragmentation state
+	uint8_t enableDefrag;				// Enable idle-frame defragmentation
+	uint8_t padding[3];					// Alignment
 
 	// Staging buffer for uploads
 	VkBuffer stagingBuffer;
 	VkDeviceMemory stagingMemory;
 	void* stagingMapped;
 	VkDeviceSize stagingSize;
-
-	// Page management
-	VKNVGatlasPage pages[VKNVG_ATLAS_MAX_PAGES];
-	uint16_t freePageCount;
-	uint16_t* freePageList;			// Stack of free page indices
 
 	// Glyph cache (hash table)
 	VKNVGglyphCacheEntry* glyphCache;	// Array of cache entries
