@@ -23,6 +23,12 @@ High-performance Vulkan rendering backend for [NanoVG](https://github.com/memono
 - **LRU Eviction**: Intelligent cache management
 - **HarfBuzz Integration**: Complex script shaping (14+ scripts)
 - **BiDi Support**: Right-to-left text (Arabic, Hebrew)
+- **Text Effects**: GPU-accelerated SDF effects
+  - Multi-layer outlines (up to 4 layers)
+  - Glow with customizable radius and color
+  - Drop shadows with blur
+  - Linear and radial gradients
+  - Animations (shimmer, pulse, wave, color cycling)
 
 ### Performance
 - GPU-accelerated rendering
@@ -89,6 +95,33 @@ nvgText(vg, x, y, "مرحبا بالعالم", NULL); // Arabic (RTL)
 nvgText(vg, x, y, "हैलो वर्ल्ड", NULL);  // Devanagari
 ```
 
+### Text Effects
+```c
+#include "nanovg_vk_text_effects.h"
+
+// Create effect context
+VKNVGtextEffect* effect = vknvg__createTextEffect();
+
+// Add multi-layer outline
+vknvg__addOutline(effect, 2.0f, nvgRGBA(0, 0, 0, 255));      // Inner black
+vknvg__addOutline(effect, 4.0f, nvgRGBA(255, 255, 255, 255)); // Outer white
+
+// Add glow effect
+vknvg__setGlow(effect, 10.0f, nvgRGBA(255, 200, 0, 128), 0.8f);
+
+// Add gradient fill
+vknvg__setLinearGradient(effect,
+    nvgRGBA(255, 0, 0, 255),   // Red start
+    nvgRGBA(0, 0, 255, 255),   // Blue end
+    0.0f);                      // Horizontal
+
+// Add shimmer animation
+vknvg__setAnimation(effect, VKNVG_ANIM_SHIMMER, 1.5f, 0.7f);
+
+// Cleanup
+vknvg__destroyTextEffect(effect);
+```
+
 ## Project Structure
 
 ```
@@ -98,9 +131,11 @@ nanovg/
 │   ├── nanovg_vk.h        # Vulkan backend API
 │   ├── nanovg_vk_virtual_atlas.c  # Virtual atlas system
 │   ├── nanovg_vk_harfbuzz.c       # HarfBuzz integration
-│   └── nanovg_vk_bidi.c           # BiDi support
-├── tests/                 # Test suite (69 tests)
+│   ├── nanovg_vk_bidi.c           # BiDi support
+│   └── nanovg_vk_text_effects.c   # SDF text effects
+├── tests/                 # Test suite (81 tests)
 ├── shaders/              # GLSL shaders
+│   └── sdf_effects.frag  # Extended SDF shader
 └── docs/                 # Documentation
     ├── ARCHITECTURE.md   # Technical design
     └── CHANGELOG.md      # Version history
@@ -125,15 +160,16 @@ Arabic, Devanagari, Bengali, Thai, Lao, Tibetan, Myanmar, Khmer, Hebrew, Latin, 
 ## Testing
 
 ```bash
-# All tests (69 total)
+# All tests (81 total)
 make test
 
 # Specific test suites
 make smoke-tests          # Basic functionality (3 tests)
-make unit-tests          # Unit tests (5 tests)
+make unit-tests          # Unit tests (36 tests)
 make integration-tests   # Integration (8 tests)
 make phase3-tests        # Atlas packing (4 tests)
 make phase4-tests        # International text (22 tests)
+make phase5-tests        # Text effects (12 tests)
 make fun-tests           # Bad Apple!! (6 tests)
 ```
 
