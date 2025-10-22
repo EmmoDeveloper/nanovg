@@ -35,6 +35,8 @@ TEXT_EFFECTS_OBJ := $(BUILD_DIR)/nanovg_vk_text_effects.o
 # Phase 6: Color Emoji Support
 EMOJI_TABLES_SRC := src/nanovg_vk_emoji_tables.c
 EMOJI_TABLES_OBJ := $(BUILD_DIR)/nanovg_vk_emoji_tables.o
+COLOR_ATLAS_SRC := src/nanovg_vk_color_atlas.c
+COLOR_ATLAS_OBJ := $(BUILD_DIR)/nanovg_vk_color_atlas.o
 
 # Test programs
 SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/test_init
@@ -45,8 +47,8 @@ FUN_TESTS := $(BUILD_DIR)/test_bad_apple
 FUN_TEST_OBJS := $(BUILD_DIR)/test_bad_apple.o
 
 # Unit tests
-UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(BUILD_DIR)/test_unit_memory $(BUILD_DIR)/test_unit_memory_leak $(BUILD_DIR)/test_atlas_prewarm $(BUILD_DIR)/test_instanced_text $(BUILD_DIR)/test_pipeline_creation $(BUILD_DIR)/test_virtual_atlas $(BUILD_DIR)/test_nvg_virtual_atlas $(BUILD_DIR)/test_cjk_rendering $(BUILD_DIR)/test_real_text_rendering $(BUILD_DIR)/test_cjk_real_rendering $(BUILD_DIR)/test_cjk_eviction $(BUILD_DIR)/test_text_cache $(BUILD_DIR)/test_async_upload $(BUILD_DIR)/test_compute_raster $(BUILD_DIR)/test_atlas_packing $(BUILD_DIR)/test_multi_atlas $(BUILD_DIR)/test_atlas_resize $(BUILD_DIR)/test_atlas_defrag $(BUILD_DIR)/test_harfbuzz $(BUILD_DIR)/test_bidi $(BUILD_DIR)/test_intl_text $(BUILD_DIR)/test_text_effects $(BUILD_DIR)/test_emoji_tables
-UNIT_TEST_OBJS := $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_unit_platform.o $(BUILD_DIR)/test_unit_memory.o $(BUILD_DIR)/test_unit_memory_leak.o $(BUILD_DIR)/test_atlas_prewarm.o $(BUILD_DIR)/test_instanced_text.o $(BUILD_DIR)/test_pipeline_creation.o $(BUILD_DIR)/test_virtual_atlas.o $(BUILD_DIR)/test_nvg_virtual_atlas.o $(BUILD_DIR)/test_cjk_rendering.o $(BUILD_DIR)/test_real_text_rendering.o $(BUILD_DIR)/test_cjk_real_rendering.o $(BUILD_DIR)/test_cjk_eviction.o $(BUILD_DIR)/test_text_cache.o $(BUILD_DIR)/test_async_upload.o $(BUILD_DIR)/test_compute_raster.o $(BUILD_DIR)/test_atlas_packing.o $(BUILD_DIR)/test_multi_atlas.o $(BUILD_DIR)/test_atlas_resize.o $(BUILD_DIR)/test_atlas_defrag.o $(BUILD_DIR)/test_harfbuzz.o $(BUILD_DIR)/test_bidi.o $(BUILD_DIR)/test_intl_text.o $(BUILD_DIR)/test_text_effects.o $(BUILD_DIR)/test_emoji_tables.o $(BUILD_DIR)/test_utils.o
+UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(BUILD_DIR)/test_unit_memory $(BUILD_DIR)/test_unit_memory_leak $(BUILD_DIR)/test_atlas_prewarm $(BUILD_DIR)/test_instanced_text $(BUILD_DIR)/test_pipeline_creation $(BUILD_DIR)/test_virtual_atlas $(BUILD_DIR)/test_nvg_virtual_atlas $(BUILD_DIR)/test_cjk_rendering $(BUILD_DIR)/test_real_text_rendering $(BUILD_DIR)/test_cjk_real_rendering $(BUILD_DIR)/test_cjk_eviction $(BUILD_DIR)/test_text_cache $(BUILD_DIR)/test_async_upload $(BUILD_DIR)/test_compute_raster $(BUILD_DIR)/test_atlas_packing $(BUILD_DIR)/test_multi_atlas $(BUILD_DIR)/test_atlas_resize $(BUILD_DIR)/test_atlas_defrag $(BUILD_DIR)/test_harfbuzz $(BUILD_DIR)/test_bidi $(BUILD_DIR)/test_intl_text $(BUILD_DIR)/test_text_effects $(BUILD_DIR)/test_emoji_tables $(BUILD_DIR)/test_color_atlas
+UNIT_TEST_OBJS := $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_unit_platform.o $(BUILD_DIR)/test_unit_memory.o $(BUILD_DIR)/test_unit_memory_leak.o $(BUILD_DIR)/test_atlas_prewarm.o $(BUILD_DIR)/test_instanced_text.o $(BUILD_DIR)/test_pipeline_creation.o $(BUILD_DIR)/test_virtual_atlas.o $(BUILD_DIR)/test_nvg_virtual_atlas.o $(BUILD_DIR)/test_cjk_rendering.o $(BUILD_DIR)/test_real_text_rendering.o $(BUILD_DIR)/test_cjk_real_rendering.o $(BUILD_DIR)/test_cjk_eviction.o $(BUILD_DIR)/test_text_cache.o $(BUILD_DIR)/test_async_upload.o $(BUILD_DIR)/test_compute_raster.o $(BUILD_DIR)/test_atlas_packing.o $(BUILD_DIR)/test_multi_atlas.o $(BUILD_DIR)/test_atlas_resize.o $(BUILD_DIR)/test_atlas_defrag.o $(BUILD_DIR)/test_harfbuzz.o $(BUILD_DIR)/test_bidi.o $(BUILD_DIR)/test_intl_text.o $(BUILD_DIR)/test_text_effects.o $(BUILD_DIR)/test_emoji_tables.o $(BUILD_DIR)/test_color_atlas.o $(BUILD_DIR)/test_utils.o
 
 # Integration tests
 INTEGRATION_TESTS := $(BUILD_DIR)/test_integration_render $(BUILD_DIR)/test_integration_text $(BUILD_DIR)/test_text_optimizations $(BUILD_DIR)/test_batch_text $(BUILD_DIR)/test_phase3_integration
@@ -138,6 +140,10 @@ $(TEXT_EFFECTS_OBJ): $(TEXT_EFFECTS_SRC) | $(BUILD_DIR)
 # Phase 6 object files
 $(EMOJI_TABLES_OBJ): $(EMOJI_TABLES_SRC) | $(BUILD_DIR)
 	@echo "Compiling emoji tables..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(COLOR_ATLAS_OBJ): $(COLOR_ATLAS_SRC) | $(BUILD_DIR)
+	@echo "Compiling color atlas..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/test_compile.o: tests/test_compile.c | $(BUILD_DIR)
@@ -526,6 +532,15 @@ $(BUILD_DIR)/test_emoji_tables.o: tests/test_emoji_tables.c src/nanovg_vk_emoji_
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/test_emoji_tables: $(BUILD_DIR)/test_emoji_tables.o $(EMOJI_TABLES_OBJ)
+	@echo "Linking $@..."
+	$(CC) $^ $(LIBS) -o $@
+
+# Unit test: Color atlas
+$(BUILD_DIR)/test_color_atlas.o: tests/test_color_atlas.c src/nanovg_vk_color_atlas.h | $(BUILD_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_color_atlas: $(BUILD_DIR)/test_color_atlas.o $(COLOR_ATLAS_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
