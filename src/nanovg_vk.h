@@ -62,11 +62,11 @@ void nvgVkResetProfiling(NVGcontext* ctx);
 #include "nanovg_vk_platform.h"
 #include "nanovg_vk_threading.h"
 #include "nanovg_vk_pipeline.h"
+// Phase 6: Emoji rendering (must be before render.h which uses these functions)
+#include "nanovg_vk_text_emoji.h"
 #include "nanovg_vk_render.h"
 #include "nanovg_vk_cleanup.h"
 #include "nanovg_vk_atlas.h"
-// Phase 6: Emoji rendering
-#include "nanovg_vk_text_emoji.h"
 
 // Fontstash glyph rasterization callback - only available when FONTSTASH_IMPLEMENTATION is defined
 #ifdef FONTSTASH_IMPLEMENTATION

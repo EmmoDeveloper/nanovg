@@ -24,6 +24,7 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <stdio.h>
 #include "nanovg_vk_internal.h"
 #include "nanovg_vk_memory.h"
 #include "nanovg_vk_image.h"
@@ -402,6 +403,153 @@ static int vknvg__renderCreate(void* uptr)
 		                                               NULL);	// Rasterize callback set later
 		if (vk->virtualAtlas != NULL) {
 			vk->useVirtualAtlas = VK_TRUE;
+		}
+	}
+
+	// Initialize color emoji rendering (Phase 6)
+	vk->useColorEmoji = VK_FALSE;
+	vk->textEmojiState = NULL;
+	vk->colorAtlas = NULL;
+	vk->textDualModePipeline = VK_NULL_HANDLE;
+	vk->textDualModeVertShaderModule = VK_NULL_HANDLE;
+	vk->textDualModeFragShaderModule = VK_NULL_HANDLE;
+	vk->dualModeDescriptorSetLayout = VK_NULL_HANDLE;
+	vk->dualModeDescriptorSets = NULL;
+
+	if ((vk->flags & NVG_COLOR_EMOJI) && (vk->emojiFontPath != NULL || vk->emojiFontData != NULL)) {
+		// Load dual-mode shader modules
+		vk->textDualModeVertShaderModule = vknvg__createShaderModule(vk->device,
+		                                                               vknvg__textDualModeVertShaderSpv,
+		                                                               vknvg__textDualModeVertShaderSize);
+		if (vk->textDualModeVertShaderModule == VK_NULL_HANDLE) goto skip_emoji;
+
+		vk->textDualModeFragShaderModule = vknvg__createShaderModule(vk->device,
+		                                                               vknvg__textDualModeFragShaderSpv,
+		                                                               vknvg__textDualModeFragShaderSize);
+		if (vk->textDualModeFragShaderModule == VK_NULL_HANDLE) goto skip_emoji;
+
+		// Create color atlas (2048x2048 RGBA)
+		vk->colorAtlas = vknvg__createColorAtlas(vk->device, vk->physicalDevice, vk->queue, vk->commandPool);
+		if (vk->colorAtlas == NULL) goto skip_emoji;
+
+		// Initialize text-emoji state with emoji font
+		uint8_t* emojiData = NULL;
+		uint32_t emojiDataSize = 0;
+		VkBool32 needFreeEmojiData = VK_FALSE;
+
+		if (vk->emojiFontPath != NULL) {
+			// Load emoji font from file
+			FILE* f = fopen(vk->emojiFontPath, "rb");
+			if (f == NULL) goto skip_emoji;
+			fseek(f, 0, SEEK_END);
+			emojiDataSize = ftell(f);
+			fseek(f, 0, SEEK_SET);
+			emojiData = (uint8_t*)malloc(emojiDataSize);
+			if (emojiData == NULL) {
+				fclose(f);
+				goto skip_emoji;
+			}
+			if (fread(emojiData, 1, emojiDataSize, f) != emojiDataSize) {
+				free(emojiData);
+				fclose(f);
+				goto skip_emoji;
+			}
+			fclose(f);
+			needFreeEmojiData = VK_TRUE;
+		} else {
+			emojiData = (uint8_t*)vk->emojiFontData;
+			emojiDataSize = vk->emojiFontDataSize;
+		}
+
+		vk->textEmojiState = vknvg__createTextEmojiState(vk->colorAtlas, emojiData, emojiDataSize);
+		if (needFreeEmojiData) {
+			free(emojiData);
+		}
+		if (vk->textEmojiState == NULL) goto skip_emoji;
+
+		// Create dual-mode descriptor set layout (3 bindings)
+		result = vknvg__createDualModeDescriptorSetLayout(vk);
+		if (result != VK_SUCCESS) goto skip_emoji;
+
+		// Create dual-mode pipeline layout
+		VkPipelineLayout dualModePipelineLayout = VK_NULL_HANDLE;
+		result = vknvg__createDualModePipelineLayout(vk, &dualModePipelineLayout);
+		if (result != VK_SUCCESS) goto skip_emoji;
+
+		// Create dual-mode pipeline
+		result = vknvg__createDualModeTextPipeline(vk, &vk->textDualModePipeline, dualModePipelineLayout);
+		if (result != VK_SUCCESS) {
+			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
+			goto skip_emoji;
+		}
+
+		// Allocate dual-mode descriptor sets (per frame)
+		vk->dualModeDescriptorSets = (VkDescriptorSet*)malloc(sizeof(VkDescriptorSet) * vk->maxFrames);
+		if (vk->dualModeDescriptorSets == NULL) {
+			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
+			goto skip_emoji;
+		}
+
+		VkDescriptorSetLayout* dualModeLayouts = (VkDescriptorSetLayout*)malloc(sizeof(VkDescriptorSetLayout) * vk->maxFrames);
+		if (dualModeLayouts == NULL) {
+			free(vk->dualModeDescriptorSets);
+			vk->dualModeDescriptorSets = NULL;
+			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
+			goto skip_emoji;
+		}
+		for (uint32_t i = 0; i < vk->maxFrames; i++) {
+			dualModeLayouts[i] = vk->dualModeDescriptorSetLayout;
+		}
+
+		VkDescriptorSetAllocateInfo dualModeAllocInfo = {0};
+		dualModeAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		dualModeAllocInfo.descriptorPool = vk->descriptorPool;
+		dualModeAllocInfo.descriptorSetCount = vk->maxFrames;
+		dualModeAllocInfo.pSetLayouts = dualModeLayouts;
+
+		result = vkAllocateDescriptorSets(vk->device, &dualModeAllocInfo, vk->dualModeDescriptorSets);
+		free(dualModeLayouts);
+		if (result != VK_SUCCESS) {
+			free(vk->dualModeDescriptorSets);
+			vk->dualModeDescriptorSets = NULL;
+			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
+			goto skip_emoji;
+		}
+
+		// Success - emoji rendering enabled
+		vk->useColorEmoji = VK_TRUE;
+	}
+
+skip_emoji:
+	// If emoji initialization failed, clean up partial resources
+	if ((vk->flags & NVG_COLOR_EMOJI) && !vk->useColorEmoji) {
+		if (vk->dualModeDescriptorSets != NULL) {
+			free(vk->dualModeDescriptorSets);
+			vk->dualModeDescriptorSets = NULL;
+		}
+		if (vk->dualModeDescriptorSetLayout != VK_NULL_HANDLE) {
+			vkDestroyDescriptorSetLayout(vk->device, vk->dualModeDescriptorSetLayout, NULL);
+			vk->dualModeDescriptorSetLayout = VK_NULL_HANDLE;
+		}
+		if (vk->textDualModePipeline != VK_NULL_HANDLE) {
+			vkDestroyPipeline(vk->device, vk->textDualModePipeline, NULL);
+			vk->textDualModePipeline = VK_NULL_HANDLE;
+		}
+		if (vk->textEmojiState != NULL) {
+			vknvg__destroyTextEmojiState(vk->textEmojiState);
+			vk->textEmojiState = NULL;
+		}
+		if (vk->colorAtlas != NULL) {
+			vknvg__destroyColorAtlas(vk->colorAtlas);
+			vk->colorAtlas = NULL;
+		}
+		if (vk->textDualModeFragShaderModule != VK_NULL_HANDLE) {
+			vkDestroyShaderModule(vk->device, vk->textDualModeFragShaderModule, NULL);
+			vk->textDualModeFragShaderModule = VK_NULL_HANDLE;
+		}
+		if (vk->textDualModeVertShaderModule != VK_NULL_HANDLE) {
+			vkDestroyShaderModule(vk->device, vk->textDualModeVertShaderModule, NULL);
+			vk->textDualModeVertShaderModule = VK_NULL_HANDLE;
 		}
 	}
 

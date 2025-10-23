@@ -46,6 +46,9 @@ EMOJI_INTEGRATION_OBJ := $(BUILD_DIR)/nanovg_vk_emoji.o
 TEXT_EMOJI_SRC := src/nanovg_vk_text_emoji.c
 TEXT_EMOJI_OBJ := $(BUILD_DIR)/nanovg_vk_text_emoji.o
 
+# Emoji objects required by backend (for NVG_VK_IMPLEMENTATION)
+EMOJI_BACKEND_OBJS := $(TEXT_EMOJI_OBJ) $(EMOJI_INTEGRATION_OBJ) $(BITMAP_EMOJI_OBJ) $(COLR_RENDER_OBJ) $(EMOJI_TABLES_OBJ) $(COLOR_ATLAS_OBJ)
+
 # Test programs
 SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/test_init
 SMOKE_TEST_OBJS := $(BUILD_DIR)/test_compile.o $(BUILD_DIR)/test_simple.o $(BUILD_DIR)/test_init.o
@@ -182,15 +185,15 @@ $(BUILD_DIR)/test_init.o: tests/test_init.c | $(BUILD_DIR)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_compile: $(BUILD_DIR)/test_compile.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ)
+$(BUILD_DIR)/test_compile: $(BUILD_DIR)/test_compile.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
-$(BUILD_DIR)/test_simple: $(BUILD_DIR)/test_simple.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ)
+$(BUILD_DIR)/test_simple: $(BUILD_DIR)/test_simple.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
-$(BUILD_DIR)/test_init: $(BUILD_DIR)/test_init.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ)
+$(BUILD_DIR)/test_init: $(BUILD_DIR)/test_init.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 

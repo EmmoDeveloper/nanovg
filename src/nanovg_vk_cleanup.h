@@ -91,6 +91,29 @@ static void vknvg__renderDelete(void* uptr)
 		vk->textCacheRenderPass = VK_NULL_HANDLE;
 	}
 
+	// Cleanup emoji rendering resources (Phase 6)
+	if (vk->dualModeDescriptorSets != NULL) {
+		free(vk->dualModeDescriptorSets);
+	}
+	if (vk->dualModeDescriptorSetLayout != VK_NULL_HANDLE) {
+		vkDestroyDescriptorSetLayout(vk->device, vk->dualModeDescriptorSetLayout, NULL);
+	}
+	if (vk->textDualModePipeline != VK_NULL_HANDLE) {
+		vkDestroyPipeline(vk->device, vk->textDualModePipeline, NULL);
+	}
+	if (vk->textDualModeFragShaderModule != VK_NULL_HANDLE) {
+		vkDestroyShaderModule(vk->device, vk->textDualModeFragShaderModule, NULL);
+	}
+	if (vk->textDualModeVertShaderModule != VK_NULL_HANDLE) {
+		vkDestroyShaderModule(vk->device, vk->textDualModeVertShaderModule, NULL);
+	}
+	if (vk->textEmojiState != NULL) {
+		vknvg__destroyTextEmojiState(vk->textEmojiState);
+	}
+	if (vk->colorAtlas != NULL) {
+		vknvg__destroyColorAtlas(vk->colorAtlas);
+	}
+
 	// Cleanup pipelines
 	if (vk->fillPipeline != VK_NULL_HANDLE) {
 		vkDestroyPipeline(vk->device, vk->fillPipeline, NULL);
