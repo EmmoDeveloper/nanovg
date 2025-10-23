@@ -1471,10 +1471,11 @@ static void vknvg__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOper
 	// Text rendering uses font atlas (image >= 0) and triangles
 	VkBool32 isTextRendering = (paint->image > 0 && nverts % 6 == 0);
 
-	// Phase D: Emoji detection happens at glyph level in vknvg__onGlyphAdded
-	// Dual-mode rendering with run splitting will be implemented in a future phase
-	// For now, emoji glyphs are detected and rendered to color atlas, but we use
-	// standard SDF pipeline for all text rendering
+	// Phase E: Enable dual-mode emoji rendering for text
+	// The dual-mode shader handles both SDF and color emoji automatically
+	if (isTextRendering && vk->useColorEmoji && vk->textDualModePipeline != VK_NULL_HANDLE) {
+		call->useColorEmoji = VK_TRUE;
+	}
 
 	if (vk->useTextInstancing && isTextRendering && vk->glyphInstanceBuffer != NULL) {
 		// Use instanced rendering: convert vertex quads to instances
