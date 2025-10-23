@@ -798,7 +798,31 @@ void vknvg__onGlyphAdded(void* uptr, FONSglyph* glyph, int fontIndex, const unsi
 		return;
 	}
 
-	// If virtual atlas is enabled, use it
+	// Phase D: Check if this glyph should be rendered as a color emoji
+	if (vk->useColorEmoji && vk->textEmojiState != NULL) {
+		if (vknvg__shouldRenderAsEmoji(vk->textEmojiState, glyph->codepoint)) {
+			// Try to render as color emoji
+			VKNVGglyphRenderInfo renderInfo;
+			float size = (float)(glyph->size) / 10.0f;  // Convert from 1/10th pixel
+
+			if (vknvg__tryRenderAsEmoji(vk->textEmojiState, (uint32_t)fontIndex,
+			                             glyph->codepoint, glyph->index, size, &renderInfo)) {
+				// Successfully rendered as emoji - update glyph coordinates to point to color atlas
+				// Note: The dual-mode shader will use binding 2 (color atlas) for these coords
+				glyph->x0 = renderInfo.colorAtlasX;
+				glyph->y0 = renderInfo.colorAtlasY;
+				glyph->x1 = renderInfo.colorAtlasX + renderInfo.colorWidth;
+				glyph->y1 = renderInfo.colorAtlasY + renderInfo.colorHeight;
+				glyph->xoff = renderInfo.bearingX;
+				glyph->yoff = renderInfo.bearingY;
+				glyph->xadv = renderInfo.advance;
+				return;  // Early return - glyph is in color atlas
+			}
+			// Fall through to SDF rendering if emoji rendering failed
+		}
+	}
+
+	// If virtual atlas is enabled, use it for SDF rendering
 	if (vk->useVirtualAtlas && vk->virtualAtlas) {
 		// Check if data has non-zero pixels
 		int nonZero = 0;
@@ -1446,6 +1470,11 @@ static void vknvg__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOper
 	// Check if we should use instanced rendering for text
 	// Text rendering uses font atlas (image >= 0) and triangles
 	VkBool32 isTextRendering = (paint->image > 0 && nverts % 6 == 0);
+
+	// Phase D: Emoji detection happens at glyph level in vknvg__onGlyphAdded
+	// Dual-mode rendering with run splitting will be implemented in a future phase
+	// For now, emoji glyphs are detected and rendered to color atlas, but we use
+	// standard SDF pipeline for all text rendering
 
 	if (vk->useTextInstancing && isTextRendering && vk->glyphInstanceBuffer != NULL) {
 		// Use instanced rendering: convert vertex quads to instances
