@@ -1265,7 +1265,12 @@ static void vknvg__convertPaint(VKNVGcontext* vk, VKNVGfragUniforms* frag, NVGpa
 			frag->type = 1; // SHADER_FILLIMG
 			// Set texType based on texture type and flags
 			if (tex->type == 1) {
-				frag->texType = 2; // Alpha only (fonts)
+				// Alpha only (fonts) - check if MSDF or SDF
+				if (vk->flags & NVG_MSDF_TEXT) {
+					frag->texType = 2; // MSDF mode
+				} else {
+					frag->texType = 1; // SDF mode (default for fonts)
+				}
 			} else if (tex->flags & 0x02) { // NVG_IMAGE_PREMULTIPLIED
 				frag->texType = 1; // Premultiplied alpha RGBA
 			} else {
