@@ -29,6 +29,34 @@ extern "C" {
 #define org_emmo_ai_nanovg_NanoVG_MSDF_MODE_SDF 1L
 #undef org_emmo_ai_nanovg_NanoVG_MSDF_MODE_MSDF
 #define org_emmo_ai_nanovg_NanoVG_MSDF_MODE_MSDF 2L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_CCW
+#define org_emmo_ai_nanovg_NanoVG_NVG_CCW 1L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_CW
+#define org_emmo_ai_nanovg_NanoVG_NVG_CW 2L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_BUTT
+#define org_emmo_ai_nanovg_NanoVG_NVG_BUTT 0L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ROUND
+#define org_emmo_ai_nanovg_NanoVG_NVG_ROUND 1L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_SQUARE
+#define org_emmo_ai_nanovg_NanoVG_NVG_SQUARE 2L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_MITER
+#define org_emmo_ai_nanovg_NanoVG_NVG_MITER 4L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_BEVEL
+#define org_emmo_ai_nanovg_NanoVG_NVG_BEVEL 3L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_LEFT
+#define org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_LEFT 1L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_CENTER
+#define org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_CENTER 2L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_RIGHT
+#define org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_RIGHT 4L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_TOP
+#define org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_TOP 8L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_MIDDLE
+#define org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_MIDDLE 16L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_BOTTOM
+#define org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_BOTTOM 32L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_BASELINE
+#define org_emmo_ai_nanovg_NanoVG_NVG_ALIGN_BASELINE 64L
 /*
  * Class:     org_emmo_ai_nanovg_NanoVG
  * Method:    nvgCreateVk
@@ -147,6 +175,310 @@ JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgFill
  * Signature: (J)V
  */
 JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgStroke
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgMoveTo
+ * Signature: (JFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgMoveTo
+  (JNIEnv *, jclass, jlong, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgLineTo
+ * Signature: (JFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgLineTo
+  (JNIEnv *, jclass, jlong, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgBezierTo
+ * Signature: (JFFFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgBezierTo
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgQuadTo
+ * Signature: (JFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgQuadTo
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgArcTo
+ * Signature: (JFFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgArcTo
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgClosePath
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgClosePath
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgPathWinding
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgPathWinding
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgArc
+ * Signature: (JFFFFFI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgArc
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgRoundedRect
+ * Signature: (JFFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRoundedRect
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgRoundedRectVarying
+ * Signature: (JFFFFFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRoundedRectVarying
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgEllipse
+ * Signature: (JFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgEllipse
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCircle
+ * Signature: (JFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCircle
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgSave
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgSave
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgRestore
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRestore
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgReset
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgReset
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgResetTransform
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgResetTransform
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTransform
+ * Signature: (JFFFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTransform
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTranslate
+ * Signature: (JFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTranslate
+  (JNIEnv *, jclass, jlong, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgRotate
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRotate
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgSkewX
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgSkewX
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgSkewY
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgSkewY
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgScale
+ * Signature: (JFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgScale
+  (JNIEnv *, jclass, jlong, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgStrokeColor
+ * Signature: (JIIII)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgStrokeColor
+  (JNIEnv *, jclass, jlong, jint, jint, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgStrokeWidth
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgStrokeWidth
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgLineCap
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgLineCap
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgLineJoin
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgLineJoin
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgMiterLimit
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgMiterLimit
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgGlobalAlpha
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgGlobalAlpha
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgScissor
+ * Signature: (JFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgScissor
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgIntersectScissor
+ * Signature: (JFFFF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgIntersectScissor
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgResetScissor
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgResetScissor
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTextAlign
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextAlign
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTextLetterSpacing
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextLetterSpacing
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTextLineHeight
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextLineHeight
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgFontBlur
+ * Signature: (JF)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgFontBlur
+  (JNIEnv *, jclass, jlong, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTextBox
+ * Signature: (JFFFLjava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextBox
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jstring);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTextBounds
+ * Signature: (JFFLjava/lang/String;)[F
+ */
+JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextBounds
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jstring);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTextMetrics
+ * Signature: (J)[F
+ */
+JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextMetrics
   (JNIEnv *, jclass, jlong);
 
 #ifdef __cplusplus

@@ -23,6 +23,28 @@ public class NanoVG {
 	public static final int MSDF_MODE_SDF = 1;
 	public static final int MSDF_MODE_MSDF = 2;
 
+	// Winding
+	public static final int NVG_CCW = 1;
+	public static final int NVG_CW = 2;
+
+	// Line caps
+	public static final int NVG_BUTT = 0;
+	public static final int NVG_ROUND = 1;
+	public static final int NVG_SQUARE = 2;
+
+	// Line joins
+	public static final int NVG_MITER = 4;
+	public static final int NVG_BEVEL = 3;
+
+	// Text alignment
+	public static final int NVG_ALIGN_LEFT = 1 << 0;
+	public static final int NVG_ALIGN_CENTER = 1 << 1;
+	public static final int NVG_ALIGN_RIGHT = 1 << 2;
+	public static final int NVG_ALIGN_TOP = 1 << 3;
+	public static final int NVG_ALIGN_MIDDLE = 1 << 4;
+	public static final int NVG_ALIGN_BOTTOM = 1 << 5;
+	public static final int NVG_ALIGN_BASELINE = 1 << 6;
+
 	static {
 		System.loadLibrary("nanovg-jni");
 	}
@@ -180,6 +202,209 @@ public class NanoVG {
 	 * @param ctx NanoVG context handle
 	 */
 	public static native void nvgStroke(long ctx);
+
+	// Path operations
+
+	/**
+	 * Start new sub-path at specified point.
+	 */
+	public static native void nvgMoveTo(long ctx, float x, float y);
+
+	/**
+	 * Add line segment to specified point.
+	 */
+	public static native void nvgLineTo(long ctx, float x, float y);
+
+	/**
+	 * Add cubic bezier curve.
+	 */
+	public static native void nvgBezierTo(long ctx, float c1x, float c1y, float c2x, float c2y, float x, float y);
+
+	/**
+	 * Add quadratic bezier curve.
+	 */
+	public static native void nvgQuadTo(long ctx, float cx, float cy, float x, float y);
+
+	/**
+	 * Add arc segment.
+	 */
+	public static native void nvgArcTo(long ctx, float x1, float y1, float x2, float y2, float radius);
+
+	/**
+	 * Close current sub-path with line segment.
+	 */
+	public static native void nvgClosePath(long ctx);
+
+	/**
+	 * Set winding direction (NVG_CCW=1 or NVG_CW=2).
+	 */
+	public static native void nvgPathWinding(long ctx, int dir);
+
+	/**
+	 * Create arc path.
+	 */
+	public static native void nvgArc(long ctx, float cx, float cy, float r, float a0, float a1, int dir);
+
+	/**
+	 * Create rounded rectangle path.
+	 */
+	public static native void nvgRoundedRect(long ctx, float x, float y, float w, float h, float r);
+
+	/**
+	 * Create rounded rectangle with varying corner radii.
+	 */
+	public static native void nvgRoundedRectVarying(long ctx, float x, float y, float w, float h,
+		float radTopLeft, float radTopRight, float radBottomRight, float radBottomLeft);
+
+	/**
+	 * Create ellipse path.
+	 */
+	public static native void nvgEllipse(long ctx, float cx, float cy, float rx, float ry);
+
+	/**
+	 * Create circle path.
+	 */
+	public static native void nvgCircle(long ctx, float cx, float cy, float r);
+
+	// State management
+
+	/**
+	 * Push current state to stack.
+	 */
+	public static native void nvgSave(long ctx);
+
+	/**
+	 * Restore state from stack.
+	 */
+	public static native void nvgRestore(long ctx);
+
+	/**
+	 * Reset state to defaults.
+	 */
+	public static native void nvgReset(long ctx);
+
+	// Transforms
+
+	/**
+	 * Reset transform to identity.
+	 */
+	public static native void nvgResetTransform(long ctx);
+
+	/**
+	 * Apply custom transform matrix.
+	 */
+	public static native void nvgTransform(long ctx, float a, float b, float c, float d, float e, float f);
+
+	/**
+	 * Translate coordinate system.
+	 */
+	public static native void nvgTranslate(long ctx, float x, float y);
+
+	/**
+	 * Rotate coordinate system (angle in radians).
+	 */
+	public static native void nvgRotate(long ctx, float angle);
+
+	/**
+	 * Skew coordinate system along X axis (angle in radians).
+	 */
+	public static native void nvgSkewX(long ctx, float angle);
+
+	/**
+	 * Skew coordinate system along Y axis (angle in radians).
+	 */
+	public static native void nvgSkewY(long ctx, float angle);
+
+	/**
+	 * Scale coordinate system.
+	 */
+	public static native void nvgScale(long ctx, float x, float y);
+
+	// Stroke properties
+
+	/**
+	 * Set stroke color.
+	 */
+	public static native void nvgStrokeColor(long ctx, int r, int g, int b, int a);
+
+	/**
+	 * Set stroke width.
+	 */
+	public static native void nvgStrokeWidth(long ctx, float width);
+
+	/**
+	 * Set line cap style (NVG_BUTT=0, NVG_ROUND=1, NVG_SQUARE=2).
+	 */
+	public static native void nvgLineCap(long ctx, int cap);
+
+	/**
+	 * Set line join style (NVG_MITER=4, NVG_ROUND=1, NVG_BEVEL=3).
+	 */
+	public static native void nvgLineJoin(long ctx, int join);
+
+	/**
+	 * Set miter limit.
+	 */
+	public static native void nvgMiterLimit(long ctx, float limit);
+
+	/**
+	 * Set global alpha.
+	 */
+	public static native void nvgGlobalAlpha(long ctx, float alpha);
+
+	// Scissoring
+
+	/**
+	 * Set scissor rectangle.
+	 */
+	public static native void nvgScissor(long ctx, float x, float y, float w, float h);
+
+	/**
+	 * Intersect with scissor rectangle.
+	 */
+	public static native void nvgIntersectScissor(long ctx, float x, float y, float w, float h);
+
+	/**
+	 * Reset scissoring.
+	 */
+	public static native void nvgResetScissor(long ctx);
+
+	// Text layout
+
+	/**
+	 * Set text alignment (combination of NVG_ALIGN_* flags).
+	 */
+	public static native void nvgTextAlign(long ctx, int align);
+
+	/**
+	 * Set text letter spacing.
+	 */
+	public static native void nvgTextLetterSpacing(long ctx, float spacing);
+
+	/**
+	 * Set text line height.
+	 */
+	public static native void nvgTextLineHeight(long ctx, float lineHeight);
+
+	/**
+	 * Set font blur.
+	 */
+	public static native void nvgFontBlur(long ctx, float blur);
+
+	/**
+	 * Draw text box with line wrapping.
+	 */
+	public static native void nvgTextBox(long ctx, float x, float y, float breakRowWidth, String text);
+
+	/**
+	 * Measure text bounds. Returns bounds as [xmin, ymin, xmax, ymax].
+	 */
+	public static native float[] nvgTextBounds(long ctx, float x, float y, String text);
+
+	/**
+	 * Get text metrics. Returns [ascender, descender, lineHeight].
+	 */
+	public static native float[] nvgTextMetrics(long ctx);
 
 	/**
 	 * Example usage with MSDF text rendering.

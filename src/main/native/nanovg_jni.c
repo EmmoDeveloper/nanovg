@@ -271,3 +271,305 @@ JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgStroke
 
 	nvgStroke((NVGcontext*)ctx);
 }
+
+// Path operations
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgMoveTo
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y) {
+
+	(void)env; (void)cls;
+	nvgMoveTo((NVGcontext*)ctx, x, y);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgLineTo
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y) {
+
+	(void)env; (void)cls;
+	nvgLineTo((NVGcontext*)ctx, x, y);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgBezierTo
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat c1x, jfloat c1y, jfloat c2x, jfloat c2y, jfloat x, jfloat y) {
+
+	(void)env; (void)cls;
+	nvgBezierTo((NVGcontext*)ctx, c1x, c1y, c2x, c2y, x, y);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgQuadTo
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat cx, jfloat cy, jfloat x, jfloat y) {
+
+	(void)env; (void)cls;
+	nvgQuadTo((NVGcontext*)ctx, cx, cy, x, y);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgArcTo
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x1, jfloat y1, jfloat x2, jfloat y2, jfloat radius) {
+
+	(void)env; (void)cls;
+	nvgArcTo((NVGcontext*)ctx, x1, y1, x2, y2, radius);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgClosePath
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env; (void)cls;
+	nvgClosePath((NVGcontext*)ctx);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgPathWinding
+  (JNIEnv* env, jclass cls, jlong ctx, jint dir) {
+
+	(void)env; (void)cls;
+	nvgPathWinding((NVGcontext*)ctx, dir);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgArc
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat cx, jfloat cy, jfloat r, jfloat a0, jfloat a1, jint dir) {
+
+	(void)env; (void)cls;
+	nvgArc((NVGcontext*)ctx, cx, cy, r, a0, a1, dir);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRoundedRect
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y, jfloat w, jfloat h, jfloat r) {
+
+	(void)env; (void)cls;
+	nvgRoundedRect((NVGcontext*)ctx, x, y, w, h, r);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRoundedRectVarying
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y, jfloat w, jfloat h,
+   jfloat radTopLeft, jfloat radTopRight, jfloat radBottomRight, jfloat radBottomLeft) {
+
+	(void)env; (void)cls;
+	nvgRoundedRectVarying((NVGcontext*)ctx, x, y, w, h, radTopLeft, radTopRight, radBottomRight, radBottomLeft);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgEllipse
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat cx, jfloat cy, jfloat rx, jfloat ry) {
+
+	(void)env; (void)cls;
+	nvgEllipse((NVGcontext*)ctx, cx, cy, rx, ry);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCircle
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat cx, jfloat cy, jfloat r) {
+
+	(void)env; (void)cls;
+	nvgCircle((NVGcontext*)ctx, cx, cy, r);
+}
+
+// State management
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgSave
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env; (void)cls;
+	nvgSave((NVGcontext*)ctx);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRestore
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env; (void)cls;
+	nvgRestore((NVGcontext*)ctx);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgReset
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env; (void)cls;
+	nvgReset((NVGcontext*)ctx);
+}
+
+// Transforms
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgResetTransform
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env; (void)cls;
+	nvgResetTransform((NVGcontext*)ctx);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTransform
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat a, jfloat b, jfloat c, jfloat d, jfloat e, jfloat f) {
+
+	(void)env; (void)cls;
+	nvgTransform((NVGcontext*)ctx, a, b, c, d, e, f);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTranslate
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y) {
+
+	(void)env; (void)cls;
+	nvgTranslate((NVGcontext*)ctx, x, y);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRotate
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat angle) {
+
+	(void)env; (void)cls;
+	nvgRotate((NVGcontext*)ctx, angle);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgSkewX
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat angle) {
+
+	(void)env; (void)cls;
+	nvgSkewX((NVGcontext*)ctx, angle);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgSkewY
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat angle) {
+
+	(void)env; (void)cls;
+	nvgSkewY((NVGcontext*)ctx, angle);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgScale
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y) {
+
+	(void)env; (void)cls;
+	nvgScale((NVGcontext*)ctx, x, y);
+}
+
+// Stroke properties
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgStrokeColor
+  (JNIEnv* env, jclass cls, jlong ctx, jint r, jint g, jint b, jint a) {
+
+	(void)env; (void)cls;
+	nvgStrokeColor((NVGcontext*)ctx, nvgRGBA(r, g, b, a));
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgStrokeWidth
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat width) {
+
+	(void)env; (void)cls;
+	nvgStrokeWidth((NVGcontext*)ctx, width);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgLineCap
+  (JNIEnv* env, jclass cls, jlong ctx, jint cap) {
+
+	(void)env; (void)cls;
+	nvgLineCap((NVGcontext*)ctx, cap);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgLineJoin
+  (JNIEnv* env, jclass cls, jlong ctx, jint join) {
+
+	(void)env; (void)cls;
+	nvgLineJoin((NVGcontext*)ctx, join);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgMiterLimit
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat limit) {
+
+	(void)env; (void)cls;
+	nvgMiterLimit((NVGcontext*)ctx, limit);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgGlobalAlpha
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat alpha) {
+
+	(void)env; (void)cls;
+	nvgGlobalAlpha((NVGcontext*)ctx, alpha);
+}
+
+// Scissoring
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgScissor
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y, jfloat w, jfloat h) {
+
+	(void)env; (void)cls;
+	nvgScissor((NVGcontext*)ctx, x, y, w, h);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgIntersectScissor
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y, jfloat w, jfloat h) {
+
+	(void)env; (void)cls;
+	nvgIntersectScissor((NVGcontext*)ctx, x, y, w, h);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgResetScissor
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env; (void)cls;
+	nvgResetScissor((NVGcontext*)ctx);
+}
+
+// Text layout
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextAlign
+  (JNIEnv* env, jclass cls, jlong ctx, jint align) {
+
+	(void)env; (void)cls;
+	nvgTextAlign((NVGcontext*)ctx, align);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextLetterSpacing
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat spacing) {
+
+	(void)env; (void)cls;
+	nvgTextLetterSpacing((NVGcontext*)ctx, spacing);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextLineHeight
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat lineHeight) {
+
+	(void)env; (void)cls;
+	nvgTextLineHeight((NVGcontext*)ctx, lineHeight);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgFontBlur
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat blur) {
+
+	(void)env; (void)cls;
+	nvgFontBlur((NVGcontext*)ctx, blur);
+}
+
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextBox
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y, jfloat breakRowWidth, jstring text) {
+
+	(void)cls;
+	const char* cText = jstring_to_cstring(env, text);
+	if (cText == NULL) return;
+
+	nvgTextBox((NVGcontext*)ctx, x, y, breakRowWidth, cText, NULL);
+	free((void*)cText);
+}
+
+JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextBounds
+  (JNIEnv* env, jclass cls, jlong ctx, jfloat x, jfloat y, jstring text) {
+
+	(void)cls;
+	const char* cText = jstring_to_cstring(env, text);
+	if (cText == NULL) return NULL;
+
+	float bounds[4];
+	nvgTextBounds((NVGcontext*)ctx, x, y, cText, NULL, bounds);
+	free((void*)cText);
+
+	jfloatArray result = (*env)->NewFloatArray(env, 4);
+	if (result != NULL) {
+		(*env)->SetFloatArrayRegion(env, result, 0, 4, bounds);
+	}
+	return result;
+}
+
+JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextMetrics
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)cls;
+	float ascender, descender, lineHeight;
+	nvgTextMetrics((NVGcontext*)ctx, &ascender, &descender, &lineHeight);
+
+	jfloatArray result = (*env)->NewFloatArray(env, 3);
+	if (result != NULL) {
+		float metrics[3] = {ascender, descender, lineHeight};
+		(*env)->SetFloatArrayRegion(env, result, 0, 3, metrics);
+	}
+	return result;
+}
