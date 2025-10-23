@@ -2349,6 +2349,11 @@ void nvgResetFallbackFonts(NVGcontext* ctx, const char* baseFont)
 	nvgResetFallbackFontsId(ctx, nvgFindFont(ctx, baseFont));
 }
 
+void nvgSetFontMSDF(NVGcontext* ctx, int font, int msdfMode)
+{
+	fonsSetFontMSDF(ctx->fs, font, msdfMode);
+}
+
 // State setting
 void nvgFontSize(NVGcontext* ctx, float size)
 {

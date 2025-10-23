@@ -565,6 +565,10 @@ int nvgAddFallbackFontId(NVGcontext* ctx, int baseFont, int fallbackFont);
 // Adds a fallback font by name.
 int nvgAddFallbackFont(NVGcontext* ctx, const char* baseFont, const char* fallbackFont);
 
+// Sets MSDF rendering mode for a font (0=bitmap/SDF, 1=SDF, 2=MSDF)
+// Requires NVG_MSDF_TEXT flag when creating context
+void nvgSetFontMSDF(NVGcontext* ctx, int font, int msdfMode);
+
 // Resets fallback fonts by handle.
 void nvgResetFallbackFontsId(NVGcontext* ctx, int baseFont);
 
