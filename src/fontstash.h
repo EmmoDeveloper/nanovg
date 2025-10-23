@@ -111,6 +111,9 @@ int fonsAddFont(FONScontext* s, const char* name, const char* path, int fontInde
 int fonsAddFontMem(FONScontext* s, const char* name, unsigned char* data, int ndata, int freeData, int fontIndex);
 int fonsGetFontByName(FONScontext* s, const char* name);
 
+// Set font rendering mode (0 = bitmap, 1 = SDF, 2 = MSDF)
+void fonsSetFontMSDF(FONScontext* s, int font, int msdfMode);
+
 // State handling
 void fonsPushState(FONScontext* s);
 void fonsPopState(FONScontext* s);
@@ -243,6 +246,7 @@ struct FONSfont
 	unsigned char* data;
 	int dataSize;
 	unsigned char freeData;
+	unsigned char msdfMode;  // 0 = bitmap/SDF, 1 = SDF, 2 = MSDF
 	float ascender;
 	float descender;
 	float lineh;
@@ -306,6 +310,7 @@ struct FONScontext
 };
 
 #ifdef FONS_USE_FREETYPE
+#include "nanovg_vk_msdf.h"
 
 int fons__tt_init(FONScontext *context)
 {
@@ -373,6 +378,35 @@ int fons__tt_buildGlyphBitmap(FONSttFontImpl *font, int glyph, float size, float
 	return 1;
 }
 
+int fons__tt_buildGlyphBitmapMSDF(FONSttFontImpl *font, int glyph, float size, float scale,
+								  int *advance, int *lsb, int *x0, int *y0, int *x1, int *y1, int msdfPadding)
+{
+	FT_Error ftError;
+	FT_GlyphSlot ftGlyph;
+	FT_Fixed advFixed;
+	FONS_NOTUSED(scale);
+
+	ftError = FT_Set_Pixel_Sizes(font->font, 0, size);
+	if (ftError) return 0;
+	ftError = FT_Load_Glyph(font->font, glyph, FT_LOAD_NO_BITMAP);
+	if (ftError) return 0;
+	ftError = FT_Get_Advance(font->font, glyph, FT_LOAD_NO_SCALE, &advFixed);
+	if (ftError) return 0;
+	ftGlyph = font->font->glyph;
+	*advance = (int)advFixed;
+	*lsb = (int)ftGlyph->metrics.horiBearingX;
+
+	// For MSDF, calculate bounds from outline with padding for distance field
+	FT_BBox bbox;
+	FT_Outline_Get_BBox(&ftGlyph->outline, &bbox);
+	*x0 = (bbox.xMin >> 6) - msdfPadding;
+	*y0 = -(bbox.yMax >> 6) - msdfPadding;
+	*x1 = (bbox.xMax >> 6) + msdfPadding;
+	*y1 = -(bbox.yMin >> 6) + msdfPadding;
+
+	return 1;
+}
+
 void fons__tt_renderGlyphBitmap(FONSttFontImpl *font, unsigned char *output, int outWidth, int outHeight, int outStride,
 								float scaleX, float scaleY, int glyph)
 {
@@ -389,6 +423,31 @@ void fons__tt_renderGlyphBitmap(FONSttFontImpl *font, unsigned char *output, int
 		for ( x = 0; x < ftGlyph->bitmap.width; x++ ) {
 			output[(y * outStride) + x] = ftGlyph->bitmap.buffer[ftGlyphOffset++];
 		}
+	}
+}
+
+void fons__tt_renderGlyphBitmapMSDF(FONSttFontImpl *font, unsigned char *output, int outWidth, int outHeight, int outStride,
+									float scaleX, float scaleY, int glyph, int msdfMode, int msdfPadding)
+{
+	FT_GlyphSlot ftGlyph = font->font->glyph;
+	FONS_NOTUSED(scaleX);
+	FONS_NOTUSED(scaleY);
+	FONS_NOTUSED(glyph);
+
+	VKNVGmsdfParams params;
+	params.width = outWidth;
+	params.height = outHeight;
+	params.range = 4.0f;
+	params.scale = 1.0f;
+	params.offsetX = msdfPadding;
+	params.offsetY = msdfPadding;
+
+	if (msdfMode == 2) {
+		// MSDF mode - RGB output
+		vknvg__generateMSDF(ftGlyph, output, &params);
+	} else {
+		// SDF mode - grayscale output
+		vknvg__generateSDF(ftGlyph, output, &params);
 	}
 }
 
@@ -1017,6 +1076,12 @@ int fonsGetFontByName(FONScontext* s, const char* name)
 	return FONS_INVALID;
 }
 
+void fonsSetFontMSDF(FONScontext* s, int font, int msdfMode)
+{
+	if (font < 0 || font >= s->nfonts) return;
+	s->fonts[font]->msdfMode = (unsigned char)msdfMode;
+}
+
 
 static FONSglyph* fons__allocGlyph(FONSfont* font)
 {
@@ -1148,7 +1213,12 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 		// In that case the glyph index 'g' is 0, and we'll proceed below and cache empty glyph.
 	}
 	scale = fons__tt_getPixelHeightScale(&renderFont->font, size);
-	fons__tt_buildGlyphBitmap(&renderFont->font, g, size, scale, &advance, &lsb, &x0, &y0, &x1, &y1);
+	// Use MSDF build function if font is in MSDF mode
+	if (renderFont->msdfMode > 0) {
+		fons__tt_buildGlyphBitmapMSDF(&renderFont->font, g, size, scale, &advance, &lsb, &x0, &y0, &x1, &y1, 4);
+	} else {
+		fons__tt_buildGlyphBitmap(&renderFont->font, g, size, scale, &advance, &lsb, &x0, &y0, &x1, &y1);
+	}
 	gw = x1-x0 + pad*2;
 	gh = y1-y0 + pad*2;
 	if (codepoint >= 0x4E00) printf("DEBUG fontstash: bbox x0=%d y0=%d x1=%d y1=%d gw=%d gh=%d\n", x0, y0, x1, y1, gw, gh);
@@ -1204,7 +1274,12 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 		dst = &stash->texData[0];
 		if (codepoint >= 0x4E00) printf("DEBUG fontstash: calling renderGlyphBitmap dst=%p outW=%d outH=%d outStride=%d scale=%f g=%d\n",
 		                                 (void*)dst, gw, gh, gw, scale, g);
-		fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw, gh, gw, scale, scale, g);
+		// Use MSDF render function if font is in MSDF mode
+		if (renderFont->msdfMode > 0) {
+			fons__tt_renderGlyphBitmapMSDF(&renderFont->font, dst, gw, gh, gw, scale, scale, g, renderFont->msdfMode, 4);
+		} else {
+			fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw, gh, gw, scale, scale, g);
+		}
 
 		if (glyph->codepoint >= 0x4E00) {
 			int nonZero = 0;
@@ -1229,7 +1304,12 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	} else {
 		// Normal mode: rasterize into full atlas at correct position
 		dst = &stash->texData[(glyph->x0+pad) + (glyph->y0+pad) * stash->params.width];
-		fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw-pad*2,gh-pad*2, stash->params.width, scale, scale, g);
+		// Use MSDF render function if font is in MSDF mode
+		if (renderFont->msdfMode > 0) {
+			fons__tt_renderGlyphBitmapMSDF(&renderFont->font, dst, gw-pad*2, gh-pad*2, stash->params.width, scale, scale, g, renderFont->msdfMode, 4);
+		} else {
+			fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw-pad*2,gh-pad*2, stash->params.width, scale, scale, g);
+		}
 
 		// Make sure there is one pixel empty border.
 		dst = &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];

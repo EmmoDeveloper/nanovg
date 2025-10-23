@@ -49,6 +49,10 @@ TEXT_EMOJI_OBJ := $(BUILD_DIR)/nanovg_vk_text_emoji.o
 # Emoji objects required by backend (for NVG_VK_IMPLEMENTATION)
 EMOJI_BACKEND_OBJS := $(TEXT_EMOJI_OBJ) $(EMOJI_INTEGRATION_OBJ) $(BITMAP_EMOJI_OBJ) $(COLR_RENDER_OBJ) $(EMOJI_TABLES_OBJ) $(COLOR_ATLAS_OBJ)
 
+# Phase I: MSDF Generation
+MSDF_SRC := src/nanovg_vk_msdf.c
+MSDF_OBJ := $(BUILD_DIR)/nanovg_vk_msdf.o
+
 # Test programs
 SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/test_init
 SMOKE_TEST_OBJS := $(BUILD_DIR)/test_compile.o $(BUILD_DIR)/test_simple.o $(BUILD_DIR)/test_init.o
@@ -171,6 +175,11 @@ $(EMOJI_INTEGRATION_OBJ): $(EMOJI_INTEGRATION_SRC) | $(BUILD_DIR)
 
 $(TEXT_EMOJI_OBJ): $(TEXT_EMOJI_SRC) | $(BUILD_DIR)
 	@echo "Compiling text-emoji integration..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# Phase I: MSDF Generation
+$(MSDF_OBJ): $(MSDF_SRC) | $(BUILD_DIR)
+	@echo "Compiling MSDF generator..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/test_compile.o: tests/test_compile.c | $(BUILD_DIR)
