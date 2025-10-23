@@ -95,6 +95,9 @@ static void vknvg__renderDelete(void* uptr)
 	if (vk->dualModeDescriptorSets != NULL) {
 		free(vk->dualModeDescriptorSets);
 	}
+	if (vk->dualModePipelineLayout != VK_NULL_HANDLE) {
+		vkDestroyPipelineLayout(vk->device, vk->dualModePipelineLayout, NULL);
+	}
 	if (vk->dualModeDescriptorSetLayout != VK_NULL_HANDLE) {
 		vkDestroyDescriptorSetLayout(vk->device, vk->dualModeDescriptorSetLayout, NULL);
 	}

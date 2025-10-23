@@ -85,6 +85,7 @@ struct VKNVGcall {
 	VkBool32 useInstancing;
 	int instanceOffset;
 	int instanceCount;
+	VkBool32 useColorEmoji;	// Phase 6: Use color emoji rendering (dual-mode pipeline + color atlas)
 };
 typedef struct VKNVGcall VKNVGcall;
 
@@ -307,6 +308,7 @@ struct VKNVGcontext {
 	VkShaderModule textDualModeVertShaderModule;	// Dual-mode vertex shader
 	VkShaderModule textDualModeFragShaderModule;	// Dual-mode fragment shader
 	VkDescriptorSetLayout dualModeDescriptorSetLayout;	// Descriptor layout with 3 bindings
+	VkPipelineLayout dualModePipelineLayout;	// Pipeline layout for dual-mode rendering
 	VkDescriptorSet* dualModeDescriptorSets;	// Descriptor sets for dual-mode rendering
 };
 typedef struct VKNVGcontext VKNVGcontext;

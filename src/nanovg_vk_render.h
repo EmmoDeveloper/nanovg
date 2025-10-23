@@ -414,6 +414,7 @@ static int vknvg__renderCreate(void* uptr)
 	vk->textDualModeVertShaderModule = VK_NULL_HANDLE;
 	vk->textDualModeFragShaderModule = VK_NULL_HANDLE;
 	vk->dualModeDescriptorSetLayout = VK_NULL_HANDLE;
+	vk->dualModePipelineLayout = VK_NULL_HANDLE;
 	vk->dualModeDescriptorSets = NULL;
 
 	if ((vk->flags & NVG_COLOR_EMOJI) && (vk->emojiFontPath != NULL || vk->emojiFontData != NULL)) {
@@ -472,29 +473,21 @@ static int vknvg__renderCreate(void* uptr)
 		if (result != VK_SUCCESS) goto skip_emoji;
 
 		// Create dual-mode pipeline layout
-		VkPipelineLayout dualModePipelineLayout = VK_NULL_HANDLE;
-		result = vknvg__createDualModePipelineLayout(vk, &dualModePipelineLayout);
+		result = vknvg__createDualModePipelineLayout(vk, &vk->dualModePipelineLayout);
 		if (result != VK_SUCCESS) goto skip_emoji;
 
 		// Create dual-mode pipeline
-		result = vknvg__createDualModeTextPipeline(vk, &vk->textDualModePipeline, dualModePipelineLayout);
-		if (result != VK_SUCCESS) {
-			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
-			goto skip_emoji;
-		}
+		result = vknvg__createDualModeTextPipeline(vk, &vk->textDualModePipeline, vk->dualModePipelineLayout);
+		if (result != VK_SUCCESS) goto skip_emoji;
 
 		// Allocate dual-mode descriptor sets (per frame)
 		vk->dualModeDescriptorSets = (VkDescriptorSet*)malloc(sizeof(VkDescriptorSet) * vk->maxFrames);
-		if (vk->dualModeDescriptorSets == NULL) {
-			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
-			goto skip_emoji;
-		}
+		if (vk->dualModeDescriptorSets == NULL) goto skip_emoji;
 
 		VkDescriptorSetLayout* dualModeLayouts = (VkDescriptorSetLayout*)malloc(sizeof(VkDescriptorSetLayout) * vk->maxFrames);
 		if (dualModeLayouts == NULL) {
 			free(vk->dualModeDescriptorSets);
 			vk->dualModeDescriptorSets = NULL;
-			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
 			goto skip_emoji;
 		}
 		for (uint32_t i = 0; i < vk->maxFrames; i++) {
@@ -512,7 +505,6 @@ static int vknvg__renderCreate(void* uptr)
 		if (result != VK_SUCCESS) {
 			free(vk->dualModeDescriptorSets);
 			vk->dualModeDescriptorSets = NULL;
-			vkDestroyPipelineLayout(vk->device, dualModePipelineLayout, NULL);
 			goto skip_emoji;
 		}
 
@@ -526,6 +518,10 @@ skip_emoji:
 		if (vk->dualModeDescriptorSets != NULL) {
 			free(vk->dualModeDescriptorSets);
 			vk->dualModeDescriptorSets = NULL;
+		}
+		if (vk->dualModePipelineLayout != VK_NULL_HANDLE) {
+			vkDestroyPipelineLayout(vk->device, vk->dualModePipelineLayout, NULL);
+			vk->dualModePipelineLayout = VK_NULL_HANDLE;
 		}
 		if (vk->dualModeDescriptorSetLayout != VK_NULL_HANDLE) {
 			vkDestroyDescriptorSetLayout(vk->device, vk->dualModeDescriptorSetLayout, NULL);
@@ -1445,6 +1441,7 @@ static void vknvg__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOper
 	call->image = paint->image;
 	call->blend = vknvg__blendCompositeOperation(compositeOperation);
 	call->useInstancing = VK_FALSE;
+	call->useColorEmoji = VK_FALSE;	// Default to SDF rendering
 
 	// Check if we should use instanced rendering for text
 	// Text rendering uses font atlas (image >= 0) and triangles
@@ -1869,9 +1866,16 @@ static void vknvg__renderFlush(void* uptr)
 			VkPipeline trianglesPipeline = vk->trianglesPipeline;
 			VkBool32 isTextRendering = VK_FALSE;
 			VkBool32 useInstancedPipeline = call->useInstancing;
+			VkBool32 useEmojiPipeline = VK_FALSE;
 
+			// Check if we're using dual-mode emoji rendering (Phase 6)
+			if (call->useColorEmoji && vk->useColorEmoji && vk->textDualModePipeline != VK_NULL_HANDLE) {
+				trianglesPipeline = vk->textDualModePipeline;
+				isTextRendering = VK_TRUE;
+				useEmojiPipeline = VK_TRUE;
+			}
 			// Check if we're rendering text
-			if (call->image > 0) {
+			else if (call->image > 0) {
 				VKNVGtexture* tex = vknvg__findTexture(vk, call->image);
 				if (tex != NULL) {
 					if (tex->type == 3 && (vk->flags & NVG_COLOR_TEXT)) {
@@ -1913,41 +1917,87 @@ static void vknvg__renderFlush(void* uptr)
 				vkCmdBindVertexBuffers(cmd, 1, 1, &instanceBuffer, &instanceOffset);
 			}
 
-			// Update descriptor set
+			// Update descriptor set and bind textures
 			bufferInfo.offset = call->uniformOffset;
 			vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
 
-			// Bind texture if specified
-			if (call->image > 0) {
-				VKNVGtexture* tex = vknvg__findTexture(vk, call->image);
-				if (tex != NULL) {
-					VkDescriptorImageInfo imageInfo = {0};
-					imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			if (useEmojiPipeline) {
+				// Dual-mode emoji rendering: bind both SDF and color atlases
+				VkDescriptorSet emojiDescriptorSet = vk->dualModeDescriptorSets[vk->currentFrame];
 
-					// Redirect to virtual atlas if this is the fontstash texture
-					if ((tex->flags & 0x20000) && vk->useVirtualAtlas && vk->virtualAtlas) {
-						imageInfo.imageView = vk->virtualAtlas->atlasImageView;
-						imageInfo.sampler = vk->virtualAtlas->atlasSampler;
-					} else {
-						imageInfo.imageView = tex->imageView;
-						imageInfo.sampler = tex->sampler;
-					}
+				// Binding 0: Uniform buffer (already updated above)
+				// Binding 1: SDF atlas (fontstash texture)
+				// Binding 2: Color atlas (emoji texture)
 
-					VkWriteDescriptorSet imageWrite = {0};
-					imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-					imageWrite.dstSet = descriptorSet;
-					imageWrite.dstBinding = 1;
-					imageWrite.dstArrayElement = 0;
-					imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-					imageWrite.descriptorCount = 1;
-					imageWrite.pImageInfo = &imageInfo;
+				VkDescriptorImageInfo imageInfos[2] = {0};
+				VkWriteDescriptorSet imageWrites[2] = {0};
 
-					vkUpdateDescriptorSets(vk->device, 1, &imageWrite, 0, NULL);
+				// SDF atlas at binding 1
+				if (call->image > 0 && vk->useVirtualAtlas && vk->virtualAtlas) {
+					imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					imageInfos[0].imageView = vk->virtualAtlas->atlasImageView;
+					imageInfos[0].sampler = vk->virtualAtlas->atlasSampler;
+
+					imageWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+					imageWrites[0].dstSet = emojiDescriptorSet;
+					imageWrites[0].dstBinding = 1;
+					imageWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+					imageWrites[0].descriptorCount = 1;
+					imageWrites[0].pImageInfo = &imageInfos[0];
 				}
-			}
 
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-			                         0, 1, &descriptorSet, 0, NULL);
+				// Color atlas at binding 2
+				if (vk->colorAtlas != NULL && vk->colorAtlas->atlasManager != NULL &&
+				    vk->colorAtlas->atlasManager->atlasCount > 0) {
+					imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					imageInfos[1].imageView = vk->colorAtlas->atlasManager->atlases[0].imageView;
+					imageInfos[1].sampler = vk->colorAtlas->atlasSampler;
+
+					imageWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+					imageWrites[1].dstSet = emojiDescriptorSet;
+					imageWrites[1].dstBinding = 2;
+					imageWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+					imageWrites[1].descriptorCount = 1;
+					imageWrites[1].pImageInfo = &imageInfos[1];
+
+					vkUpdateDescriptorSets(vk->device, 2, imageWrites, 0, NULL);
+				}
+
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->dualModePipelineLayout,
+				                         0, 1, &emojiDescriptorSet, 0, NULL);
+			} else {
+				// Regular rendering: bind single texture
+				if (call->image > 0) {
+					VKNVGtexture* tex = vknvg__findTexture(vk, call->image);
+					if (tex != NULL) {
+						VkDescriptorImageInfo imageInfo = {0};
+						imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+						// Redirect to virtual atlas if this is the fontstash texture
+						if ((tex->flags & 0x20000) && vk->useVirtualAtlas && vk->virtualAtlas) {
+							imageInfo.imageView = vk->virtualAtlas->atlasImageView;
+							imageInfo.sampler = vk->virtualAtlas->atlasSampler;
+						} else {
+							imageInfo.imageView = tex->imageView;
+							imageInfo.sampler = tex->sampler;
+						}
+
+						VkWriteDescriptorSet imageWrite = {0};
+						imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+						imageWrite.dstSet = descriptorSet;
+						imageWrite.dstBinding = 1;
+						imageWrite.dstArrayElement = 0;
+						imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+						imageWrite.descriptorCount = 1;
+						imageWrite.pImageInfo = &imageInfo;
+
+						vkUpdateDescriptorSets(vk->device, 1, &imageWrite, 0, NULL);
+					}
+				}
+
+				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
+				                         0, 1, &descriptorSet, 0, NULL);
+			}
 
 			if (useInstancedPipeline) {
 				// Instanced draw: 4 vertices per instance (triangle strip)
