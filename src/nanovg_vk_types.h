@@ -36,6 +36,7 @@ enum NVGcreateFlags {
 	NVG_COLOR_TEXT = 1<<14,
 	NVG_VIRTUAL_ATLAS = 1<<15,	// Enable virtual atlas for CJK support
 	NVG_TEXT_CACHE = 1<<16,		// Enable text run caching
+	NVG_COLOR_EMOJI = 1<<17,	// Enable color emoji rendering (Phase 6)
 	NVG_MSAA = 1<<9,
 	NVG_PROFILING = 1<<10,
 	NVG_MULTI_THREADED = 1<<11,
@@ -59,6 +60,10 @@ struct NVGVkCreateInfo {
 	uint32_t framebufferHeight;
 	VkSampleCountFlagBits sampleCount;
 	uint32_t threadCount;
+	// Emoji font (Phase 6) - Optional, NULL if no emoji support needed
+	const char* emojiFontPath;			// Path to emoji font file (e.g., "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf")
+	const uint8_t* emojiFontData;		// Or pre-loaded font data (if emojiFontPath is NULL)
+	uint32_t emojiFontDataSize;			// Size of emojiFontData in bytes
 };
 typedef struct NVGVkCreateInfo NVGVkCreateInfo;
 

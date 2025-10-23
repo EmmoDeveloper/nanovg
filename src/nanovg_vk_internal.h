@@ -27,6 +27,8 @@
 // Forward declarations
 typedef struct VKNVGglyphInstanceBuffer VKNVGglyphInstanceBuffer;
 typedef struct VKNVGtextRunCache VKNVGtextRunCache;
+typedef struct VKNVGtextEmojiState VKNVGtextEmojiState;
+typedef struct VKNVGcolorAtlas VKNVGcolorAtlas;
 
 enum VKNVGshaderType {
 	NSVG_SHADER_FILLGRAD,
@@ -294,6 +296,15 @@ struct VKNVGcontext {
 	struct VKNVGtextRunCache* textCache;	// Text run cache (NULL if disabled)
 	VkBool32 useTextCache;					// Enable text run caching
 	VkRenderPass textCacheRenderPass;		// Render pass for text-to-texture
+	// Emoji rendering (Phase 6)
+	struct VKNVGtextEmojiState* textEmojiState;	// Text-emoji integration state (NULL if no emoji font)
+	struct VKNVGcolorAtlas* colorAtlas;			// RGBA color atlas for emoji
+	VkBool32 useColorEmoji;						// Enable color emoji rendering
+	VkPipeline textDualModePipeline;			// Dual-mode pipeline (SDF + Color)
+	VkShaderModule textDualModeVertShaderModule;	// Dual-mode vertex shader
+	VkShaderModule textDualModeFragShaderModule;	// Dual-mode fragment shader
+	VkDescriptorSetLayout dualModeDescriptorSetLayout;	// Descriptor layout with 3 bindings
+	VkDescriptorSet* dualModeDescriptorSets;	// Descriptor sets for dual-mode rendering
 };
 typedef struct VKNVGcontext VKNVGcontext;
 
