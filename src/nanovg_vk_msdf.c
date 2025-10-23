@@ -98,18 +98,78 @@ static int msdf_lineTo(const FT_Vector* to, void* user) {
 }
 
 static int msdf_conicTo(const FT_Vector* control, const FT_Vector* to, void* user) {
-	(void)control;  // TODO: Implement proper bezier curve approximation
-	// Approximate quadratic bezier with line segments
-	// For simplicity, just add the endpoint
-	return msdf_lineTo(to, user);
+	MSShape* shape = (MSShape*)user;
+
+	if (shape->contourCount == 0 || shape->pointCount == 0) return 1;
+
+	MSContour* contour = &shape->contours[shape->contourCount - 1];
+	if (contour->count == 0) return 1;
+
+	// Get start point (last point in contour)
+	MSPoint p0 = contour->points[contour->count - 1];
+	MSPoint p1 = {control->x / 64.0f, control->y / 64.0f};
+	MSPoint p2 = {to->x / 64.0f, to->y / 64.0f};
+
+	// Subdivide quadratic Bezier into line segments
+	// P(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
+	const int subdivisions = 8;
+	for (int i = 1; i <= subdivisions; i++) {
+		if (shape->pointCount >= MSDF_MAX_POINTS) return 1;
+
+		float t = (float)i / (float)subdivisions;
+		float t1 = 1.0f - t;
+		float t1_sq = t1 * t1;
+		float t_sq = t * t;
+
+		MSPoint p;
+		p.x = t1_sq * p0.x + 2.0f * t1 * t * p1.x + t_sq * p2.x;
+		p.y = t1_sq * p0.y + 2.0f * t1 * t * p1.y + t_sq * p2.y;
+
+		shape->allPoints[shape->pointCount] = p;
+		shape->pointCount++;
+		contour->count++;
+	}
+
+	return 0;
 }
 
 static int msdf_cubicTo(const FT_Vector* control1, const FT_Vector* control2, const FT_Vector* to, void* user) {
-	(void)control1;  // TODO: Implement proper bezier curve approximation
-	(void)control2;
-	// Approximate cubic bezier with line segments
-	// For simplicity, just add the endpoint
-	return msdf_lineTo(to, user);
+	MSShape* shape = (MSShape*)user;
+
+	if (shape->contourCount == 0 || shape->pointCount == 0) return 1;
+
+	MSContour* contour = &shape->contours[shape->contourCount - 1];
+	if (contour->count == 0) return 1;
+
+	// Get start point (last point in contour)
+	MSPoint p0 = contour->points[contour->count - 1];
+	MSPoint p1 = {control1->x / 64.0f, control1->y / 64.0f};
+	MSPoint p2 = {control2->x / 64.0f, control2->y / 64.0f};
+	MSPoint p3 = {to->x / 64.0f, to->y / 64.0f};
+
+	// Subdivide cubic Bezier into line segments
+	// P(t) = (1-t)³P0 + 3(1-t)²tP1 + 3(1-t)t²P2 + t³P3
+	const int subdivisions = 12;
+	for (int i = 1; i <= subdivisions; i++) {
+		if (shape->pointCount >= MSDF_MAX_POINTS) return 1;
+
+		float t = (float)i / (float)subdivisions;
+		float t1 = 1.0f - t;
+		float t1_sq = t1 * t1;
+		float t1_cu = t1_sq * t1;
+		float t_sq = t * t;
+		float t_cu = t_sq * t;
+
+		MSPoint p;
+		p.x = t1_cu * p0.x + 3.0f * t1_sq * t * p1.x + 3.0f * t1 * t_sq * p2.x + t_cu * p3.x;
+		p.y = t1_cu * p0.y + 3.0f * t1_sq * t * p1.y + 3.0f * t1 * t_sq * p2.y + t_cu * p3.y;
+
+		shape->allPoints[shape->pointCount] = p;
+		shape->pointCount++;
+		contour->count++;
+	}
+
+	return 0;
 }
 
 int vknvg__generateMSDF(FT_GlyphSlot glyph, unsigned char* output, VKNVGmsdfParams* params) {

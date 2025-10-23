@@ -8,7 +8,7 @@ BUILD_DIR ?= build
 
 # Compiler and flags
 CC := gcc
-CFLAGS := -std=c11 -Wall -Wextra -O2 -g -D_POSIX_C_SOURCE=199309L
+CFLAGS := -std=c11 -Wall -Wextra -O2 -g -D_POSIX_C_SOURCE=199309L -DFONS_USE_FREETYPE
 INCLUDES := -I./src -I$(NANOVG_DIR)/src -I$(VULKAN_SDK)/include -I$(HARFBUZZ_DIR)/src $(shell pkg-config --cflags fribidi freetype2 libpng)
 LIBS := -lvulkan -lpthread $(HARFBUZZ_DIR)/build/libharfbuzz.a $(shell pkg-config --libs fribidi freetype2 libpng) -lstdc++ -lm
 
@@ -194,15 +194,15 @@ $(BUILD_DIR)/test_init.o: tests/test_init.c | $(BUILD_DIR)
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_compile: $(BUILD_DIR)/test_compile.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS)
+$(BUILD_DIR)/test_compile: $(BUILD_DIR)/test_compile.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS) $(MSDF_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
-$(BUILD_DIR)/test_simple: $(BUILD_DIR)/test_simple.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS)
+$(BUILD_DIR)/test_simple: $(BUILD_DIR)/test_simple.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS) $(MSDF_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
-$(BUILD_DIR)/test_init: $(BUILD_DIR)/test_init.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS)
+$(BUILD_DIR)/test_init: $(BUILD_DIR)/test_init.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS) $(MSDF_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 

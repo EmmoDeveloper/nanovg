@@ -398,7 +398,7 @@ int fons__tt_buildGlyphBitmapMSDF(FONSttFontImpl *font, int glyph, float size, f
 
 	// For MSDF, calculate bounds from outline with padding for distance field
 	FT_BBox bbox;
-	FT_Outline_Get_BBox(&ftGlyph->outline, &bbox);
+	FT_Outline_Get_CBox(&ftGlyph->outline, &bbox);
 	*x0 = (bbox.xMin >> 6) - msdfPadding;
 	*y0 = -(bbox.yMax >> 6) - msdfPadding;
 	*x1 = (bbox.xMax >> 6) + msdfPadding;
