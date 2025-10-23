@@ -199,6 +199,11 @@ NVGcontext* nvgCreateVk(const NVGVkCreateInfo* createInfo, int flags)
 		vk->threadCount = 0;
 	}
 
+	// Store emoji font info for later initialization
+	vk->emojiFontPath = createInfo->emojiFontPath;
+	vk->emojiFontData = createInfo->emojiFontData;
+	vk->emojiFontDataSize = createInfo->emojiFontDataSize;
+
 	vk->ownsCommandPool = VK_FALSE;
 	vk->ownsDescriptorPool = VK_FALSE;
 	vk->ownsRenderPass = VK_FALSE;

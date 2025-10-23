@@ -297,6 +297,9 @@ struct VKNVGcontext {
 	VkBool32 useTextCache;					// Enable text run caching
 	VkRenderPass textCacheRenderPass;		// Render pass for text-to-texture
 	// Emoji rendering (Phase 6)
+	const char* emojiFontPath;					// Emoji font file path (from createInfo)
+	const uint8_t* emojiFontData;				// Emoji font data (from createInfo)
+	uint32_t emojiFontDataSize;					// Emoji font data size
 	struct VKNVGtextEmojiState* textEmojiState;	// Text-emoji integration state (NULL if no emoji font)
 	struct VKNVGcolorAtlas* colorAtlas;			// RGBA color atlas for emoji
 	VkBool32 useColorEmoji;						// Enable color emoji rendering
