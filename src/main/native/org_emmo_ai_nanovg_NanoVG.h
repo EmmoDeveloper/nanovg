@@ -23,6 +23,8 @@ extern "C" {
 #define org_emmo_ai_nanovg_NanoVG_NVG_COLOR_TEXT 16384L
 #undef org_emmo_ai_nanovg_NanoVG_NVG_VIRTUAL_ATLAS
 #define org_emmo_ai_nanovg_NanoVG_NVG_VIRTUAL_ATLAS 32768L
+#undef org_emmo_ai_nanovg_NanoVG_NVG_COLOR_EMOJI
+#define org_emmo_ai_nanovg_NanoVG_NVG_COLOR_EMOJI 131072L
 #undef org_emmo_ai_nanovg_NanoVG_MSDF_MODE_BITMAP
 #define org_emmo_ai_nanovg_NanoVG_MSDF_MODE_BITMAP 0L
 #undef org_emmo_ai_nanovg_NanoVG_MSDF_MODE_SDF
@@ -62,8 +64,24 @@ extern "C" {
  * Method:    nvgCreateVk
  * Signature: (JJJJIJJJII)J
  */
-JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJII
   (JNIEnv *, jclass, jlong, jlong, jlong, jlong, jint, jlong, jlong, jlong, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCreateVk
+ * Signature: (JJJJIJJJIILjava/lang/String;)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJIILjava_lang_String_2
+  (JNIEnv *, jclass, jlong, jlong, jlong, jlong, jint, jlong, jlong, jlong, jint, jint, jstring);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCreateVk
+ * Signature: (JJJJIJJJII[B)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJII_3B
+  (JNIEnv *, jclass, jlong, jlong, jlong, jlong, jint, jlong, jlong, jlong, jint, jint, jbyteArray);
 
 /*
  * Class:     org_emmo_ai_nanovg_NanoVG
@@ -479,6 +497,206 @@ JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextBounds
  * Signature: (J)[F
  */
 JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextMetrics
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCancelFrame
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCancelFrame
+  (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgGlobalCompositeOperation
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgGlobalCompositeOperation
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgGlobalCompositeBlendFunc
+ * Signature: (JII)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgGlobalCompositeBlendFunc
+  (JNIEnv *, jclass, jlong, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgGlobalCompositeBlendFuncSeparate
+ * Signature: (JIIII)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgGlobalCompositeBlendFuncSeparate
+  (JNIEnv *, jclass, jlong, jint, jint, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgLinearGradient
+ * Signature: (JFFFFIIIIIIII)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgLinearGradient
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jint, jint, jint, jint, jint, jint, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgBoxGradient
+ * Signature: (JFFFFFFIIIIIIII)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgBoxGradient
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat, jint, jint, jint, jint, jint, jint, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgRadialGradient
+ * Signature: (JFFFFIIIIIIII)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgRadialGradient
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jint, jint, jint, jint, jint, jint, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgImagePattern
+ * Signature: (JFFFFFIF)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgImagePattern
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jfloat, jfloat, jint, jfloat);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgFillPaint
+ * Signature: (JJ)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgFillPaint
+  (JNIEnv *, jclass, jlong, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgStrokePaint
+ * Signature: (JJ)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgStrokePaint
+  (JNIEnv *, jclass, jlong, jlong);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCreateImage
+ * Signature: (JLjava/lang/String;I)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateImage
+  (JNIEnv *, jclass, jlong, jstring, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCreateImageMem
+ * Signature: (JI[B)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateImageMem
+  (JNIEnv *, jclass, jlong, jint, jbyteArray);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCreateImageRGBA
+ * Signature: (JIII[B)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateImageRGBA
+  (JNIEnv *, jclass, jlong, jint, jint, jint, jbyteArray);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgUpdateImage
+ * Signature: (JI[B)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgUpdateImage
+  (JNIEnv *, jclass, jlong, jint, jbyteArray);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgImageSize
+ * Signature: (JI)[I
+ */
+JNIEXPORT jintArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgImageSize
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgDeleteImage
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgDeleteImage
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCreateFontMem
+ * Signature: (JLjava/lang/String;[BZ)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateFontMem
+  (JNIEnv *, jclass, jlong, jstring, jbyteArray, jboolean);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCreateFontMemAtIndex
+ * Signature: (JLjava/lang/String;[BZI)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateFontMemAtIndex
+  (JNIEnv *, jclass, jlong, jstring, jbyteArray, jboolean, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgAddFallbackFont
+ * Signature: (JLjava/lang/String;Ljava/lang/String;)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgAddFallbackFont
+  (JNIEnv *, jclass, jlong, jstring, jstring);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgAddFallbackFontId
+ * Signature: (JII)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgAddFallbackFontId
+  (JNIEnv *, jclass, jlong, jint, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgResetFallbackFonts
+ * Signature: (JLjava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgResetFallbackFonts
+  (JNIEnv *, jclass, jlong, jstring);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgFontFaceId
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgFontFaceId
+  (JNIEnv *, jclass, jlong, jint);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgTextBoxBounds
+ * Signature: (JFFFLjava/lang/String;)[F
+ */
+JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgTextBoxBounds
+  (JNIEnv *, jclass, jlong, jfloat, jfloat, jfloat, jstring);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgShapeAntiAlias
+ * Signature: (JZ)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgShapeAntiAlias
+  (JNIEnv *, jclass, jlong, jboolean);
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgCurrentTransform
+ * Signature: (J)[F
+ */
+JNIEXPORT jfloatArray JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCurrentTransform
   (JNIEnv *, jclass, jlong);
 
 #ifdef __cplusplus

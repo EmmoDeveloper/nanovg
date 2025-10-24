@@ -48,6 +48,10 @@ gcc ${CFLAGS} ${ALL_INCLUDES} -c src/nanovg_vk_msdf.c -o ${BUILD_DIR}/nanovg_vk_
 echo "  Compiling nanovg_vk_virtual_atlas.o..."
 gcc ${CFLAGS} ${ALL_INCLUDES} -c src/nanovg_vk_virtual_atlas.c -o ${BUILD_DIR}/nanovg_vk_virtual_atlas_pic.o
 
+# Build text effects
+echo "  Compiling nanovg_vk_text_effects.o..."
+gcc ${CFLAGS} ${ALL_INCLUDES} -c src/nanovg_vk_text_effects.c -o ${BUILD_DIR}/nanovg_vk_text_effects_pic.o
+
 # Build emoji backend objects
 EMOJI_SOURCES="nanovg_vk_emoji_tables nanovg_vk_color_atlas nanovg_vk_bitmap_emoji nanovg_vk_colr_render nanovg_vk_emoji nanovg_vk_text_emoji"
 for src in ${EMOJI_SOURCES}; do
@@ -63,7 +67,7 @@ gcc ${CFLAGS} ${ALL_INCLUDES} -c src/main/native/nanovg_jni.c -o ${BUILD_DIR}/na
 echo "Step 3: Linking shared library..."
 
 # Collect all object files
-OBJECT_FILES="${BUILD_DIR}/nanovg_jni.o ${BUILD_DIR}/nanovg_pic.o ${BUILD_DIR}/nanovg_vk_msdf_pic.o ${BUILD_DIR}/nanovg_vk_virtual_atlas_pic.o"
+OBJECT_FILES="${BUILD_DIR}/nanovg_jni.o ${BUILD_DIR}/nanovg_pic.o ${BUILD_DIR}/nanovg_vk_msdf_pic.o ${BUILD_DIR}/nanovg_vk_text_effects_pic.o ${BUILD_DIR}/nanovg_vk_virtual_atlas_pic.o"
 
 # Add emoji backend objects if they exist
 for src in ${EMOJI_SOURCES}; do

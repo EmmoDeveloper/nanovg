@@ -225,7 +225,7 @@ $(BUILD_DIR)/test_unit_texture.o: tests/test_unit_texture.c tests/test_framework
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_unit_texture: $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_utils.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(TEXT_EMOJI_OBJ) $(EMOJI_INTEGRATION_OBJ) $(BITMAP_EMOJI_OBJ) $(COLR_RENDER_OBJ) $(EMOJI_TABLES_OBJ) $(COLOR_ATLAS_OBJ)
+$(BUILD_DIR)/test_unit_texture: $(BUILD_DIR)/test_unit_texture.o $(BUILD_DIR)/test_utils.o $(NANOVG_OBJ) $(MSDF_OBJ) $(TEXT_EFFECTS_OBJ) $(VIRTUAL_ATLAS_OBJ) $(TEXT_EMOJI_OBJ) $(EMOJI_INTEGRATION_OBJ) $(BITMAP_EMOJI_OBJ) $(COLR_RENDER_OBJ) $(EMOJI_TABLES_OBJ) $(COLOR_ATLAS_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
