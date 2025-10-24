@@ -218,6 +218,34 @@ public class NanoVG {
 	public static native long nvgVkGetFrameFence(long ctx);
 
 	/**
+	 * Get NanoVG's image available semaphore for frame synchronization.
+	 *
+	 * @param ctx NanoVG context handle
+	 * @return Vulkan semaphore handle
+	 */
+	public static native long nvgVkGetImageAvailableSemaphore(long ctx);
+
+	/**
+	 * Create a NanoVG image from an existing Vulkan image handle.
+	 *
+	 * @param ctx NanoVG context handle
+	 * @param image Vulkan image handle
+	 * @param imageView Vulkan image view handle
+	 * @param width Image width
+	 * @param height Image height
+	 * @param imageFlags Image flags (NVG_IMAGE_*)
+	 * @return NanoVG image handle, or -1 on error
+	 */
+	public static native int nvgVkCreateImageFromHandle(long ctx, long image, long imageView, int width, int height, int imageFlags);
+
+	/**
+	 * Reset profiling statistics.
+	 *
+	 * @param ctx NanoVG context handle
+	 */
+	public static native void nvgVkResetProfiling(long ctx);
+
+	/**
 	 * Begin frame rendering.
 	 *
 	 * @param ctx NanoVG context handle

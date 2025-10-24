@@ -228,6 +228,57 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkGetFrameFence
 
 /*
  * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkGetImageAvailableSemaphore
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkGetImageAvailableSemaphore
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		return (jlong)nvgVkGetImageAvailableSemaphore((NVGcontext*)ctx);
+	}
+	return 0;
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkCreateImageFromHandle
+ * Signature: (JJJIII)I
+ */
+JNIEXPORT jint JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkCreateImageFromHandle
+  (JNIEnv* env, jclass cls, jlong ctx, jlong image, jlong imageView, jint width, jint height, jint imageFlags) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		return nvgVkCreateImageFromHandle((NVGcontext*)ctx, (VkImage)image, (VkImageView)imageView,
+		                                   width, height, imageFlags);
+	}
+	return -1;
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkResetProfiling
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkResetProfiling
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		nvgVkResetProfiling((NVGcontext*)ctx);
+	}
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
  * Method:    nvgBeginFrame
  * Signature: (JFFF)V
  */
