@@ -283,6 +283,18 @@ Based on NanoVG by Mikko Mononen (memon@inside.org)
 
 Vulkan backend created October 2025.
 
+## Roadmap / Future Work
+
+### Phase 6: Color Emoji Support (In Progress)
+Partial implementation of color emoji rendering:
+- SBIX (Apple Color Emoji) - bitmap format
+- CBDT/CBLC (Google Noto Color Emoji) - bitmap format
+- COLRv0 (vector color glyphs) - layered rendering
+- Dual atlas system (SDF + RGBA)
+- Shader modifications for color texture support
+
+**Note**: Some infrastructure exists but integration is incomplete. See archived planning documents for details.
+
 ## License
 
 zlib license (same as NanoVG)
