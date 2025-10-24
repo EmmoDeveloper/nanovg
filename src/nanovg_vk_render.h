@@ -1681,8 +1681,8 @@ static void vknvg__renderFlush(void* uptr)
 		renderingInfo.layerCount = 1;
 		renderingInfo.colorAttachmentCount = 1;
 		renderingInfo.pColorAttachments = &colorAttachment;
-		renderingInfo.pDepthAttachment = &depthStencilAttachment;
-		renderingInfo.pStencilAttachment = &depthStencilAttachment;
+		renderingInfo.pDepthAttachment = (vk->depthStencilImageView != VK_NULL_HANDLE) ? &depthStencilAttachment : NULL;
+		renderingInfo.pStencilAttachment = (vk->depthStencilImageView != VK_NULL_HANDLE) ? &depthStencilAttachment : NULL;
 
 		vk->vkCmdBeginRenderingKHR(cmd, &renderingInfo);
 	}

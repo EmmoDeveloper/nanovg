@@ -12,6 +12,7 @@ public class NanoVG {
 	public static final int NVG_ANTIALIAS = 1 << 0;
 	public static final int NVG_STENCIL_STROKES = 1 << 1;
 	public static final int NVG_DEBUG = 1 << 2;
+	public static final int NVG_DYNAMIC_RENDERING = 1 << 4;
 	public static final int NVG_SDF_TEXT = 1 << 7;
 	public static final int NVG_SUBPIXEL_TEXT = 1 << 8;
 	public static final int NVG_MSDF_TEXT = 1 << 13;
@@ -182,6 +183,39 @@ public class NanoVG {
 	 * @param ctx NanoVG context handle
 	 */
 	public static native void nvgDeleteVk(long ctx);
+
+	/**
+	 * Set Vulkan render targets for NanoVG rendering.
+	 *
+	 * @param ctx NanoVG context handle
+	 * @param colorImageView Vulkan color image view handle
+	 * @param depthStencilImageView Vulkan depth/stencil image view handle
+	 */
+	public static native void nvgVkSetRenderTargets(long ctx, long colorImageView, long depthStencilImageView);
+
+	/**
+	 * Get the Vulkan command buffer used by NanoVG.
+	 *
+	 * @param ctx NanoVG context handle
+	 * @return Vulkan command buffer handle
+	 */
+	public static native long nvgVkGetCommandBuffer(long ctx);
+
+	/**
+	 * Get NanoVG's render finished semaphore for frame synchronization.
+	 *
+	 * @param ctx NanoVG context handle
+	 * @return Vulkan semaphore handle
+	 */
+	public static native long nvgVkGetRenderFinishedSemaphore(long ctx);
+
+	/**
+	 * Get NanoVG's frame fence for frame synchronization.
+	 *
+	 * @param ctx NanoVG context handle
+	 * @return Vulkan fence handle
+	 */
+	public static native long nvgVkGetFrameFence(long ctx);
 
 	/**
 	 * Begin frame rendering.

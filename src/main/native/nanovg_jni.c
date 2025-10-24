@@ -45,6 +45,9 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJII
 	createInfo.commandPool = (VkCommandPool)commandPool;
 	createInfo.descriptorPool = (VkDescriptorPool)descriptorPool;
 	createInfo.maxFrames = (uint32_t)maxFrames;
+	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	createInfo.depthStencilFormat = VK_FORMAT_UNDEFINED;
+	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
 
 	NVGcontext* ctx = nvgCreateVk(&createInfo, flags);
 	return (jlong)ctx;
@@ -72,6 +75,9 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJIILj
 	createInfo.commandPool = (VkCommandPool)commandPool;
 	createInfo.descriptorPool = (VkDescriptorPool)descriptorPool;
 	createInfo.maxFrames = (uint32_t)maxFrames;
+	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	createInfo.depthStencilFormat = VK_FORMAT_UNDEFINED;
+	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
 
 	// Convert emoji font path from Java string to C string
 	const char* cEmojiFontPath = jstring_to_cstring(env, emojiFontPath);
@@ -111,6 +117,9 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJII_3
 	createInfo.commandPool = (VkCommandPool)commandPool;
 	createInfo.descriptorPool = (VkDescriptorPool)descriptorPool;
 	createInfo.maxFrames = (uint32_t)maxFrames;
+	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	createInfo.depthStencilFormat = VK_FORMAT_UNDEFINED;
+	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
 
 	// Get emoji font data from Java byte array
 	jsize dataSize = (*env)->GetArrayLength(env, emojiFontData);
@@ -148,6 +157,73 @@ JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgDeleteVk
 	if (ctx != 0) {
 		nvgDeleteVk((NVGcontext*)ctx);
 	}
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkSetRenderTargets
+ * Signature: (JJJ)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkSetRenderTargets
+  (JNIEnv* env, jclass cls, jlong ctx, jlong colorImageView, jlong depthStencilImageView) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		nvgVkSetRenderTargets((NVGcontext*)ctx, (VkImageView)colorImageView, (VkImageView)depthStencilImageView);
+	}
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkGetCommandBuffer
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkGetCommandBuffer
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		return (jlong)nvgVkGetCommandBuffer((NVGcontext*)ctx);
+	}
+	return 0;
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkGetRenderFinishedSemaphore
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkGetRenderFinishedSemaphore
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		return (jlong)nvgVkGetRenderFinishedSemaphore((NVGcontext*)ctx);
+	}
+	return 0;
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkGetFrameFence
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkGetFrameFence
+  (JNIEnv* env, jclass cls, jlong ctx) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		return (jlong)nvgVkGetFrameFence((NVGcontext*)ctx);
+	}
+	return 0;
 }
 
 /*
