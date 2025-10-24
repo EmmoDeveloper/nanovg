@@ -18,7 +18,7 @@
 //
 //
 // Vulkan rendering backend for NanoVG
-// Based on the NanoVG OpenGL backend architecture
+// NanoVG Vulkan backend architecture
 //
 
 #ifndef NANOVG_VK_H

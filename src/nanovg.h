@@ -164,7 +164,7 @@ void nvgEndFrame(NVGcontext* ctx);
 // Composite operation
 //
 // The composite operations in NanoVG are modeled after HTML Canvas API, and
-// the blend func is based on OpenGL (see corresponding manuals for more info).
+// the blend func is based on standard graphics API conventions (see Vulkan blend modes for more info).
 // The colors in the blending state have premultiplied alpha.
 
 // Sets the composite operation. The op parameter should be one of NVGcompositeOperation.

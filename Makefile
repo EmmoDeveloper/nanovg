@@ -57,9 +57,9 @@ MSDF_OBJ := $(BUILD_DIR)/nanovg_vk_msdf.o
 SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/test_init
 SMOKE_TEST_OBJS := $(BUILD_DIR)/test_compile.o $(BUILD_DIR)/test_simple.o $(BUILD_DIR)/test_init.o
 
-# Fun tests (Halloween special! 🎃)
-FUN_TESTS := $(BUILD_DIR)/test_bad_apple
-FUN_TEST_OBJS := $(BUILD_DIR)/test_bad_apple.o
+# Fun tests
+FUN_TESTS :=
+FUN_TEST_OBJS :=
 
 # Unit tests
 UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(BUILD_DIR)/test_unit_memory $(BUILD_DIR)/test_unit_memory_leak $(BUILD_DIR)/test_atlas_prewarm $(BUILD_DIR)/test_instanced_text $(BUILD_DIR)/test_pipeline_creation $(BUILD_DIR)/test_virtual_atlas $(BUILD_DIR)/test_nvg_virtual_atlas $(BUILD_DIR)/test_cjk_rendering $(BUILD_DIR)/test_real_text_rendering $(BUILD_DIR)/test_cjk_real_rendering $(BUILD_DIR)/test_cjk_eviction $(BUILD_DIR)/test_text_cache $(BUILD_DIR)/test_async_upload $(BUILD_DIR)/test_compute_raster $(BUILD_DIR)/test_atlas_packing $(BUILD_DIR)/test_multi_atlas $(BUILD_DIR)/test_atlas_resize $(BUILD_DIR)/test_atlas_defrag $(BUILD_DIR)/test_harfbuzz $(BUILD_DIR)/test_bidi $(BUILD_DIR)/test_intl_text $(BUILD_DIR)/test_text_effects $(BUILD_DIR)/test_emoji_tables $(BUILD_DIR)/test_color_atlas $(BUILD_DIR)/test_bitmap_emoji $(BUILD_DIR)/test_colr_render $(BUILD_DIR)/test_emoji_integration $(BUILD_DIR)/test_text_emoji_integration $(BUILD_DIR)/test_dual_shader $(BUILD_DIR)/test_visual_emoji $(BUILD_DIR)/test_msdf_generation $(BUILD_DIR)/test_msdf_rendering
@@ -91,7 +91,7 @@ help:
 	@echo "  unit-tests          - Build unit tests only"
 	@echo "  integration-tests   - Build integration tests only"
 	@echo "  benchmark-tests     - Build benchmark tests only"
-	@echo "  fun-tests           - Build fun tests (Bad Apple!! 🎃)"
+	@echo "  fun-tests           - Build fun tests"
 	@echo "  run-tests           - Build and run all tests"
 	@echo "  clean               - Remove build artifacts"
 	@echo "  check-deps          - Verify dependencies"
@@ -102,7 +102,6 @@ help:
 	@echo ""
 	@echo "Example:"
 	@echo "  make NANOVG_DIR=/path/to/nanovg"
-	@echo "  make fun-tests && ./build/test_bad_apple  # Happy Halloween! 🎃"
 
 check-deps:
 	@echo "Checking dependencies..."
@@ -206,14 +205,7 @@ $(BUILD_DIR)/test_init: $(BUILD_DIR)/test_init.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_O
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
-# Fun tests (Halloween special! 🎃)
-$(BUILD_DIR)/test_bad_apple.o: tests/test_bad_apple.c | $(BUILD_DIR)
-	@echo "Compiling $<... (Bad Apple!! Touhou Edition)"
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
-$(BUILD_DIR)/test_bad_apple: $(BUILD_DIR)/test_bad_apple.o
-	@echo "Linking $@..."
-	$(CC) $^ $(LIBS) -o $@
+# Fun tests (placeholder for future fun tests)
 
 # Unit test utilities
 $(BUILD_DIR)/test_utils.o: tests/test_utils.c tests/test_utils.h tests/test_framework.h | $(BUILD_DIR)
@@ -403,7 +395,7 @@ benchmark-tests: $(BENCHMARK_TESTS)
 	@echo "✓ Benchmark tests built successfully"
 
 fun-tests: $(FUN_TESTS)
-	@echo "✓ Fun tests built successfully (Bad Apple!! 🎃👻)"
+	@echo "✓ Fun tests built successfully"
 
 tests: $(ALL_TESTS)
 	@echo "✓ All tests built successfully"

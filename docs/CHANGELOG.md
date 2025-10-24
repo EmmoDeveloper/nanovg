@@ -447,34 +447,6 @@ Files: 6 changed, 1229 insertions(+), 108 deletions(-)
 
 ---
 
-## Halloween Special (October 2025)
-
-**Status**: ✅ Complete (6/6 tests passing)
-
-### Added
-- **Bad Apple!! Touhou Edition**
-  - 8-frame black & white animation
-  - ASCII art rendering
-  - Animation sequence transitions
-  - Frame rate calculations (30/60/120 FPS)
-  - Pure black/white contrast validation
-  - Halloween Spooky Mode with glitch effects
-
-### Files Created
-- `tests/test_bad_apple.c` - 6 tests (436 lines)
-- `Makefile` - fun-tests target
-
-### Test Results
-```
-✓ 6/6 Bad Apple tests passing
-✓ Frame validation
-✓ Animation sequences
-✓ FPS calculations
-✓ Spooky mode effects
-```
-
----
-
 ## Summary Statistics
 
 ### Lines of Code
