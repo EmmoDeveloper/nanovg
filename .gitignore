@@ -6,3 +6,6 @@ build/
 *.so
 *.dylib
 *.ppm
+*.class
+*.jar
+target/

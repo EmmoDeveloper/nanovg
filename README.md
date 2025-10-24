@@ -122,6 +122,94 @@ vknvg__setAnimation(effect, VKNVG_ANIM_SHIMMER, 1.5f, 0.7f);
 vknvg__destroyTextEffect(effect);
 ```
 
+## Java JNI Bindings
+
+Complete JNI bindings for Java applications (requires Java 25+).
+
+### Build Native Library
+```bash
+./build-jni.sh
+# Produces: build/libnanovg-jni.so (1.3MB)
+```
+
+### Maven Integration
+```xml
+<build>
+  <plugins>
+    <plugin>
+      <groupId>org.codehaus.mojo</groupId>
+      <artifactId>exec-maven-plugin</artifactId>
+      <version>3.1.0</version>
+      <executions>
+        <execution>
+          <id>build-jni</id>
+          <phase>compile</phase>
+          <goals>
+            <goal>exec</goal>
+          </goals>
+          <configuration>
+            <executable>${project.basedir}/build-jni.sh</executable>
+          </configuration>
+        </execution>
+      </executions>
+    </plugin>
+  </plugins>
+</build>
+```
+
+### Usage Example
+```java
+import org.emmo.ai.nanovg.NanoVG;
+
+// Load native library
+System.load("/path/to/libnanovg-jni.so");
+
+// Create context with MSDF text support
+long ctx = NanoVG.nvgCreateVk(instance, physicalDevice, device, queue,
+    queueFamilyIndex, renderPass, commandPool, descriptorPool, 3,
+    NanoVG.NVG_ANTIALIAS | NanoVG.NVG_MSDF_TEXT);
+
+// Begin frame
+NanoVG.nvgBeginFrame(ctx, 800, 600, 1.0f);
+
+// Draw circle with transform
+NanoVG.nvgSave(ctx);
+NanoVG.nvgTranslate(ctx, 400, 300);
+NanoVG.nvgRotate(ctx, (float)(Math.PI / 4));
+NanoVG.nvgBeginPath(ctx);
+NanoVG.nvgCircle(ctx, 0, 0, 50);
+NanoVG.nvgFillColor(ctx, 255, 192, 0, 255);
+NanoVG.nvgFill(ctx);
+NanoVG.nvgRestore(ctx);
+
+// Draw MSDF text
+int font = NanoVG.nvgCreateFont(ctx, "sans", "/path/to/font.ttf");
+NanoVG.nvgSetFontMSDF(ctx, font, NanoVG.MSDF_MODE_MSDF);
+NanoVG.nvgFontFace(ctx, "sans");
+NanoVG.nvgFontSize(ctx, 48.0f);
+NanoVG.nvgFillColor(ctx, 255, 255, 255, 255);
+NanoVG.nvgText(ctx, 100, 100, "High Quality Text!");
+
+// End frame
+NanoVG.nvgEndFrame(ctx);
+
+// Cleanup
+NanoVG.nvgDeleteVk(ctx);
+```
+
+### API Coverage (53 functions)
+- **Context**: nvgCreateVk, nvgDeleteVk, nvgBeginFrame, nvgEndFrame
+- **Paths**: nvgBeginPath, nvgMoveTo, nvgLineTo, nvgBezierTo, nvgQuadTo, nvgArcTo, nvgClosePath
+- **Shapes**: nvgRect, nvgRoundedRect, nvgEllipse, nvgCircle, nvgArc
+- **Transforms**: nvgTranslate, nvgRotate, nvgScale, nvgSkewX, nvgSkewY, nvgResetTransform
+- **State**: nvgSave, nvgRestore, nvgReset
+- **Rendering**: nvgFill, nvgStroke, nvgFillColor, nvgStrokeColor, nvgStrokeWidth, nvgGlobalAlpha
+- **Stroke**: nvgLineCap, nvgLineJoin, nvgMiterLimit
+- **Scissoring**: nvgScissor, nvgIntersectScissor, nvgResetScissor
+- **Text**: nvgCreateFont, nvgSetFontMSDF, nvgFontFace, nvgFontSize, nvgText, nvgTextBox
+- **Text Layout**: nvgTextAlign, nvgTextLetterSpacing, nvgTextLineHeight, nvgFontBlur
+- **Measurement**: nvgTextBounds, nvgTextMetrics
+
 ## Project Structure
 
 ```
@@ -132,8 +220,16 @@ nanovg/
 │   ├── nanovg_vk_virtual_atlas.c  # Virtual atlas system
 │   ├── nanovg_vk_harfbuzz.c       # HarfBuzz integration
 │   ├── nanovg_vk_bidi.c           # BiDi support
-│   └── nanovg_vk_text_effects.c   # SDF text effects
+│   ├── nanovg_vk_text_effects.c   # SDF text effects
+│   └── main/              # Java JNI bindings
+│       ├── java/org/emmo/ai/nanovg/
+│       │   └── NanoVG.java         # Java API (53 methods)
+│       └── native/
+│           ├── nanovg_jni.c        # JNI implementation
+│           └── org_emmo_ai_nanovg_NanoVG.h  # JNI header
 ├── tests/                 # Test suite (81 tests)
+├── build-jni.sh          # JNI build script
+├── pom.xml               # Maven configuration
 ├── shaders/              # GLSL shaders
 │   └── sdf_effects.frag  # Extended SDF shader
 └── docs/                 # Documentation
