@@ -102,18 +102,19 @@ static int vknvg__renderCreate(void* uptr)
 
 	// Setup async compute queue and command pool for high-end GPUs
 	if (vk->platformOpt.useAsyncCompute && vk->platformOpt.computeQueueFamilyIndex != UINT32_MAX) {
-		// Get the compute queue
-		uint32_t queueIndex = (vk->platformOpt.computeQueueFamilyIndex == vk->queueFamilyIndex) ? 1 : 0;
-		vkGetDeviceQueue(vk->device, vk->platformOpt.computeQueueFamilyIndex, queueIndex, &vk->platformOpt.computeQueue);
-
-		// Create command pool for compute queue
+		// Try to create command pool first to validate queue family exists in device
 		VkCommandPoolCreateInfo poolInfo = {0};
 		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 		poolInfo.queueFamilyIndex = vk->platformOpt.computeQueueFamilyIndex;
 		poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
 		result = vkCreateCommandPool(vk->device, &poolInfo, NULL, &vk->platformOpt.computeCommandPool);
-		if (result != VK_SUCCESS) {
+		if (result == VK_SUCCESS) {
+			// Queue family exists, now get the queue
+			uint32_t queueIndex = (vk->platformOpt.computeQueueFamilyIndex == vk->queueFamilyIndex) ? 1 : 0;
+			vkGetDeviceQueue(vk->device, vk->platformOpt.computeQueueFamilyIndex, queueIndex, &vk->platformOpt.computeQueue);
+		} else {
+			// Queue family not available in device, disable async compute
 			vk->platformOpt.useAsyncCompute = VK_FALSE;
 			vk->platformOpt.computeQueue = VK_NULL_HANDLE;
 			vk->platformOpt.computeCommandPool = VK_NULL_HANDLE;

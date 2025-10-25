@@ -218,6 +218,14 @@ public class NanoVG {
 	public static native long nvgVkGetFrameFence(long ctx);
 
 	/**
+	 * Set the current frame index for frame-in-flight management.
+	 *
+	 * @param ctx NanoVG context handle
+	 * @param frameIndex Frame index to set (must be less than maxFrames)
+	 */
+	public static native void nvgVkSetCurrentFrame(long ctx, int frameIndex);
+
+	/**
 	 * Get NanoVG's image available semaphore for frame synchronization.
 	 *
 	 * @param ctx NanoVG context handle

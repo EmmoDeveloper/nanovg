@@ -39,6 +39,8 @@ VkCommandBuffer nvgVkGetCommandBuffer(NVGcontext* ctx);
 
 void nvgVkSetRenderTargets(NVGcontext* ctx, VkImageView colorImageView, VkImageView depthStencilImageView);
 
+void nvgVkSetCurrentFrame(NVGcontext* ctx, uint32_t frameIndex);
+
 VkSemaphore nvgVkGetImageAvailableSemaphore(NVGcontext* ctx);
 VkSemaphore nvgVkGetRenderFinishedSemaphore(NVGcontext* ctx);
 VkFence nvgVkGetFrameFence(NVGcontext* ctx);
@@ -283,6 +285,14 @@ void nvgVkSetRenderTargets(NVGcontext* ctx, VkImageView colorImageView, VkImageV
 	VKNVGcontext* vk = (VKNVGcontext*)nvgInternalParams(ctx)->userPtr;
 	vk->colorImageView = colorImageView;
 	vk->depthStencilImageView = depthStencilImageView;
+}
+
+void nvgVkSetCurrentFrame(NVGcontext* ctx, uint32_t frameIndex)
+{
+	VKNVGcontext* vk = (VKNVGcontext*)nvgInternalParams(ctx)->userPtr;
+	if (frameIndex < vk->maxFrames) {
+		vk->currentFrame = frameIndex;
+	}
 }
 
 VkSemaphore nvgVkGetImageAvailableSemaphore(NVGcontext* ctx)

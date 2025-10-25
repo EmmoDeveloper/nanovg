@@ -15,6 +15,7 @@ typedef struct {
 	VkCommandPool commandPool;
 	VkDescriptorPool descriptorPool;
 	VkRenderPass renderPass;
+	VkDebugUtilsMessengerEXT debugMessenger;
 	int hasVulkan;
 } TestVulkanContext;
 

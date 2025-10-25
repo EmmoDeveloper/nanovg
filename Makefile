@@ -77,7 +77,24 @@ BENCHMARK_TEST_OBJS := $(BUILD_DIR)/test_benchmark.o $(BUILD_DIR)/test_benchmark
 ALL_TESTS := $(SMOKE_TESTS) $(UNIT_TESTS) $(INTEGRATION_TESTS) $(BENCHMARK_TESTS) $(FUN_TESTS)
 ALL_TEST_OBJS := $(SMOKE_TEST_OBJS) $(UNIT_TEST_OBJS) $(INTEGRATION_TEST_OBJS) $(BENCHMARK_TEST_OBJS) $(FUN_TEST_OBJS) $(BUILD_DIR)/test_utils.o
 
-.PHONY: all clean tests unit-tests integration-tests benchmark-tests smoke-tests fun-tests run-tests check-deps help
+# Shader configuration
+SHADER_DIR := shaders
+GLSLANG := /opt/lunarg-vulkan-sdk/x86_64/bin/glslangValidator
+SPIRV_VAL := /opt/lunarg-vulkan-sdk/x86_64/bin/spirv-val
+SPIRV_OPT := /opt/lunarg-vulkan-sdk/x86_64/bin/spirv-opt
+
+# Find all shader source files
+SHADER_SOURCES := $(wildcard $(SHADER_DIR)/*.vert $(SHADER_DIR)/*.frag $(SHADER_DIR)/*.comp)
+SHADER_SPIRV := $(SHADER_SOURCES:%=%.spv)
+
+# Release mode optimization
+ifdef RELEASE
+SPIRV_OPT_FLAGS := -O --strip-debug
+else
+SPIRV_OPT_FLAGS :=
+endif
+
+.PHONY: all clean tests unit-tests integration-tests benchmark-tests smoke-tests fun-tests run-tests check-deps help shaders validate-shaders clean-shaders
 
 all: check-deps tests
 
@@ -93,15 +110,20 @@ help:
 	@echo "  benchmark-tests     - Build benchmark tests only"
 	@echo "  fun-tests           - Build fun tests"
 	@echo "  run-tests           - Build and run all tests"
+	@echo "  shaders             - Compile and validate all shaders"
+	@echo "  validate-shaders    - Validate all compiled shaders"
 	@echo "  clean               - Remove build artifacts"
+	@echo "  clean-shaders       - Remove compiled shaders"
 	@echo "  check-deps          - Verify dependencies"
 	@echo ""
 	@echo "Configuration (can override with make VAR=value):"
 	@echo "  NANOVG_DIR   - Path to NanoVG (default: ../nanovg)"
 	@echo "  VULKAN_SDK   - Path to Vulkan SDK (default: auto-detect)"
+	@echo "  RELEASE=1    - Build optimized shaders (stripped, optimized)"
 	@echo ""
 	@echo "Example:"
 	@echo "  make NANOVG_DIR=/path/to/nanovg"
+	@echo "  make shaders RELEASE=1                 # Optimized shaders"
 
 check-deps:
 	@echo "Checking dependencies..."
@@ -414,7 +436,7 @@ run-tests: tests
 	@$(BUILD_DIR)/test_integration_text
 	@$(BUILD_DIR)/test_benchmark
 
-clean:
+clean: clean-shaders
 	@echo "Cleaning build artifacts..."
 	rm -rf $(BUILD_DIR)
 	@echo "✓ Clean complete"
@@ -641,4 +663,61 @@ $(BUILD_DIR)/test_msdf_rendering.o: tests/test_msdf_rendering.c src/nanovg_vk_ms
 $(BUILD_DIR)/test_msdf_rendering: $(BUILD_DIR)/test_msdf_rendering.o $(BUILD_DIR)/test_utils.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS) $(MSDF_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
+
+# =============================================================================
+# Shader Build Rules
+# =============================================================================
+
+shaders: $(SHADER_SPIRV)
+	@echo "✓ All shaders compiled and validated"
+
+# Compile GLSL to SPIR-V with validation
+$(SHADER_DIR)/%.vert.spv: $(SHADER_DIR)/%.vert
+	@echo "Compiling vertex shader: $<"
+	@$(GLSLANG) -V $< -o $@
+	@echo "  → Validating SPIR-V..."
+	@$(SPIRV_VAL) $@ || (rm -f $@; exit 1)
+ifdef RELEASE
+	@echo "  → Optimizing (release mode)..."
+	@$(SPIRV_OPT) $(SPIRV_OPT_FLAGS) $@ -o $@.opt
+	@mv $@.opt $@
+endif
+	@echo "  ✓ $@ ready"
+
+$(SHADER_DIR)/%.frag.spv: $(SHADER_DIR)/%.frag
+	@echo "Compiling fragment shader: $<"
+	@$(GLSLANG) -V $< -o $@
+	@echo "  → Validating SPIR-V..."
+	@$(SPIRV_VAL) $@ || (rm -f $@; exit 1)
+ifdef RELEASE
+	@echo "  → Optimizing (release mode)..."
+	@$(SPIRV_OPT) $(SPIRV_OPT_FLAGS) $@ -o $@.opt
+	@mv $@.opt $@
+endif
+	@echo "  ✓ $@ ready"
+
+$(SHADER_DIR)/%.comp.spv: $(SHADER_DIR)/%.comp
+	@echo "Compiling compute shader: $<"
+	@$(GLSLANG) -V $< -o $@
+	@echo "  → Validating SPIR-V..."
+	@$(SPIRV_VAL) $@ || (rm -f $@; exit 1)
+ifdef RELEASE
+	@echo "  → Optimizing (release mode)..."
+	@$(SPIRV_OPT) $(SPIRV_OPT_FLAGS) $@ -o $@.opt
+	@mv $@.opt $@
+endif
+	@echo "  ✓ $@ ready"
+
+validate-shaders: $(SHADER_SPIRV)
+	@echo "Validating all shaders..."
+	@for shader in $(SHADER_SPIRV); do \
+		echo "  → $$shader"; \
+		$(SPIRV_VAL) $$shader || exit 1; \
+	done
+	@echo "✓ All shaders valid"
+
+clean-shaders:
+	@echo "Cleaning shader artifacts..."
+	@rm -f $(SHADER_SPIRV)
+	@echo "✓ Shader cleanup complete"
 

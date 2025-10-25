@@ -228,6 +228,22 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkGetFrameFence
 
 /*
  * Class:     org_emmo_ai_nanovg_NanoVG
+ * Method:    nvgVkSetCurrentFrame
+ * Signature: (JI)V
+ */
+JNIEXPORT void JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgVkSetCurrentFrame
+  (JNIEnv* env, jclass cls, jlong ctx, jint frameIndex) {
+
+	(void)env;
+	(void)cls;
+
+	if (ctx != 0) {
+		nvgVkSetCurrentFrame((NVGcontext*)ctx, (uint32_t)frameIndex);
+	}
+}
+
+/*
+ * Class:     org_emmo_ai_nanovg_NanoVG
  * Method:    nvgVkGetImageAvailableSemaphore
  * Signature: (J)J
  */

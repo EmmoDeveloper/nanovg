@@ -63,14 +63,8 @@ static VkResult vknvg__createGlyphInstanceBuffer(VKNVGcontext* vk, VKNVGglyphIns
 		return result;
 	}
 
-	// Map buffer for persistent mapping
-	result = vkMapMemory(vk->device, instBuffer->buffer->memory, 0, bufferSize, 0, &instBuffer->mappedData);
-	if (result != VK_SUCCESS) {
-		vknvg__destroyBuffer(vk, instBuffer->buffer);
-		free(instBuffer->instances);
-		free(instBuffer->buffer);
-		return result;
-	}
+	// Use the already-mapped pointer from vknvg__createBuffer
+	instBuffer->mappedData = instBuffer->buffer->mapped;
 
 	return VK_SUCCESS;
 }
@@ -83,9 +77,7 @@ static void vknvg__destroyGlyphInstanceBuffer(VKNVGcontext* vk, VKNVGglyphInstan
 	}
 
 	if (instBuffer->buffer != NULL) {
-		if (instBuffer->mappedData != NULL) {
-			vkUnmapMemory(vk->device, instBuffer->buffer->memory);
-		}
+		// vknvg__destroyBuffer handles unmapping, no need to unmap here
 		vknvg__destroyBuffer(vk, instBuffer->buffer);
 		free(instBuffer->buffer);
 	}

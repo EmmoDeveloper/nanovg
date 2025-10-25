@@ -3,6 +3,34 @@
 #include <stdlib.h>
 #include <string.h>
 
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+	VkDebugUtilsMessageTypeFlagsEXT messageType,
+	const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+	void* pUserData)
+{
+	const char* severity = "UNKNOWN";
+	if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+		severity = "ERROR";
+	} else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+		severity = "WARNING";
+	} else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+		severity = "INFO";
+	} else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+		severity = "VERBOSE";
+	}
+
+	const char* type = "GENERAL";
+	if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
+		type = "VALIDATION";
+	} else if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
+		type = "PERFORMANCE";
+	}
+
+	fprintf(stderr, "[VULKAN %s %s] %s\n", severity, type, pCallbackData->pMessage);
+	return VK_FALSE;
+}
+
 int test_is_vulkan_available(void)
 {
 	VkInstanceCreateInfo createInfo = {0};
@@ -23,14 +51,67 @@ TestVulkanContext* test_create_vulkan_context(void)
 	TestVulkanContext* ctx = (TestVulkanContext*)calloc(1, sizeof(TestVulkanContext));
 	if (!ctx) return NULL;
 
+	// Check for validation layer availability
+	uint32_t layerCount;
+	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
+	VkLayerProperties* availableLayers = (VkLayerProperties*)malloc(sizeof(VkLayerProperties) * layerCount);
+	vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
+
+	int validationLayerPresent = 0;
+	const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
+	for (uint32_t i = 0; i < layerCount; i++) {
+		if (strcmp(availableLayers[i].layerName, validationLayerName) == 0) {
+			validationLayerPresent = 1;
+			break;
+		}
+	}
+	free(availableLayers);
+
+	// Prepare instance extensions
+	const char* extensions[] = { VK_EXT_DEBUG_UTILS_EXTENSION_NAME };
+	const char* layers[] = { validationLayerName };
+
 	// Create Vulkan instance
 	VkInstanceCreateInfo instanceInfo = {0};
 	instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
+	if (validationLayerPresent) {
+		instanceInfo.enabledLayerCount = 1;
+		instanceInfo.ppEnabledLayerNames = layers;
+		instanceInfo.enabledExtensionCount = 1;
+		instanceInfo.ppEnabledExtensionNames = extensions;
+		printf("[VULKAN] Validation layers enabled\n");
+	} else {
+		printf("[VULKAN] Validation layers not available\n");
+	}
+
 	VkResult result = vkCreateInstance(&instanceInfo, NULL, &ctx->instance);
 	if (result != VK_SUCCESS) {
+		fprintf(stderr, "[VULKAN] Failed to create instance: %d\n", result);
 		free(ctx);
 		return NULL;
+	}
+
+	// Set up debug messenger if validation layers are enabled
+	ctx->debugMessenger = VK_NULL_HANDLE;
+	if (validationLayerPresent) {
+		VkDebugUtilsMessengerCreateInfoEXT debugInfo = {0};
+		debugInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		debugInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+		                            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		debugInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+		                        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+		                        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		debugInfo.pfnUserCallback = debugCallback;
+
+		PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT)
+			vkGetInstanceProcAddr(ctx->instance, "vkCreateDebugUtilsMessengerEXT");
+		if (func != NULL) {
+			result = func(ctx->instance, &debugInfo, NULL, &ctx->debugMessenger);
+			if (result == VK_SUCCESS) {
+				printf("[VULKAN] Debug messenger created\n");
+			}
+		}
 	}
 
 	// Select physical device
@@ -124,7 +205,7 @@ TestVulkanContext* test_create_vulkan_context(void)
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference colorAttachmentRef = {0};
 	colorAttachmentRef.attachment = 0;
@@ -163,6 +244,13 @@ void test_destroy_vulkan_context(TestVulkanContext* ctx)
 	}
 	if (ctx->device != VK_NULL_HANDLE) {
 		vkDestroyDevice(ctx->device, NULL);
+	}
+	if (ctx->debugMessenger != VK_NULL_HANDLE) {
+		PFN_vkDestroyDebugUtilsMessengerEXT func = (PFN_vkDestroyDebugUtilsMessengerEXT)
+			vkGetInstanceProcAddr(ctx->instance, "vkDestroyDebugUtilsMessengerEXT");
+		if (func != NULL) {
+			func(ctx->instance, ctx->debugMessenger, NULL);
+		}
 	}
 	if (ctx->instance != VK_NULL_HANDLE) {
 		vkDestroyInstance(ctx->instance, NULL);
