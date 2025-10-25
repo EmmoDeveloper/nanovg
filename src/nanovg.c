@@ -1870,9 +1870,12 @@ static int nvg__expandFill(NVGcontext* ctx, float w, int lineJoin, float miterLi
 	cverts = 0;
 	for (i = 0; i < cache->npaths; i++) {
 		NVGpath* path = &cache->paths[i];
-		cverts += path->count + path->nbevel + 1;
+		// For Vulkan TRIANGLE_LIST: each edge becomes a triangle (3 vertices)
+		// Non-fringe case: path->count edges * 3 vertices per triangle
 		if (fringe)
-			cverts += (path->count + path->nbevel*5 + 1) * 2; // plus one for loop
+			cverts += (path->count + path->nbevel + 1) + (path->count + path->nbevel*5 + 1) * 2;
+		else
+			cverts += path->count * 3; // TRIANGLE_LIST: 3 vertices per edge
 	}
 
 	verts = nvg__allocTempVerts(ctx, cverts);
@@ -1921,9 +1924,23 @@ static int nvg__expandFill(NVGcontext* ctx, float w, int lineJoin, float miterLi
 				p0 = p1++;
 			}
 		} else {
+			// For Vulkan: Generate TRIANGLE_LIST geometry instead of TRIANGLE_FAN
+			// Calculate center point for the shape
+			float cx = 0.0f, cy = 0.0f;
 			for (j = 0; j < path->count; ++j) {
-				nvg__vset(dst, pts[j].x, pts[j].y, 0.5f,1);
-				dst++;
+				cx += pts[j].x;
+				cy += pts[j].y;
+			}
+			cx /= (float)path->count;
+			cy /= (float)path->count;
+
+			// Generate triangles: (center, v[i], v[i+1]) for each edge
+			for (j = 0; j < path->count; ++j) {
+				int j1 = (j + 1) % path->count;
+				// Triangle: center, current vertex, next vertex
+				nvg__vset(dst, cx, cy, 0.5f, 1); dst++;
+				nvg__vset(dst, pts[j].x, pts[j].y, 0.5f, 1); dst++;
+				nvg__vset(dst, pts[j1].x, pts[j1].y, 0.5f, 1); dst++;
 			}
 		}
 

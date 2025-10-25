@@ -404,7 +404,8 @@ static VkResult vknvg__createInstancedTextPipeline(VKNVGcontext* vk, VkPipeline*
 static VkResult vknvg__createGraphicsPipeline(VKNVGcontext* vk, VkPipeline* pipeline,
                                               VkBool32 enableStencil, VkStencilOp frontStencilOp,
                                               VkStencilOp backStencilOp, VkCompareOp stencilCompareOp,
-                                              VkBool32 colorWriteEnable, VKNVGblend* blend)
+                                              VkBool32 colorWriteEnable, VKNVGblend* blend,
+                                              VkPrimitiveTopology topology)
 {
 	VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
 	vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -444,7 +445,7 @@ static VkResult vknvg__createGraphicsPipeline(VKNVGcontext* vk, VkPipeline* pipe
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0};
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssembly.topology = topology;
 	inputAssembly.primitiveRestartEnable = VK_FALSE;
 
 	VkPipelineViewportStateCreateInfo viewportState = {0};

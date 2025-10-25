@@ -252,20 +252,20 @@ static VkResult vknvg__createRenderPass(VKNVGcontext* vk)
 	VkAttachmentDescription colorAttachment = {0};
 	colorAttachment.format = vk->colorFormat;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 	VkAttachmentDescription depthStencilAttachment = {0};
 	depthStencilAttachment.format = vk->depthStencilFormat;
 	depthStencilAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-	depthStencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	depthStencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	depthStencilAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depthStencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthStencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthStencilAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthStencilAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthStencilAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
@@ -281,13 +281,19 @@ static VkResult vknvg__createRenderPass(VKNVGcontext* vk)
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
-	subpass.pDepthStencilAttachment = &depthStencilAttachmentRef;
+	subpass.pDepthStencilAttachment = (vk->depthStencilFormat != VK_FORMAT_UNDEFINED) ? &depthStencilAttachmentRef : NULL;
 
-	VkAttachmentDescription attachments[] = {colorAttachment, depthStencilAttachment};
+	VkAttachmentDescription attachments[2];
+	uint32_t attachmentCount = 1;
+	attachments[0] = colorAttachment;
+	if (vk->depthStencilFormat != VK_FORMAT_UNDEFINED) {
+		attachments[1] = depthStencilAttachment;
+		attachmentCount = 2;
+	}
 
 	VkRenderPassCreateInfo renderPassInfo = {0};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.attachmentCount = attachmentCount;
 	renderPassInfo.pAttachments = attachments;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;

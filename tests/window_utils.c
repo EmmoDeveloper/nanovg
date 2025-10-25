@@ -114,7 +114,7 @@ static void createSwapchain(WindowVulkanContext* ctx)
 	createInfo.imageColorSpace = surfaceFormat.colorSpace;
 	createInfo.imageExtent = extent;
 	createInfo.imageArrayLayers = 1;
-	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
 	if (ctx->graphicsQueueFamilyIndex != ctx->presentQueueFamilyIndex) {
 		uint32_t queueFamilyIndices[] = {ctx->graphicsQueueFamilyIndex, ctx->presentQueueFamilyIndex};
@@ -204,6 +204,121 @@ static void createRenderPass(WindowVulkanContext* ctx)
 	if (vkCreateRenderPass(ctx->device, &renderPassInfo, NULL, &ctx->renderPass) != VK_SUCCESS) {
 		fprintf(stderr, "Failed to create render pass\n");
 	}
+}
+
+static void createDepthStencilImage(WindowVulkanContext* ctx)
+{
+	ctx->depthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
+
+	VkImageCreateInfo imageInfo = {0};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.extent.width = ctx->swapchainExtent.width;
+	imageInfo.extent.height = ctx->swapchainExtent.height;
+	imageInfo.extent.depth = 1;
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.format = ctx->depthStencilFormat;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	if (vkCreateImage(ctx->device, &imageInfo, NULL, &ctx->depthStencilImage) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create depth/stencil image\n");
+		return;
+	}
+
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(ctx->device, ctx->depthStencilImage, &memRequirements);
+
+	VkPhysicalDeviceMemoryProperties memProperties;
+	vkGetPhysicalDeviceMemoryProperties(ctx->physicalDevice, &memProperties);
+
+	uint32_t memoryTypeIndex = UINT32_MAX;
+	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+		if ((memRequirements.memoryTypeBits & (1 << i)) &&
+			(memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+			memoryTypeIndex = i;
+			break;
+		}
+	}
+
+	VkMemoryAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memRequirements.size;
+	allocInfo.memoryTypeIndex = memoryTypeIndex;
+
+	if (vkAllocateMemory(ctx->device, &allocInfo, NULL, &ctx->depthStencilImageMemory) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to allocate depth/stencil image memory\n");
+		return;
+	}
+
+	vkBindImageMemory(ctx->device, ctx->depthStencilImage, ctx->depthStencilImageMemory, 0);
+
+	VkImageViewCreateInfo viewInfo = {0};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = ctx->depthStencilImage;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = ctx->depthStencilFormat;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+
+	if (vkCreateImageView(ctx->device, &viewInfo, NULL, &ctx->depthStencilImageView) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create depth/stencil image view\n");
+		return;
+	}
+
+	// Transition depth/stencil image to optimal layout
+	VkCommandBufferAllocateInfo cmdAllocInfo = {0};
+	cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	cmdAllocInfo.commandPool = ctx->commandPool;
+	cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cmdAllocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(ctx->device, &cmdAllocInfo, &commandBuffer);
+
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+	VkImageMemoryBarrier barrier = {0};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = ctx->depthStencilImage;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.srcAccessMask = 0;
+	barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	vkCmdPipelineBarrier(commandBuffer,
+		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+		0, 0, NULL, 0, NULL, 1, &barrier);
+
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo = {0};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	vkQueueSubmit(ctx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(ctx->graphicsQueue);
+
+	vkFreeCommandBuffers(ctx->device, ctx->commandPool, 1, &commandBuffer);
 }
 
 static void createFramebuffers(WindowVulkanContext* ctx)
@@ -353,9 +468,27 @@ static void recreateSwapchain(WindowVulkanContext* ctx)
 	fflush(stdout);
 	cleanupSwapchain(ctx);
 
+	// Cleanup old depth/stencil image
+	if (ctx->depthStencilImageView != VK_NULL_HANDLE) {
+		vkDestroyImageView(ctx->device, ctx->depthStencilImageView, NULL);
+		ctx->depthStencilImageView = VK_NULL_HANDLE;
+	}
+	if (ctx->depthStencilImage != VK_NULL_HANDLE) {
+		vkDestroyImage(ctx->device, ctx->depthStencilImage, NULL);
+		ctx->depthStencilImage = VK_NULL_HANDLE;
+	}
+	if (ctx->depthStencilImageMemory != VK_NULL_HANDLE) {
+		vkFreeMemory(ctx->device, ctx->depthStencilImageMemory, NULL);
+		ctx->depthStencilImageMemory = VK_NULL_HANDLE;
+	}
+
 	printf("[VULKAN] createSwapchain...\n");
 	fflush(stdout);
 	createSwapchain(ctx);
+
+	printf("[VULKAN] createDepthStencilImage...\n");
+	fflush(stdout);
+	createDepthStencilImage(ctx);
 
 	printf("[VULKAN] createFramebuffers...\n");
 	fflush(stdout);
@@ -677,6 +810,7 @@ WindowVulkanContext* window_create_context(int width, int height, const char* ti
 	vkCreateDescriptorPool(ctx->device, &descriptorPoolInfo, NULL, &ctx->descriptorPool);
 
 	createSwapchain(ctx);
+	createDepthStencilImage(ctx);
 	createRenderPass(ctx);
 	createFramebuffers(ctx);
 	createSyncObjects(ctx);
@@ -721,6 +855,16 @@ void window_destroy_context(WindowVulkanContext* ctx)
 	}
 
 	cleanupSwapchain(ctx);
+
+	if (ctx->depthStencilImageView != VK_NULL_HANDLE) {
+		vkDestroyImageView(ctx->device, ctx->depthStencilImageView, NULL);
+	}
+	if (ctx->depthStencilImage != VK_NULL_HANDLE) {
+		vkDestroyImage(ctx->device, ctx->depthStencilImage, NULL);
+	}
+	if (ctx->depthStencilImageMemory != VK_NULL_HANDLE) {
+		vkFreeMemory(ctx->device, ctx->depthStencilImageMemory, NULL);
+	}
 
 	if (ctx->renderPass != VK_NULL_HANDLE) {
 		vkDestroyRenderPass(ctx->device, ctx->renderPass, NULL);
@@ -778,12 +922,12 @@ NVGcontext* window_create_nanovg_context(WindowVulkanContext* ctx, int flags)
 	createInfo.queueFamilyIndex = ctx->graphicsQueueFamilyIndex;
 	createInfo.commandPool = ctx->commandPool;
 	createInfo.descriptorPool = ctx->descriptorPool;
-	createInfo.renderPass = ctx->renderPass;
+	createInfo.renderPass = VK_NULL_HANDLE;  // Let NanoVG create its own render pass
 	createInfo.subpass = 0;
 	createInfo.maxFrames = ctx->maxFramesInFlight;
 	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
 	createInfo.colorFormat = ctx->swapchainImageFormat;
-	createInfo.depthStencilFormat = VK_FORMAT_UNDEFINED;
+	createInfo.depthStencilFormat = ctx->depthStencilFormat;  // Use depth/stencil for proper fills
 
 	printf("[VULKAN] About to call nvgCreateVk...\n");
 	fflush(stdout);
@@ -833,59 +977,37 @@ int window_begin_frame(WindowVulkanContext* ctx, uint32_t* imageIndex, VkCommand
 	// Reset fence for this frame
 	vkResetFences(ctx->device, 1, &ctx->inFlightFences[ctx->currentFrame]);
 
-	// Use pre-allocated command buffer for this frame
+	// With NVG_INTERNAL_SYNC, NanoVG manages its own command buffers
+	// We just need to store the command buffer handle for reference
 	*cmdBuf = ctx->commandBuffers[ctx->currentFrame];
-	vkResetCommandBuffer(*cmdBuf, 0);
-
-	VkCommandBufferBeginInfo beginInfo = {0};
-	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-	vkBeginCommandBuffer(*cmdBuf, &beginInfo);
-
-	VkRenderPassBeginInfo renderPassInfo = {0};
-	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassInfo.renderPass = ctx->renderPass;
-	renderPassInfo.framebuffer = ctx->framebuffers[*imageIndex];
-	renderPassInfo.renderArea.offset.x = 0;
-	renderPassInfo.renderArea.offset.y = 0;
-	renderPassInfo.renderArea.extent = ctx->swapchainExtent;
-
-	VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-	renderPassInfo.clearValueCount = 1;
-	renderPassInfo.pClearValues = &clearColor;
-
-	vkCmdBeginRenderPass(*cmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	return 1;
 }
 
 void window_end_frame(WindowVulkanContext* ctx, uint32_t imageIndex, VkCommandBuffer cmdBuf)
 {
-	vkCmdEndRenderPass(cmdBuf);
-	vkEndCommandBuffer(cmdBuf);
-
+	// Submit the command buffer with proper synchronization
 	VkSubmitInfo submitInfo = {0};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-	// Wait on semaphore for this frame's acquired image
 	VkSemaphore waitSemaphores[] = {ctx->imageAvailableSemaphores[ctx->currentFrame % ctx->swapchainImageCount]};
 	VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 	submitInfo.waitSemaphoreCount = 1;
 	submitInfo.pWaitSemaphores = waitSemaphores;
 	submitInfo.pWaitDstStageMask = waitStages;
+
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &cmdBuf;
 
-	// Signal semaphore for this specific swapchain image
 	VkSemaphore signalSemaphores[] = {ctx->renderFinishedSemaphores[imageIndex]};
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = signalSemaphores;
 
 	if (vkQueueSubmit(ctx->graphicsQueue, 1, &submitInfo, ctx->inFlightFences[ctx->currentFrame]) != VK_SUCCESS) {
-		fprintf(stderr, "Failed to submit draw command buffer\n");
+		fprintf(stderr, "Failed to submit command buffer\n");
 	}
 
+	// Present the result
 	VkPresentInfoKHR presentInfo = {0};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	presentInfo.waitSemaphoreCount = 1;
@@ -928,4 +1050,9 @@ VkImageView window_get_swapchain_image_view(WindowVulkanContext* ctx, uint32_t i
 		return ctx->swapchainImageViews[imageIndex];
 	}
 	return VK_NULL_HANDLE;
+}
+
+VkImageView window_get_depth_stencil_image_view(WindowVulkanContext* ctx)
+{
+	return ctx->depthStencilImageView;
 }

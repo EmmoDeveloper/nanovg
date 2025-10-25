@@ -31,6 +31,11 @@ typedef struct {
 	VkFramebuffer* framebuffers;
 	VkRenderPass renderPass;
 
+	VkImage depthStencilImage;
+	VkDeviceMemory depthStencilImageMemory;
+	VkImageView depthStencilImageView;
+	VkFormat depthStencilFormat;
+
 	VkSemaphore* imageAvailableSemaphores;  // Per swapchain image
 	VkSemaphore* renderFinishedSemaphores;  // Per swapchain image
 	VkFence* inFlightFences;                // Per frame in flight
@@ -61,5 +66,7 @@ void window_poll_events(void);
 void window_get_framebuffer_size(WindowVulkanContext* ctx, int* width, int* height);
 
 VkImageView window_get_swapchain_image_view(WindowVulkanContext* ctx, uint32_t imageIndex);
+
+VkImageView window_get_depth_stencil_image_view(WindowVulkanContext* ctx);
 
 #endif
