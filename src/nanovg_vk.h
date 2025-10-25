@@ -188,6 +188,7 @@ NVGcontext* nvgCreateVk(const NVGVkCreateInfo* createInfo, int flags)
 	vk->depthStencilFormat = createInfo->depthStencilFormat;
 	vk->colorImageView = VK_NULL_HANDLE;
 	vk->depthStencilImageView = VK_NULL_HANDLE;
+	vk->currentFramebuffer = VK_NULL_HANDLE;
 
 	if (flags & NVG_MSAA) {
 		vk->sampleCount = createInfo->sampleCount != 0 ? createInfo->sampleCount : VK_SAMPLE_COUNT_4_BIT;

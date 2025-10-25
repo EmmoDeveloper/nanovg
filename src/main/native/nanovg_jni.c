@@ -42,10 +42,11 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJII
 	createInfo.queue = (VkQueue)queue;
 	createInfo.queueFamilyIndex = (uint32_t)queueFamilyIndex;
 	createInfo.renderPass = (VkRenderPass)renderPass;
+	createInfo.subpass = 0;
 	createInfo.commandPool = (VkCommandPool)commandPool;
 	createInfo.descriptorPool = (VkDescriptorPool)descriptorPool;
 	createInfo.maxFrames = (uint32_t)maxFrames;
-	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_SRGB;
 	createInfo.depthStencilFormat = VK_FORMAT_UNDEFINED;
 	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
 
@@ -72,10 +73,11 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJIILj
 	createInfo.queue = (VkQueue)queue;
 	createInfo.queueFamilyIndex = (uint32_t)queueFamilyIndex;
 	createInfo.renderPass = (VkRenderPass)renderPass;
+	createInfo.subpass = 0;
 	createInfo.commandPool = (VkCommandPool)commandPool;
 	createInfo.descriptorPool = (VkDescriptorPool)descriptorPool;
 	createInfo.maxFrames = (uint32_t)maxFrames;
-	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_SRGB;
 	createInfo.depthStencilFormat = VK_FORMAT_UNDEFINED;
 	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
 
@@ -114,10 +116,11 @@ JNIEXPORT jlong JNICALL Java_org_emmo_ai_nanovg_NanoVG_nvgCreateVk__JJJJIJJJII_3
 	createInfo.queue = (VkQueue)queue;
 	createInfo.queueFamilyIndex = (uint32_t)queueFamilyIndex;
 	createInfo.renderPass = (VkRenderPass)renderPass;
+	createInfo.subpass = 0;
 	createInfo.commandPool = (VkCommandPool)commandPool;
 	createInfo.descriptorPool = (VkDescriptorPool)descriptorPool;
 	createInfo.maxFrames = (uint32_t)maxFrames;
-	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+	createInfo.colorFormat = VK_FORMAT_B8G8R8A8_SRGB;
 	createInfo.depthStencilFormat = VK_FORMAT_UNDEFINED;
 	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
 

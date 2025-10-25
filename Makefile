@@ -54,12 +54,12 @@ MSDF_SRC := src/nanovg_vk_msdf.c
 MSDF_OBJ := $(BUILD_DIR)/nanovg_vk_msdf.o
 
 # Test programs
-SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/test_init
-SMOKE_TEST_OBJS := $(BUILD_DIR)/test_compile.o $(BUILD_DIR)/test_simple.o $(BUILD_DIR)/test_init.o
+SMOKE_TESTS := $(BUILD_DIR)/test_compile $(BUILD_DIR)/test_simple $(BUILD_DIR)/test_init $(BUILD_DIR)/test_render_pass
+SMOKE_TEST_OBJS := $(BUILD_DIR)/test_compile.o $(BUILD_DIR)/test_simple.o $(BUILD_DIR)/test_init.o $(BUILD_DIR)/test_render_pass.o
 
 # Fun tests
-FUN_TESTS :=
-FUN_TEST_OBJS :=
+FUN_TESTS := $(BUILD_DIR)/test_window
+FUN_TEST_OBJS := $(BUILD_DIR)/test_window.o $(BUILD_DIR)/window_utils.o
 
 # Unit tests
 UNIT_TESTS := $(BUILD_DIR)/test_unit_texture $(BUILD_DIR)/test_unit_platform $(BUILD_DIR)/test_unit_memory $(BUILD_DIR)/test_unit_memory_leak $(BUILD_DIR)/test_atlas_prewarm $(BUILD_DIR)/test_instanced_text $(BUILD_DIR)/test_pipeline_creation $(BUILD_DIR)/test_virtual_atlas $(BUILD_DIR)/test_nvg_virtual_atlas $(BUILD_DIR)/test_cjk_rendering $(BUILD_DIR)/test_real_text_rendering $(BUILD_DIR)/test_cjk_real_rendering $(BUILD_DIR)/test_cjk_eviction $(BUILD_DIR)/test_text_cache $(BUILD_DIR)/test_async_upload $(BUILD_DIR)/test_compute_raster $(BUILD_DIR)/test_atlas_packing $(BUILD_DIR)/test_multi_atlas $(BUILD_DIR)/test_atlas_resize $(BUILD_DIR)/test_atlas_defrag $(BUILD_DIR)/test_harfbuzz $(BUILD_DIR)/test_bidi $(BUILD_DIR)/test_intl_text $(BUILD_DIR)/test_text_effects $(BUILD_DIR)/test_emoji_tables $(BUILD_DIR)/test_color_atlas $(BUILD_DIR)/test_bitmap_emoji $(BUILD_DIR)/test_colr_render $(BUILD_DIR)/test_emoji_integration $(BUILD_DIR)/test_text_emoji_integration $(BUILD_DIR)/test_dual_shader $(BUILD_DIR)/test_visual_emoji $(BUILD_DIR)/test_msdf_generation $(BUILD_DIR)/test_msdf_rendering
@@ -224,6 +224,14 @@ $(BUILD_DIR)/test_simple: $(BUILD_DIR)/test_simple.o $(NANOVG_OBJ) $(VIRTUAL_ATL
 	$(CC) $^ $(LIBS) -o $@
 
 $(BUILD_DIR)/test_init: $(BUILD_DIR)/test_init.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS) $(MSDF_OBJ)
+	@echo "Linking $@..."
+	$(CC) $^ $(LIBS) -o $@
+
+$(BUILD_DIR)/test_render_pass.o: tests/test_render_pass.c | $(BUILD_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_render_pass: $(BUILD_DIR)/test_render_pass.o $(BUILD_DIR)/test_utils.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS) $(MSDF_OBJ)
 	@echo "Linking $@..."
 	$(CC) $^ $(LIBS) -o $@
 
@@ -720,4 +728,20 @@ clean-shaders:
 	@echo "Cleaning shader artifacts..."
 	@rm -f $(SHADER_SPIRV)
 	@echo "✓ Shader cleanup complete"
+
+# =============================================================================
+# Visual Window Tests
+# =============================================================================
+
+$(BUILD_DIR)/window_utils.o: tests/window_utils.c tests/window_utils.h | $(BUILD_DIR)
+	@echo "Compiling window utilities..."
+	$(CC) $(CFLAGS) $(INCLUDES) $(shell pkg-config --cflags glfw3) -c $< -o $@
+
+$(BUILD_DIR)/test_window.o: tests/test_window.c tests/window_utils.h | $(BUILD_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) $(shell pkg-config --cflags glfw3) -c $< -o $@
+
+$(BUILD_DIR)/test_window: $(BUILD_DIR)/test_window.o $(BUILD_DIR)/window_utils.o $(NANOVG_OBJ) $(VIRTUAL_ATLAS_OBJ) $(EMOJI_BACKEND_OBJS) $(MSDF_OBJ)
+	@echo "Linking $@..."
+	$(CC) $^ $(LIBS) $(shell pkg-config --libs glfw3) -o $@
 

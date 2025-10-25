@@ -210,6 +210,7 @@ struct VKNVGcontext {
 	VkFormat depthStencilFormat;
 	VkImageView colorImageView;
 	VkImageView depthStencilImageView;
+	VkFramebuffer currentFramebuffer;
 	uint32_t maxFrames;
 	uint32_t currentFrame;
 	VkCommandBuffer* commandBuffers;

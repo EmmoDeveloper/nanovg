@@ -13,6 +13,7 @@ public class NanoVG {
 	public static final int NVG_STENCIL_STROKES = 1 << 1;
 	public static final int NVG_DEBUG = 1 << 2;
 	public static final int NVG_DYNAMIC_RENDERING = 1 << 4;
+	public static final int NVG_INTERNAL_RENDER_PASS = 1 << 5;
 	public static final int NVG_SDF_TEXT = 1 << 7;
 	public static final int NVG_SUBPIXEL_TEXT = 1 << 8;
 	public static final int NVG_MSDF_TEXT = 1 << 13;

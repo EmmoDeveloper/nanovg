@@ -33,6 +33,12 @@ static void vknvg__renderDelete(void* uptr)
 	// Wait for device to be idle before cleanup
 	vkDeviceWaitIdle(vk->device);
 
+	// Cleanup framebuffer
+	if (vk->currentFramebuffer != VK_NULL_HANDLE) {
+		vkDestroyFramebuffer(vk->device, vk->currentFramebuffer, NULL);
+		vk->currentFramebuffer = VK_NULL_HANDLE;
+	}
+
 	// Cleanup multi-threading resources
 	vknvg__destroyThreadPool(vk);
 

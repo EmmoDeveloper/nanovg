@@ -338,7 +338,12 @@ static int vknvg__renderCreate(void* uptr)
 	                              vk->uniformBuffer);
 	if (result != VK_SUCCESS) return 0;
 
-	vk->fragSize = sizeof(VKNVGfragUniforms);
+	VkPhysicalDeviceProperties deviceProps;
+	vkGetPhysicalDeviceProperties(vk->physicalDevice, &deviceProps);
+	VkDeviceSize minAlignment = deviceProps.limits.minUniformBufferOffsetAlignment;
+
+	VkDeviceSize fragSizeUnaligned = sizeof(VKNVGfragUniforms);
+	vk->fragSize = (uint32_t)((fragSizeUnaligned + minAlignment - 1) & ~(minAlignment - 1));
 
 	// Initialize glyph instance buffer for instanced text rendering
 	vk->useTextInstancing = VK_TRUE;  // Enable by default for performance
@@ -1594,23 +1599,14 @@ static void vknvg__renderFlush(void* uptr)
 	VkDescriptorSet descriptorSet;
 	int i;
 
+	printf("[NVG] renderFlush called, ncalls=%d\n", vk->ncalls);
+	fflush(stdout);
+
 	if (vk->ncalls == 0) return;
 
 	vertexBuffer = &vk->vertexBuffers[vk->currentFrame];
 	cmd = vk->commandBuffers[vk->currentFrame];
 	descriptorSet = vk->descriptorSets[vk->currentFrame];
-
-	// Begin command buffer recording (must be before any vkCmd* calls)
-	VkCommandBufferBeginInfo beginInfo = {0};
-	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	vkBeginCommandBuffer(cmd, &beginInfo);
-
-	// Process virtual atlas uploads (records commands into cmd)
-	if (vk->useVirtualAtlas && vk->virtualAtlas) {
-		vknvg__processUploads(vk->virtualAtlas, cmd);
-		vknvg__atlasNextFrame(vk->virtualAtlas);
-	}
 
 	// Upload vertex data
 	if (vk->nverts > 0) {
@@ -1638,7 +1634,8 @@ static void vknvg__renderFlush(void* uptr)
 		}
 	}
 
-	// Update descriptor set with uniform buffer
+	// Update descriptor set with uniform buffer (must be before vkBeginCommandBuffer)
+	// Note: Using DYNAMIC descriptor type, so we only set base offset here
 	VkDescriptorBufferInfo bufferInfo = {0};
 	bufferInfo.buffer = vk->uniformBuffer->buffer;
 	bufferInfo.offset = 0;
@@ -1649,11 +1646,50 @@ static void vknvg__renderFlush(void* uptr)
 	descriptorWrite.dstSet = descriptorSet;
 	descriptorWrite.dstBinding = 0;
 	descriptorWrite.dstArrayElement = 0;
-	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	descriptorWrite.descriptorCount = 1;
 	descriptorWrite.pBufferInfo = &bufferInfo;
 
 	vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+
+	// Update descriptor set with default texture (required even for non-textured draws)
+	VkDescriptorImageInfo defaultImageInfo = {0};
+	defaultImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	// Use virtual atlas as default texture if available
+	if (vk->useVirtualAtlas && vk->virtualAtlas && vk->virtualAtlas->atlasImageView != VK_NULL_HANDLE) {
+		defaultImageInfo.imageView = vk->virtualAtlas->atlasImageView;
+		defaultImageInfo.sampler = vk->virtualAtlas->atlasSampler;
+	} else if (vk->ntextures > 0 && vk->textures[0].imageView != VK_NULL_HANDLE) {
+		// Fall back to first texture
+		defaultImageInfo.imageView = vk->textures[0].imageView;
+		defaultImageInfo.sampler = vk->textures[0].sampler;
+	}
+
+	if (defaultImageInfo.imageView != VK_NULL_HANDLE) {
+		VkWriteDescriptorSet imageWrite = {0};
+		imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		imageWrite.dstSet = descriptorSet;
+		imageWrite.dstBinding = 1;
+		imageWrite.dstArrayElement = 0;
+		imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		imageWrite.descriptorCount = 1;
+		imageWrite.pImageInfo = &defaultImageInfo;
+
+		vkUpdateDescriptorSets(vk->device, 1, &imageWrite, 0, NULL);
+	}
+
+	// Begin command buffer recording (must be after descriptor updates)
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	vkBeginCommandBuffer(cmd, &beginInfo);
+
+	// Process virtual atlas uploads (records commands into cmd)
+	if (vk->useVirtualAtlas && vk->virtualAtlas) {
+		vknvg__processUploads(vk->virtualAtlas, cmd);
+		vknvg__atlasNextFrame(vk->virtualAtlas);
+	}
 
 	// Begin rendering (dynamic rendering mode or application-managed render pass)
 	// Note: command buffer was already begun earlier for virtual atlas uploads
@@ -1686,8 +1722,62 @@ static void vknvg__renderFlush(void* uptr)
 		renderingInfo.pStencilAttachment = (vk->depthStencilImageView != VK_NULL_HANDLE) ? &depthStencilAttachment : NULL;
 
 		vk->vkCmdBeginRenderingKHR(cmd, &renderingInfo);
+	} else if (vk->renderPass != VK_NULL_HANDLE) {
+		// Use traditional render pass - create framebuffer and begin render pass
+		// Destroy previous framebuffer if it exists
+		if (vk->currentFramebuffer != VK_NULL_HANDLE) {
+			vkDestroyFramebuffer(vk->device, vk->currentFramebuffer, NULL);
+			vk->currentFramebuffer = VK_NULL_HANDLE;
+		}
+
+		// Create framebuffer for current image view
+		VkImageView attachments[2];
+		uint32_t attachmentCount = 1;
+		attachments[0] = vk->colorImageView;
+		if (vk->depthStencilImageView != VK_NULL_HANDLE) {
+			attachments[1] = vk->depthStencilImageView;
+			attachmentCount = 2;
+		}
+
+		VkFramebufferCreateInfo framebufferInfo = {0};
+		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		framebufferInfo.renderPass = vk->renderPass;
+		framebufferInfo.attachmentCount = attachmentCount;
+		framebufferInfo.pAttachments = attachments;
+		framebufferInfo.width = (uint32_t)vk->view[0];
+		framebufferInfo.height = (uint32_t)vk->view[1];
+		framebufferInfo.layers = 1;
+
+		VkResult result = vkCreateFramebuffer(vk->device, &framebufferInfo, NULL, &vk->currentFramebuffer);
+		if (result != VK_SUCCESS) {
+			// Failed to create framebuffer - skip rendering
+			vkEndCommandBuffer(cmd);
+			return;
+		}
+
+		// Begin render pass
+		VkClearValue clearValues[2];
+		clearValues[0].color.float32[0] = 0.0f;
+		clearValues[0].color.float32[1] = 0.0f;
+		clearValues[0].color.float32[2] = 0.0f;
+		clearValues[0].color.float32[3] = 1.0f;
+		clearValues[1].depthStencil.depth = 1.0f;
+		clearValues[1].depthStencil.stencil = 0;
+
+		VkRenderPassBeginInfo renderPassInfo = {0};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassInfo.renderPass = vk->renderPass;
+		renderPassInfo.framebuffer = vk->currentFramebuffer;
+		renderPassInfo.renderArea.offset.x = 0;
+		renderPassInfo.renderArea.offset.y = 0;
+		renderPassInfo.renderArea.extent.width = (uint32_t)vk->view[0];
+		renderPassInfo.renderArea.extent.height = (uint32_t)vk->view[1];
+		renderPassInfo.clearValueCount = (vk->depthStencilImageView != VK_NULL_HANDLE) ? 2 : 1;
+		renderPassInfo.pClearValues = clearValues;
+
+		vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 	}
-	// Note: If not using dynamic rendering, application must have already begun render pass
+	// Note: If not using dynamic rendering or render pass, application must have already begun render pass
 
 	// Bind vertex buffer
 	VkDeviceSize offsets[] = {0};
@@ -1720,6 +1810,7 @@ static void vknvg__renderFlush(void* uptr)
 		VKNVGcall* call = &vk->calls[i];
 		VKNVGpath* paths = &vk->paths[call->pathOffset];
 		int j;
+		uint32_t dynamicOffset;
 
 		// Set blend state for this call (if dynamic blending available)
 		if (vk->hasDynamicBlendState) {
@@ -1751,10 +1842,9 @@ static void vknvg__renderFlush(void* uptr)
 				// Stencil-based fill (3-pass algorithm)
 				// Pass 1: Stencil write (color writes disabled)
 				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->fillStencilPipeline);
-				bufferInfo.offset = call->uniformOffset;
-				vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+				dynamicOffset = call->uniformOffset;
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-				                         0, 1, &descriptorSet, 0, NULL);
+				                         0, 1, &descriptorSet, 1, &dynamicOffset);
 
 				// Draw triangle fans into stencil buffer
 				for (j = 0; j < call->pathCount; j++) {
@@ -1773,10 +1863,9 @@ static void vknvg__renderFlush(void* uptr)
 						                                                VK_COMPARE_OP_EQUAL, VK_TRUE);
 					}
 					vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, aaPipeline);
-					bufferInfo.offset = call->uniformOffset + vk->fragSize;
-					vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+					dynamicOffset = call->uniformOffset + vk->fragSize;
 					vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-					                         0, 1, &descriptorSet, 0, NULL);
+					                         0, 1, &descriptorSet, 1, &dynamicOffset);
 
 					for (j = 0; j < call->pathCount; j++) {
 						if (paths[j].strokeCount > 0) {
@@ -1808,10 +1897,9 @@ static void vknvg__renderFlush(void* uptr)
 					                                                         VK_COMPARE_OP_ALWAYS, VK_TRUE);
 				}
 				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, simpleFillPipeline);
-				bufferInfo.offset = call->uniformOffset;
-				vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+				dynamicOffset = call->uniformOffset;
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-				                         0, 1, &descriptorSet, 0, NULL);
+				                         0, 1, &descriptorSet, 1, &dynamicOffset);
 
 				// Draw fill geometry directly
 				for (j = 0; j < call->pathCount; j++) {
@@ -1835,10 +1923,9 @@ static void vknvg__renderFlush(void* uptr)
 				                                                     VK_COMPARE_OP_ALWAYS, VK_TRUE);
 			}
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, convexPipeline);
-			bufferInfo.offset = call->uniformOffset;
-			vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+			dynamicOffset = call->uniformOffset;
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-			                         0, 1, &descriptorSet, 0, NULL);
+			                         0, 1, &descriptorSet, 1, &dynamicOffset);
 
 			// Draw fill geometry and fringe directly
 			for (j = 0; j < call->pathCount; j++) {
@@ -1864,10 +1951,9 @@ static void vknvg__renderFlush(void* uptr)
 			if (vk->flags & NVG_STENCIL_STROKES) {
 				// Stencil stroke rendering (multi-pass)
 				// Pass 1: Fill stroke base
-				bufferInfo.offset = call->uniformOffset + vk->fragSize;
-				vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+				dynamicOffset = call->uniformOffset + vk->fragSize;
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-				                         0, 1, &descriptorSet, 0, NULL);
+				                         0, 1, &descriptorSet, 1, &dynamicOffset);
 				for (j = 0; j < call->pathCount; j++) {
 					if (paths[j].strokeCount > 0) {
 						vkCmdDraw(cmd, paths[j].strokeCount, 1, paths[j].strokeOffset, 0);
@@ -1875,10 +1961,9 @@ static void vknvg__renderFlush(void* uptr)
 				}
 
 				// Pass 2: AA pass
-				bufferInfo.offset = call->uniformOffset;
-				vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+				dynamicOffset = call->uniformOffset;
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-				                         0, 1, &descriptorSet, 0, NULL);
+				                         0, 1, &descriptorSet, 1, &dynamicOffset);
 				for (j = 0; j < call->pathCount; j++) {
 					if (paths[j].strokeCount > 0) {
 						vkCmdDraw(cmd, paths[j].strokeCount, 1, paths[j].strokeOffset, 0);
@@ -1886,10 +1971,9 @@ static void vknvg__renderFlush(void* uptr)
 				}
 			} else {
 				// Simple stroke rendering (single pass)
-				bufferInfo.offset = call->uniformOffset;
-				vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+				dynamicOffset = call->uniformOffset;
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-				                         0, 1, &descriptorSet, 0, NULL);
+				                         0, 1, &descriptorSet, 1, &dynamicOffset);
 				for (j = 0; j < call->pathCount; j++) {
 					if (paths[j].strokeCount > 0) {
 						vkCmdDraw(cmd, paths[j].strokeCount, 1, paths[j].strokeOffset, 0);
@@ -1953,15 +2037,14 @@ static void vknvg__renderFlush(void* uptr)
 				vkCmdBindVertexBuffers(cmd, 1, 1, &instanceBuffer, &instanceOffset);
 			}
 
-			// Update descriptor set and bind textures
-			bufferInfo.offset = call->uniformOffset;
-			vkUpdateDescriptorSets(vk->device, 1, &descriptorWrite, 0, NULL);
+			// Prepare dynamic offset for descriptor set binding
+			dynamicOffset = call->uniformOffset;
 
 			if (useEmojiPipeline) {
 				// Dual-mode emoji rendering: bind both SDF and color atlases
 				VkDescriptorSet emojiDescriptorSet = vk->dualModeDescriptorSets[vk->currentFrame];
 
-				// Binding 0: Uniform buffer (already updated above)
+				// Binding 0: Uniform buffer (use dynamic offset)
 				// Binding 1: SDF atlas (fontstash texture)
 				// Binding 2: Color atlas (emoji texture)
 
@@ -2000,39 +2083,55 @@ static void vknvg__renderFlush(void* uptr)
 				}
 
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->dualModePipelineLayout,
-				                         0, 1, &emojiDescriptorSet, 0, NULL);
+				                         0, 1, &emojiDescriptorSet, 1, &dynamicOffset);
 			} else {
 				// Regular rendering: bind single texture
+				VkDescriptorImageInfo imageInfo = {0};
+				imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				VKNVGtexture* tex = NULL;
 				if (call->image > 0) {
-					VKNVGtexture* tex = vknvg__findTexture(vk, call->image);
-					if (tex != NULL) {
-						VkDescriptorImageInfo imageInfo = {0};
-						imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					tex = vknvg__findTexture(vk, call->image);
+				}
 
-						// Redirect to virtual atlas if this is the fontstash texture
-						if ((tex->flags & 0x20000) && vk->useVirtualAtlas && vk->virtualAtlas) {
-							imageInfo.imageView = vk->virtualAtlas->atlasImageView;
-							imageInfo.sampler = vk->virtualAtlas->atlasSampler;
-						} else {
-							imageInfo.imageView = tex->imageView;
-							imageInfo.sampler = tex->sampler;
-						}
-
-						VkWriteDescriptorSet imageWrite = {0};
-						imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-						imageWrite.dstSet = descriptorSet;
-						imageWrite.dstBinding = 1;
-						imageWrite.dstArrayElement = 0;
-						imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-						imageWrite.descriptorCount = 1;
-						imageWrite.pImageInfo = &imageInfo;
-
-						vkUpdateDescriptorSets(vk->device, 1, &imageWrite, 0, NULL);
+				if (tex != NULL) {
+					// Redirect to virtual atlas if this is the fontstash texture
+					if ((tex->flags & 0x20000) && vk->useVirtualAtlas && vk->virtualAtlas) {
+						imageInfo.imageView = vk->virtualAtlas->atlasImageView;
+						imageInfo.sampler = vk->virtualAtlas->atlasSampler;
+					} else {
+						imageInfo.imageView = tex->imageView;
+						imageInfo.sampler = tex->sampler;
+					}
+				} else {
+					// No texture specified - use virtual atlas as default if available
+					if (vk->useVirtualAtlas && vk->virtualAtlas) {
+						imageInfo.imageView = vk->virtualAtlas->atlasImageView;
+						imageInfo.sampler = vk->virtualAtlas->atlasSampler;
+					} else if (vk->ntextures > 0 && vk->textures[0].imageView != VK_NULL_HANDLE) {
+						// Fall back to first texture
+						imageInfo.imageView = vk->textures[0].imageView;
+						imageInfo.sampler = vk->textures[0].sampler;
 					}
 				}
 
+				// Update texture descriptor if this call specifies a texture
+				// (default texture was already bound earlier)
+				if (imageInfo.imageView != VK_NULL_HANDLE) {
+					VkWriteDescriptorSet imageWrite = {0};
+					imageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+					imageWrite.dstSet = descriptorSet;
+					imageWrite.dstBinding = 1;
+					imageWrite.dstArrayElement = 0;
+					imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+					imageWrite.descriptorCount = 1;
+					imageWrite.pImageInfo = &imageInfo;
+
+					vkUpdateDescriptorSets(vk->device, 1, &imageWrite, 0, NULL);
+				}
+
 				vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineLayout,
-				                         0, 1, &descriptorSet, 0, NULL);
+				                         0, 1, &descriptorSet, 1, &dynamicOffset);
 			}
 
 			if (useInstancedPipeline) {
@@ -2049,9 +2148,11 @@ static void vknvg__renderFlush(void* uptr)
 		}
 	}
 
-	// End rendering (dynamic rendering mode only)
+	// End rendering
 	if (vk->hasDynamicRendering) {
 		vk->vkCmdEndRenderingKHR(cmd);
+	} else if (vk->renderPass != VK_NULL_HANDLE) {
+		vkCmdEndRenderPass(cmd);
 	}
 
 	vkEndCommandBuffer(cmd);
