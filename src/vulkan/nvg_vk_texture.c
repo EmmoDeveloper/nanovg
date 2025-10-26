@@ -1,5 +1,6 @@
 #include "nvg_vk_texture.h"
 #include "nvg_vk_buffer.h"
+#include "../nanovg.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -171,23 +172,27 @@ int nvgvk_create_texture(void* userPtr, int type, int w, int h,
 
 	// Upload data if provided
 	if (data != NULL) {
-		if (!nvgvk_update_texture(userPtr, id, 0, 0, w, h, data)) {
-			nvgvk_delete_texture(userPtr, id);
+		// Note: id is 0-based here, but nvgvk_update_texture expects 1-based
+		if (!nvgvk_update_texture(userPtr, id + 1, 0, 0, w, h, data)) {
+			nvgvk_delete_texture(userPtr, id + 1);
 			return -1;
 		}
 	}
 
-	return id;
+	// NanoVG uses 1-based texture IDs (0 = failure)
+	return id + 1;
 }
 
 void nvgvk_delete_texture(void* userPtr, int image)
 {
 	NVGVkContext* vk = (NVGVkContext*)userPtr;
-	if (!vk || image < 0 || image >= NVGVK_MAX_TEXTURES) {
+	// Convert from 1-based to 0-based
+	int id = image - 1;
+	if (!vk || id < 0 || id >= NVGVK_MAX_TEXTURES) {
 		return;
 	}
 
-	NVGVkTexture* tex = &vk->textures[image];
+	NVGVkTexture* tex = &vk->textures[id];
 	if (tex->image == VK_NULL_HANDLE) {
 		return;
 	}
@@ -215,11 +220,13 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
                          int w, int h, const unsigned char* data)
 {
 	NVGVkContext* vk = (NVGVkContext*)userPtr;
-	if (!vk || image < 0 || image >= NVGVK_MAX_TEXTURES || !data) {
+	// Convert from 1-based to 0-based
+	int id = image - 1;
+	if (!vk || id < 0 || id >= NVGVK_MAX_TEXTURES || !data) {
 		return 0;
 	}
 
-	NVGVkTexture* tex = &vk->textures[image];
+	NVGVkTexture* tex = &vk->textures[id];
 	if (tex->image == VK_NULL_HANDLE) {
 		return 0;
 	}
@@ -306,11 +313,13 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 int nvgvk_get_texture_size(void* userPtr, int image, int* w, int* h)
 {
 	NVGVkContext* vk = (NVGVkContext*)userPtr;
-	if (!vk || image < 0 || image >= NVGVK_MAX_TEXTURES) {
+	// Convert from 1-based to 0-based
+	int id = image - 1;
+	if (!vk || id < 0 || id >= NVGVK_MAX_TEXTURES) {
 		return 0;
 	}
 
-	NVGVkTexture* tex = &vk->textures[image];
+	NVGVkTexture* tex = &vk->textures[id];
 	if (tex->image == VK_NULL_HANDLE) {
 		return 0;
 	}

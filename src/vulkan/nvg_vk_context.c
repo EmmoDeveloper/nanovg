@@ -1,6 +1,7 @@
 #include "nvg_vk_context.h"
 #include "nvg_vk_buffer.h"
 #include "nvg_vk_render.h"
+#include "../nanovg.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

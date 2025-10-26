@@ -3,11 +3,7 @@
 
 #include "nvg_vk_types.h"
 
-// Texture type enum (from NanoVG)
-enum NVGtextureType {
-	NVG_TEXTURE_ALPHA = 0x01,
-	NVG_TEXTURE_RGBA = 0x02,
-};
+// NVGtexture enum defined in nanovg.h
 
 // Texture management functions
 int nvgvk_create_texture(void* userPtr, int type, int w, int h,

@@ -3,6 +3,12 @@
 
 #include <vulkan/vulkan.h>
 
+// Include NanoVG for NVGvertex definition
+#ifndef NANOVG_H
+// Forward declare if nanovg.h not included yet
+typedef struct NVGvertex NVGvertex;
+#endif
+
 // Forward declarations
 typedef struct NVGVkContext NVGVkContext;
 typedef struct NVGVkTexture NVGVkTexture;
@@ -18,12 +24,6 @@ typedef struct NVGVkShaderSet NVGVkShaderSet;
 #define NVGVK_INITIAL_VERTEX_COUNT 4096
 #define NVGVK_INITIAL_INDEX_COUNT 8192
 #define NVGVK_PIPELINE_COUNT 6
-
-// Vertex structure (matches NanoVG format)
-typedef struct NVGvertex {
-	float x, y;
-	float u, v;
-} NVGvertex;
 
 // Texture structure
 struct NVGVkTexture {

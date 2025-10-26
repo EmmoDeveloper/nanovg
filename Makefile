@@ -7,9 +7,14 @@ LIBS := $(shell pkg-config --libs vulkan glfw3) -lm
 
 BUILD_DIR := build
 
-.PHONY: all clean test test-nvg test-render
+.PHONY: all clean test test-nvg test-render test-shapes test-gradients test-fill \
+        test-convexfill test-stroke test-textures test-blending test-scissor test-all-phase4 \
+        test-nvg-api
 
-all: $(BUILD_DIR)/test_window $(BUILD_DIR)/test_nvg_vk $(BUILD_DIR)/test_render
+all: $(BUILD_DIR)/test_window $(BUILD_DIR)/test_nvg_vk $(BUILD_DIR)/test_render \
+     $(BUILD_DIR)/test_shapes $(BUILD_DIR)/test_gradients $(BUILD_DIR)/test_fill \
+     $(BUILD_DIR)/test_convexfill $(BUILD_DIR)/test_stroke $(BUILD_DIR)/test_textures \
+     $(BUILD_DIR)/test_blending $(BUILD_DIR)/test_scissor $(BUILD_DIR)/test_nvg_api
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -90,6 +95,159 @@ test-render: $(BUILD_DIR)/test_render
 	@echo "Running test_render..."
 	@./$(BUILD_DIR)/test_render
 
+$(BUILD_DIR)/test_shapes.o: tests/test_shapes.c | $(BUILD_DIR)
+	@echo "Compiling test_shapes.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_shapes: $(BUILD_DIR)/test_shapes.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_shapes..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-shapes: $(BUILD_DIR)/test_shapes
+	@echo "Running test_shapes..."
+	@./$(BUILD_DIR)/test_shapes
+
+$(BUILD_DIR)/test_gradients.o: tests/test_gradients.c | $(BUILD_DIR)
+	@echo "Compiling test_gradients.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_gradients: $(BUILD_DIR)/test_gradients.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_gradients..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-gradients: $(BUILD_DIR)/test_gradients
+	@echo "Running test_gradients..."
+	@./$(BUILD_DIR)/test_gradients
+
+# test_fill
+$(BUILD_DIR)/test_fill.o: tests/test_fill.c | $(BUILD_DIR)
+	@echo "Compiling test_fill.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_fill: $(BUILD_DIR)/test_fill.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_fill..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-fill: $(BUILD_DIR)/test_fill
+	@echo "Running test_fill..."
+	@./$(BUILD_DIR)/test_fill
+
+# test_convexfill
+$(BUILD_DIR)/test_convexfill.o: tests/test_convexfill.c | $(BUILD_DIR)
+	@echo "Compiling test_convexfill.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_convexfill: $(BUILD_DIR)/test_convexfill.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_convexfill..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-convexfill: $(BUILD_DIR)/test_convexfill
+	@echo "Running test_convexfill..."
+	@./$(BUILD_DIR)/test_convexfill
+
+# test_stroke
+$(BUILD_DIR)/test_stroke.o: tests/test_stroke.c | $(BUILD_DIR)
+	@echo "Compiling test_stroke.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_stroke: $(BUILD_DIR)/test_stroke.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_stroke..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-stroke: $(BUILD_DIR)/test_stroke
+	@echo "Running test_stroke..."
+	@./$(BUILD_DIR)/test_stroke
+
+# test_textures
+$(BUILD_DIR)/test_textures.o: tests/test_textures.c | $(BUILD_DIR)
+	@echo "Compiling test_textures.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_textures: $(BUILD_DIR)/test_textures.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_textures..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-textures: $(BUILD_DIR)/test_textures
+	@echo "Running test_textures..."
+	@./$(BUILD_DIR)/test_textures
+
+# test_blending
+$(BUILD_DIR)/test_blending.o: tests/test_blending.c | $(BUILD_DIR)
+	@echo "Compiling test_blending.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_blending: $(BUILD_DIR)/test_blending.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_blending..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-blending: $(BUILD_DIR)/test_blending
+	@echo "Running test_blending..."
+	@./$(BUILD_DIR)/test_blending
+
+# Run all Phase 4 tests
+test-all-phase4: test-shapes test-gradients test-fill test-convexfill test-stroke test-textures test-blending
+	@echo ""
+	@echo "=== All Phase 4 Tests Complete ==="
+
 clean:
 	rm -rf $(BUILD_DIR)
 	@echo "Clean complete"
+
+# test_scissor
+$(BUILD_DIR)/test_scissor.o: tests/test_scissor.c | $(BUILD_DIR)
+	@echo "Compiling test_scissor.c..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/test_scissor: $(BUILD_DIR)/test_scissor.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_scissor..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-scissor: $(BUILD_DIR)/test_scissor
+	@echo "Running test_scissor..."
+	@./$(BUILD_DIR)/test_scissor
+
+# NanoVG core
+$(BUILD_DIR)/nanovg.o: src/nanovg.c src/nanovg.h | $(BUILD_DIR)
+	@echo "Compiling nanovg.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -Wno-error=implicit-function-declaration -c $< -o $@
+
+# MSDF stubs (until text rendering implemented)
+$(BUILD_DIR)/stb_truetype_msdf_stubs.o: src/stb_truetype_msdf_stubs.c | $(BUILD_DIR)
+	@echo "Compiling stb_truetype_msdf_stubs.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# NanoVG Vulkan API wrapper
+$(BUILD_DIR)/nvg_vk.o: src/nvg_vk.c src/nvg_vk.h src/nanovg.h | $(BUILD_DIR)
+	@echo "Compiling nvg_vk.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+# test_nvg_api
+$(BUILD_DIR)/test_nvg_api.o: tests/test_nvg_api.c | $(BUILD_DIR)
+	@echo "Compiling test_nvg_api.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_nvg_api: $(BUILD_DIR)/test_nvg_api.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/stb_truetype_msdf_stubs.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_nvg_api..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-nvg-api: $(BUILD_DIR)/test_nvg_api
+	@echo "Running test_nvg_api..."
+	@./$(BUILD_DIR)/test_nvg_api
+
+# test_shapes
+$(BUILD_DIR)/test_shapes.o: tests/test_shapes.c | $(BUILD_DIR)
+	@echo "Compiling test_shapes.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_shapes: $(BUILD_DIR)/test_shapes.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/stb_truetype_msdf_stubs.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_shapes..."
+	$(CC) $^ $(LIBS) -o $@
+
+# test_multi_shapes
+$(BUILD_DIR)/test_multi_shapes.o: tests/test_multi_shapes.c | $(BUILD_DIR)
+	@echo "Compiling test_multi_shapes.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_multi_shapes: $(BUILD_DIR)/test_multi_shapes.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/stb_truetype_msdf_stubs.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_multi_shapes..."
+	$(CC) $^ $(LIBS) -o $@
