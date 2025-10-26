@@ -69,4 +69,6 @@ VkImageView window_get_swapchain_image_view(WindowVulkanContext* ctx, uint32_t i
 
 VkImageView window_get_depth_stencil_image_view(WindowVulkanContext* ctx);
 
+int window_save_screenshot(WindowVulkanContext* ctx, uint32_t imageIndex, const char* filename);
+
 #endif

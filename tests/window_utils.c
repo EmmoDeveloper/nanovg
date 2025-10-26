@@ -1,7 +1,4 @@
-#define NANOVG_VK_IMPLEMENTATION
 #include "window_utils.h"
-#include "nanovg.h"
-#include "nanovg_vk.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -909,35 +906,10 @@ void window_destroy_context(WindowVulkanContext* ctx)
 
 NVGcontext* window_create_nanovg_context(WindowVulkanContext* ctx, int flags)
 {
-	if (!ctx) return NULL;
-
-	printf("[VULKAN] window_create_nanovg_context: queueFamilyIndex = %u\n", ctx->graphicsQueueFamilyIndex);
-	fflush(stdout);
-
-	NVGVkCreateInfo createInfo = {0};
-	createInfo.instance = ctx->instance;
-	createInfo.physicalDevice = ctx->physicalDevice;
-	createInfo.device = ctx->device;
-	createInfo.queue = ctx->graphicsQueue;
-	createInfo.queueFamilyIndex = ctx->graphicsQueueFamilyIndex;
-	createInfo.commandPool = ctx->commandPool;
-	createInfo.descriptorPool = ctx->descriptorPool;
-	createInfo.renderPass = VK_NULL_HANDLE;  // Let NanoVG create its own render pass
-	createInfo.subpass = 0;
-	createInfo.maxFrames = ctx->maxFramesInFlight;
-	createInfo.sampleCount = VK_SAMPLE_COUNT_1_BIT;
-	createInfo.colorFormat = ctx->swapchainImageFormat;
-	createInfo.depthStencilFormat = ctx->depthStencilFormat;  // Use depth/stencil for proper fills
-
-	printf("[VULKAN] About to call nvgCreateVk...\n");
-	fflush(stdout);
-
-	NVGcontext* result = nvgCreateVk(&createInfo, flags);
-
-	printf("[VULKAN] nvgCreateVk returned: %p\n", (void*)result);
-	fflush(stdout);
-
-	return result;
+	// NanoVG backend not implemented yet
+	(void)ctx;
+	(void)flags;
+	return NULL;
 }
 
 int window_begin_frame(WindowVulkanContext* ctx, uint32_t* imageIndex, VkCommandBuffer* cmdBuf)
@@ -977,15 +949,31 @@ int window_begin_frame(WindowVulkanContext* ctx, uint32_t* imageIndex, VkCommand
 	// Reset fence for this frame
 	vkResetFences(ctx->device, 1, &ctx->inFlightFences[ctx->currentFrame]);
 
-	// With NVG_INTERNAL_SYNC, NanoVG manages its own command buffers
-	// We just need to store the command buffer handle for reference
+	// Get and begin command buffer
 	*cmdBuf = ctx->commandBuffers[ctx->currentFrame];
+
+	vkResetCommandBuffer(*cmdBuf, 0);
+
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	if (vkBeginCommandBuffer(*cmdBuf, &beginInfo) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to begin command buffer\n");
+		return 0;
+	}
 
 	return 1;
 }
 
 void window_end_frame(WindowVulkanContext* ctx, uint32_t imageIndex, VkCommandBuffer cmdBuf)
 {
+	// End command buffer
+	if (vkEndCommandBuffer(cmdBuf) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to end command buffer\n");
+		return;
+	}
+
 	// Submit the command buffer with proper synchronization
 	VkSubmitInfo submitInfo = {0};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1055,4 +1043,221 @@ VkImageView window_get_swapchain_image_view(WindowVulkanContext* ctx, uint32_t i
 VkImageView window_get_depth_stencil_image_view(WindowVulkanContext* ctx)
 {
 	return ctx->depthStencilImageView;
+}
+
+int window_save_screenshot(WindowVulkanContext* ctx, uint32_t imageIndex, const char* filename)
+{
+	if (!ctx || imageIndex >= ctx->swapchainImageCount || !filename) {
+		fprintf(stderr, "Invalid parameters for screenshot\n");
+		return 0;
+	}
+
+	VkImage srcImage = ctx->swapchainImages[imageIndex];
+	uint32_t width = ctx->swapchainExtent.width;
+	uint32_t height = ctx->swapchainExtent.height;
+
+	// Create destination image in linear tiling for CPU access
+	VkImageCreateInfo imageInfo = {0};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = ctx->swapchainImageFormat;
+	imageInfo.extent.width = width;
+	imageInfo.extent.height = height;
+	imageInfo.extent.depth = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.mipLevels = 1;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.tiling = VK_IMAGE_TILING_LINEAR;
+	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+	VkImage dstImage;
+	if (vkCreateImage(ctx->device, &imageInfo, NULL, &dstImage) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create destination image\n");
+		return 0;
+	}
+
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(ctx->device, dstImage, &memRequirements);
+
+	VkPhysicalDeviceMemoryProperties memProperties;
+	vkGetPhysicalDeviceMemoryProperties(ctx->physicalDevice, &memProperties);
+
+	uint32_t memoryTypeIndex = UINT32_MAX;
+	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+		if ((memRequirements.memoryTypeBits & (1 << i)) &&
+			(memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
+			(memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+			memoryTypeIndex = i;
+			break;
+		}
+	}
+
+	if (memoryTypeIndex == UINT32_MAX) {
+		fprintf(stderr, "Failed to find suitable memory type\n");
+		vkDestroyImage(ctx->device, dstImage, NULL);
+		return 0;
+	}
+
+	VkMemoryAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memRequirements.size;
+	allocInfo.memoryTypeIndex = memoryTypeIndex;
+
+	VkDeviceMemory dstImageMemory;
+	if (vkAllocateMemory(ctx->device, &allocInfo, NULL, &dstImageMemory) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to allocate image memory\n");
+		vkDestroyImage(ctx->device, dstImage, NULL);
+		return 0;
+	}
+
+	vkBindImageMemory(ctx->device, dstImage, dstImageMemory, 0);
+
+	// Create a one-time command buffer for the copy
+	VkCommandBufferAllocateInfo cmdAllocInfo = {0};
+	cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cmdAllocInfo.commandPool = ctx->commandPool;
+	cmdAllocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer cmdBuffer;
+	vkAllocateCommandBuffers(ctx->device, &cmdAllocInfo, &cmdBuffer);
+
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+
+	// Transition dst image to TRANSFER_DST_OPTIMAL
+	VkImageMemoryBarrier barrier = {0};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = dstImage;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.srcAccessMask = 0;
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+	vkCmdPipelineBarrier(cmdBuffer,
+		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Transition src image to TRANSFER_SRC_OPTIMAL
+	barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barrier.image = srcImage;
+	barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+	vkCmdPipelineBarrier(cmdBuffer,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Copy image
+	VkImageCopy copyRegion = {0};
+	copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	copyRegion.srcSubresource.layerCount = 1;
+	copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	copyRegion.dstSubresource.layerCount = 1;
+	copyRegion.extent.width = width;
+	copyRegion.extent.height = height;
+	copyRegion.extent.depth = 1;
+
+	vkCmdCopyImage(cmdBuffer,
+		srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &copyRegion);
+
+	// Transition dst image to GENERAL for host access
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	barrier.image = dstImage;
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+
+	vkCmdPipelineBarrier(cmdBuffer,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Transition src image back to PRESENT_SRC
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	barrier.image = srcImage;
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+
+	vkCmdPipelineBarrier(cmdBuffer,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+		0, 0, NULL, 0, NULL, 1, &barrier);
+
+	vkEndCommandBuffer(cmdBuffer);
+
+	// Submit and wait
+	VkSubmitInfo submitInfo = {0};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &cmdBuffer;
+
+	vkQueueSubmit(ctx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(ctx->graphicsQueue);
+
+	vkFreeCommandBuffers(ctx->device, ctx->commandPool, 1, &cmdBuffer);
+
+	// Map memory and read pixels
+	VkImageSubresource subresource = {0};
+	subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+	VkSubresourceLayout layout;
+	vkGetImageSubresourceLayout(ctx->device, dstImage, &subresource, &layout);
+
+	void* data;
+	if (vkMapMemory(ctx->device, dstImageMemory, 0, VK_WHOLE_SIZE, 0, &data) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to map memory\n");
+		vkDestroyImage(ctx->device, dstImage, NULL);
+		vkFreeMemory(ctx->device, dstImageMemory, NULL);
+		return 0;
+	}
+
+	// Write PNG file
+	FILE* file = fopen(filename, "wb");
+	if (!file) {
+		fprintf(stderr, "Failed to open file for writing: %s\n", filename);
+		vkUnmapMemory(ctx->device, dstImageMemory);
+		vkDestroyImage(ctx->device, dstImage, NULL);
+		vkFreeMemory(ctx->device, dstImageMemory, NULL);
+		return 0;
+	}
+
+	// Simple PPM format instead of PNG (easier to implement safely)
+	fprintf(file, "P6\n%u %u\n255\n", width, height);
+
+	const uint8_t* imageData = (const uint8_t*)data;
+	for (uint32_t y = 0; y < height; y++) {
+		const uint8_t* row = imageData + layout.offset + y * layout.rowPitch;
+		for (uint32_t x = 0; x < width; x++) {
+			// Assuming BGRA format, write RGB
+			fputc(row[x * 4 + 2], file); // R
+			fputc(row[x * 4 + 1], file); // G
+			fputc(row[x * 4 + 0], file); // B
+		}
+	}
+
+	fclose(file);
+	vkUnmapMemory(ctx->device, dstImageMemory);
+	vkDestroyImage(ctx->device, dstImage, NULL);
+	vkFreeMemory(ctx->device, dstImageMemory, NULL);
+
+	printf("Screenshot saved to %s\n", filename);
+	return 1;
 }
