@@ -4,6 +4,7 @@ layout(location = 0) in vec2 inPos;
 layout(location = 1) in vec2 inTexCoord;
 
 layout(location = 0) out vec2 fragTexCoord;
+layout(location = 1) out vec2 fragPos;
 
 layout(binding = 0) uniform ViewUniforms {
 	vec2 viewSize;
@@ -11,6 +12,7 @@ layout(binding = 0) uniform ViewUniforms {
 
 void main() {
 	fragTexCoord = inTexCoord;
+	fragPos = inPos;
 
 	// Transform to NDC
 	vec2 ndc = (2.0 * inPos / view.viewSize) - 1.0;

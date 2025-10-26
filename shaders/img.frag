@@ -4,6 +4,8 @@ layout(location = 0) in vec2 fragTexCoord;
 
 layout(location = 0) out vec4 outColor;
 
+layout(binding = 1) uniform sampler2D texSampler;
+
 layout(push_constant) uniform FragUniforms {
 	mat3x4 scissorMat;
 	mat3x4 paintMat;
@@ -21,5 +23,6 @@ layout(push_constant) uniform FragUniforms {
 } frag;
 
 void main() {
-	outColor = frag.innerCol;
+	vec4 texColor = texture(texSampler, fragTexCoord);
+	outColor = texColor;
 }
