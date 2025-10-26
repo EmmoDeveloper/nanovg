@@ -4,12 +4,14 @@
 #include "nvg_vk_types.h"
 #include "vk_shader.h"  // Reuse existing shader loading
 
-// Shader types for NanoVG
+// Shader types for NanoVG (maps to NVGVkPipelineType, each pipeline gets its own shader set)
 typedef enum NVGVkShaderType {
-	NVGVK_SHADER_FILLGRAD,
-	NVGVK_SHADER_FILLIMG,
+	NVGVK_SHADER_FILL_STENCIL,
+	NVGVK_SHADER_FILL_COVER_GRAD,
+	NVGVK_SHADER_FILL_COVER_IMG,
 	NVGVK_SHADER_SIMPLE,
 	NVGVK_SHADER_IMG,
+	NVGVK_SHADER_IMG_STENCIL,
 	NVGVK_SHADER_COUNT
 } NVGVkShaderType;
 

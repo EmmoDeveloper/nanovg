@@ -57,10 +57,17 @@ static int nvgvk__create_pipeline_layout(NVGVkContext* vk, NVGVkPipeline* pipeli
 	return 1;
 }
 
+// Stencil configuration modes
+typedef enum {
+	STENCIL_NONE = 0,           // No stencil testing
+	STENCIL_WRITE,              // Write to stencil buffer (increment, color disabled)
+	STENCIL_TEST_NONZERO        // Test stencil !=0 (for cover pass, color enabled)
+} StencilMode;
+
 // Helper: Create graphics pipeline
 static int nvgvk__create_graphics_pipeline(NVGVkContext* vk, NVGVkPipeline* pipeline,
                                             VkRenderPass renderPass, NVGVkShaderSet* shaders,
-                                            int useStencil)
+                                            StencilMode stencilMode)
 {
 	// Vertex input state
 	VkVertexInputBindingDescription binding = {0};
@@ -115,7 +122,8 @@ static int nvgvk__create_graphics_pipeline(NVGVkContext* vk, NVGVkPipeline* pipe
 	VkPipelineDepthStencilStateCreateInfo depthStencil = {0};
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 
-	if (useStencil) {
+	if (stencilMode == STENCIL_WRITE) {
+		// Stencil write pass: always pass, increment stencil
 		depthStencil.stencilTestEnable = VK_TRUE;
 		depthStencil.front.compareOp = VK_COMPARE_OP_ALWAYS;
 		depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
@@ -123,6 +131,18 @@ static int nvgvk__create_graphics_pipeline(NVGVkContext* vk, NVGVkPipeline* pipe
 		depthStencil.front.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
 		depthStencil.front.compareMask = 0xFF;
 		depthStencil.front.writeMask = 0xFF;
+		depthStencil.front.reference = 0;
+		depthStencil.back = depthStencil.front;
+	} else if (stencilMode == STENCIL_TEST_NONZERO) {
+		// Cover pass: test stencil != 0, zero on pass
+		depthStencil.stencilTestEnable = VK_TRUE;
+		depthStencil.front.compareOp = VK_COMPARE_OP_NOT_EQUAL;
+		depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
+		depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
+		depthStencil.front.passOp = VK_STENCIL_OP_ZERO;
+		depthStencil.front.compareMask = 0xFF;
+		depthStencil.front.writeMask = 0xFF;
+		depthStencil.front.reference = 0;
 		depthStencil.back = depthStencil.front;
 	}
 
@@ -135,8 +155,14 @@ static int nvgvk__create_graphics_pipeline(NVGVkContext* vk, NVGVkPipeline* pipe
 	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-	                                       VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+	// Disable color writes for stencil write pass
+	if (stencilMode == STENCIL_WRITE) {
+		colorBlendAttachment.colorWriteMask = 0;  // No color writes
+	} else {
+		colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+		                                       VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	}
 
 	VkPipelineColorBlendStateCreateInfo colorBlending = {0};
 	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -144,10 +170,16 @@ static int nvgvk__create_graphics_pipeline(NVGVkContext* vk, NVGVkPipeline* pipe
 	colorBlending.pAttachments = &colorBlendAttachment;
 
 	// Dynamic state
-	VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+	VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR,
+		VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+		VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
+		VK_DYNAMIC_STATE_STENCIL_WRITE_MASK
+	};
 	VkPipelineDynamicStateCreateInfo dynamicState = {0};
 	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-	dynamicState.dynamicStateCount = 2;
+	dynamicState.dynamicStateCount = 5;
 	dynamicState.pDynamicStates = dynamicStates;
 
 	// Shader stages
@@ -233,9 +265,17 @@ int nvgvk_create_pipelines(NVGVkContext* vk, VkRenderPass renderPass)
 			return 0;
 		}
 
-		// Graphics pipeline
-		int useStencil = (i == NVGVK_PIPELINE_FILL_GRAD || i == NVGVK_PIPELINE_FILL_IMG);
-		if (!nvgvk__create_graphics_pipeline(vk, pipeline, renderPass, &vk->shaders[i], useStencil)) {
+		// Graphics pipeline - configure stencil mode based on pipeline type
+		StencilMode stencilMode = STENCIL_NONE;
+		if (i == NVGVK_PIPELINE_FILL_STENCIL) {
+			stencilMode = STENCIL_WRITE;
+		} else if (i == NVGVK_PIPELINE_FILL_COVER_GRAD || i == NVGVK_PIPELINE_FILL_COVER_IMG) {
+			stencilMode = STENCIL_TEST_NONZERO;
+		} else if (i == NVGVK_PIPELINE_IMG_STENCIL) {
+			stencilMode = STENCIL_TEST_NONZERO;
+		}
+
+		if (!nvgvk__create_graphics_pipeline(vk, pipeline, renderPass, &vk->shaders[i], stencilMode)) {
 			nvgvk_destroy_pipelines(vk);
 			return 0;
 		}

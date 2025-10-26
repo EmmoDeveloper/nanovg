@@ -3,18 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-// Helper: Set stencil test state
-static void nvgvk__set_stencil_test(VkCommandBuffer cmd, int enable, VkCompareOp compareOp,
-                                     VkStencilOp passOp, uint32_t ref, uint32_t compareMask, uint32_t writeMask)
-{
-	// Stencil state is set in pipeline, but reference value is dynamic
-	if (enable) {
-		vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, ref);
-		vkCmdSetStencilCompareMask(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, compareMask);
-		vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, writeMask);
-	}
-}
-
 // Helper: Update descriptor set with texture
 static void nvgvk__update_descriptors(NVGVkContext* vk, int texId, NVGVkPipeline* pipeline)
 {
@@ -56,37 +44,56 @@ static void nvgvk__update_descriptors(NVGVkContext* vk, int texId, NVGVkPipeline
 	vkUpdateDescriptorSets(vk->device, 2, writes, 0, NULL);
 }
 
+// Setup render (updates all descriptor sets BEFORE command buffer recording)
+void nvgvk_setup_render(NVGVkContext* vk)
+{
+	// Update descriptor sets for all pipelines
+	for (int i = 0; i < NVGVK_PIPELINE_COUNT; i++) {
+		nvgvk__update_descriptors(vk, -1, &vk->pipelines[i]);
+	}
+}
+
+// Helper: Set stencil test state
+static void nvgvk__set_stencil_test(VkCommandBuffer cmd, int enable, VkCompareOp compareOp,
+                                     VkStencilOp passOp, uint32_t ref, uint32_t compareMask, uint32_t writeMask)
+{
+	// Stencil state is set in pipeline, but reference value is dynamic
+	if (enable) {
+		vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, ref);
+		vkCmdSetStencilCompareMask(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, compareMask);
+		vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_FRONT_AND_BACK, writeMask);
+	}
+}
+
 void nvgvk_render_fill(NVGVkContext* vk, NVGVkCall* call)
 {
 	if (!vk || !call || call->pathCount == 0) {
 		return;
 	}
 
-	// Fill rendering uses stencil-then-cover approach:
-	// 1. Draw paths to stencil buffer
-	// 2. Draw bounding quad with stencil test
-
-	// Get the pipeline based on image vs gradient
-	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_FILL_IMG : NVGVK_PIPELINE_FILL_GRAD;
-	NVGVkPipeline* pipeline = &vk->pipelines[pipelineType];
-
-	// Update descriptors before binding
-	nvgvk__update_descriptors(vk, call->image, pipeline);
-	nvgvk_bind_pipeline(vk, pipelineType);
+	// Fill rendering uses stencil-then-cover approach with two pipelines:
+	// Pass 1: Write to stencil buffer (color writes disabled)
+	// Pass 2: Draw cover quad where stencil != 0 (color writes enabled)
 
 	// Get uniforms
-	// Skip viewSize (2 floats) to get FragUniforms
 	NVGVkFragUniforms* frag = (NVGVkFragUniforms*)(&vk->uniforms[call->uniformOffset].scissorMat);
 
+	// === PASS 1: Stencil Write ===
+	// Bind stencil write pipeline (color writes disabled)
+	nvgvk_bind_pipeline(vk, NVGVK_PIPELINE_FILL_STENCIL);
+	NVGVkPipeline* stencilPipeline = &vk->pipelines[NVGVK_PIPELINE_FILL_STENCIL];
+
 	// Push constants
-	vkCmdPushConstants(vk->commandBuffer, pipeline->layout,
+	vkCmdPushConstants(vk->commandBuffer, stencilPipeline->layout,
 	                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 	                   0, sizeof(NVGVkFragUniforms), frag);
 
-	// Step 1: Draw to stencil
-	nvgvk__set_stencil_test(vk->commandBuffer, 1, VK_COMPARE_OP_ALWAYS,
-	                         VK_STENCIL_OP_INCREMENT_AND_WRAP, 0, 0xFF, 0xFF);
+	// Set stencil reference/masks (pipeline has stencil ops configured)
+	vkCmdSetStencilReference(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+	vkCmdSetStencilCompareMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
+	vkCmdSetStencilWriteMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
 
+	// Draw all path fill geometry to stencil
 	for (int i = 0; i < call->pathCount; i++) {
 		NVGVkPath* path = &vk->paths[call->pathOffset + i];
 		if (path->fillCount > 0) {
@@ -94,18 +101,27 @@ void nvgvk_render_fill(NVGVkContext* vk, NVGVkCall* call)
 		}
 	}
 
-	// Step 2: Draw cover with stencil test
-	nvgvk__set_stencil_test(vk->commandBuffer, 1, VK_COMPARE_OP_NOT_EQUAL,
-	                         VK_STENCIL_OP_ZERO, 0, 0xFF, 0xFF);
+	// === PASS 2: Cover with Color ===
+	// Bind cover pipeline based on image vs gradient (color writes enabled, stencil test)
+	NVGVkPipelineType coverPipeline = (call->image >= 0) ?
+		NVGVK_PIPELINE_FILL_COVER_IMG : NVGVK_PIPELINE_FILL_COVER_GRAD;
+	nvgvk_bind_pipeline(vk, coverPipeline);
+	NVGVkPipeline* pipeline = &vk->pipelines[coverPipeline];
 
-	// Draw quad covering affected area
-	if (call->triangleCount >= 4) {
+	// Push constants (same uniforms for cover pass)
+	vkCmdPushConstants(vk->commandBuffer, pipeline->layout,
+	                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+	                   0, sizeof(NVGVkFragUniforms), frag);
+
+	// Set stencil test parameters (pipeline configured for NOT_EQUAL test)
+	vkCmdSetStencilReference(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
+	vkCmdSetStencilCompareMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
+	vkCmdSetStencilWriteMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
+
+	// Draw bounding quad (only pixels where stencil != 0 will be drawn)
+	if (call->triangleCount >= 3) {
 		vkCmdDraw(vk->commandBuffer, call->triangleCount, 1, call->triangleOffset, 0);
 	}
-
-	// Reset stencil
-	nvgvk__set_stencil_test(vk->commandBuffer, 0, VK_COMPARE_OP_ALWAYS,
-	                         VK_STENCIL_OP_KEEP, 0, 0xFF, 0xFF);
 }
 
 void nvgvk_render_convex_fill(NVGVkContext* vk, NVGVkCall* call)
@@ -114,11 +130,9 @@ void nvgvk_render_convex_fill(NVGVkContext* vk, NVGVkCall* call)
 		return;
 	}
 
-	// Convex fills can be drawn directly without stencil
-	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_FILL_IMG : NVGVK_PIPELINE_FILL_GRAD;
+	// Convex fills can be drawn directly without stencil - use SIMPLE pipeline
+	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_IMG : NVGVK_PIPELINE_SIMPLE;
 	NVGVkPipeline* pipeline = &vk->pipelines[pipelineType];
-
-	nvgvk__update_descriptors(vk, call->image, pipeline);
 	nvgvk_bind_pipeline(vk, pipelineType);
 
 	// Skip viewSize (2 floats) to get FragUniforms
@@ -141,11 +155,9 @@ void nvgvk_render_stroke(NVGVkContext* vk, NVGVkCall* call)
 		return;
 	}
 
-	// Strokes are rendered as triangle strips
-	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_FILL_IMG : NVGVK_PIPELINE_FILL_GRAD;
+	// Strokes use SIMPLE pipeline (no stencil, no gradients)
+	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_IMG : NVGVK_PIPELINE_SIMPLE;
 	NVGVkPipeline* pipeline = &vk->pipelines[pipelineType];
-
-	nvgvk__update_descriptors(vk, call->image, pipeline);
 	nvgvk_bind_pipeline(vk, pipelineType);
 
 	// Skip viewSize (2 floats) to get FragUniforms
@@ -168,12 +180,10 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 		return;
 	}
 
-	// Simple triangle rendering
+	// Triangle rendering - use SIMPLE for solid colors, IMG for images
 	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_IMG : NVGVK_PIPELINE_SIMPLE;
 	NVGVkPipeline* pipeline = &vk->pipelines[pipelineType];
 
-	// Update descriptors before binding
-	nvgvk__update_descriptors(vk, call->image, pipeline);
 	nvgvk_bind_pipeline(vk, pipelineType);
 
 	// Skip viewSize (2 floats) to get FragUniforms
