@@ -10,6 +10,7 @@
 #include FT_ADVANCES_H
 #include FT_BITMAP_H
 #include FT_OUTLINE_H
+#include FT_GLYPH_H
 
 #define NVGFT_MAX_FONTS 32
 #define NVGFT_MAX_STATES 8
@@ -61,6 +62,7 @@ typedef struct NVGFTGlyph {
 	short offset_x, offset_y;  // Bearing
 	short advance_x;
 	float u0, v0, u1, v1;  // Normalized UV
+	struct NVGFTGlyph* next;  // Hash chain
 } NVGFTGlyph;
 
 // Atlas row (for packing)
@@ -184,8 +186,7 @@ void nvgft_destroy(NVGFontSystem* sys) {
 	for (int i = 0; i < NVGFT_HASH_LUT_SIZE; i++) {
 		NVGFTGlyph* g = sys->glyphs[i];
 		while (g) {
-			NVGFTGlyph* next = NULL;
-			// TODO: implement linked list properly with next pointer
+			NVGFTGlyph* next = g->next;
 			free(g);
 			g = next;
 		}
@@ -284,6 +285,44 @@ void nvgft_set_texture_callback(NVGFontSystem* sys,
 	sys->texture_uptr = uptr;
 }
 
+// Glyph hash function
+static unsigned int nvgft__hash_glyph(uint32_t codepoint, int font_id, int size) {
+	unsigned int h = codepoint;
+	h ^= (unsigned int)font_id << 8;
+	h ^= (unsigned int)size << 16;
+	return h % NVGFT_HASH_LUT_SIZE;
+}
+
+// Find glyph in hash table
+static NVGFTGlyph* nvgft__find_glyph(NVGFontSystem* sys, uint32_t codepoint, int font_id, int size) {
+	unsigned int h = nvgft__hash_glyph(codepoint, font_id, size);
+	NVGFTGlyph* g = sys->glyphs[h];
+	while (g) {
+		if (g->codepoint == codepoint && g->font_id == font_id && g->size == size) {
+			return g;
+		}
+		g = g->next;
+	}
+	return NULL;
+}
+
+// Add glyph to hash table
+static NVGFTGlyph* nvgft__add_glyph(NVGFontSystem* sys, uint32_t codepoint, int font_id, int size) {
+	unsigned int h = nvgft__hash_glyph(codepoint, font_id, size);
+	NVGFTGlyph* g = (NVGFTGlyph*)malloc(sizeof(NVGFTGlyph));
+	if (!g) return NULL;
+
+	memset(g, 0, sizeof(NVGFTGlyph));
+	g->codepoint = codepoint;
+	g->font_id = font_id;
+	g->size = size;
+	g->next = sys->glyphs[h];
+	sys->glyphs[h] = g;
+	sys->glyph_count++;
+
+	return g;
+}
+
 // Atlas packing (simple row-based)
 static int nvgft__pack_glyph(NVGFontSystem* sys, int gw, int gh, short* x, short* y) {
 	int best_h = sys->atlas_height;
@@ -366,49 +405,276 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 		return nvgft_text_iter_next(sys, iter, quad);
 	}
 
-	// TODO: Get glyph from FTC cache, pack into atlas, return quad
-	// This is where we need to integrate atlas packing with FTC
-	// For now, return placeholder
+	// Get current state for size
+	NVGFTState* state = nvgft__getState(sys);
+	int pixel_size = (int)(state->size + 0.5f);
 
-	quad->x0 = iter->x;
-	quad->y0 = iter->y;
-	quad->x1 = iter->x + 16;
-	quad->y1 = iter->y + 16;
-	quad->s0 = 0;
-	quad->t0 = 0;
-	quad->s1 = 1;
-	quad->t1 = 1;
+	// Check if glyph is already in atlas
+	NVGFTGlyph* glyph = nvgft__find_glyph(sys, codepoint, font->id, pixel_size);
 
-	iter->x += 16 + iter->spacing;
+	if (!glyph) {
+		// Need to render and pack glyph
+		// Setup FTC image type
+		FTC_ImageTypeRec type;
+		type.face_id = font->face_id;
+		type.width = 0;
+		type.height = pixel_size;
+		type.flags = FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL;
+
+		// Get glyph from FTC image cache
+		FT_Glyph ft_glyph;
+		if (FTC_ImageCache_Lookup(sys->image_cache, &type, glyph_index, &ft_glyph, NULL) != 0) {
+			// Failed to load glyph
+			return nvgft_text_iter_next(sys, iter, quad);
+		}
+
+		// Convert to bitmap glyph
+		if (ft_glyph->format != FT_GLYPH_FORMAT_BITMAP) {
+			// Skip non-bitmap glyphs
+			return nvgft_text_iter_next(sys, iter, quad);
+		}
+
+		FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)ft_glyph;
+		FT_Bitmap* bitmap = &bitmap_glyph->bitmap;
+
+		// Skip empty glyphs
+		if (bitmap->width == 0 || bitmap->rows == 0) {
+			// Add minimal glyph to cache
+			glyph = nvgft__add_glyph(sys, codepoint, font->id, pixel_size);
+			if (glyph) {
+				glyph->width = 0;
+				glyph->height = 0;
+				glyph->offset_x = 0;
+				glyph->offset_y = 0;
+				glyph->advance_x = (short)(ft_glyph->advance.x >> 16);
+			}
+		} else {
+			// Pack into atlas
+			short atlas_x, atlas_y;
+			if (!nvgft__pack_glyph(sys, bitmap->width, bitmap->rows, &atlas_x, &atlas_y)) {
+				// Atlas full, skip this glyph
+				return nvgft_text_iter_next(sys, iter, quad);
+			}
+
+			// Add to glyph cache
+			glyph = nvgft__add_glyph(sys, codepoint, font->id, pixel_size);
+			if (!glyph) {
+				// Out of memory
+				return nvgft_text_iter_next(sys, iter, quad);
+			}
+
+			glyph->x = atlas_x;
+			glyph->y = atlas_y;
+			glyph->width = (short)bitmap->width;
+			glyph->height = (short)bitmap->rows;
+			glyph->offset_x = bitmap_glyph->left;
+			glyph->offset_y = bitmap_glyph->top;
+			glyph->advance_x = (short)(ft_glyph->advance.x >> 16);
+
+			// Calculate normalized UV coordinates
+			glyph->u0 = (float)atlas_x / (float)sys->atlas_width;
+			glyph->v0 = (float)atlas_y / (float)sys->atlas_height;
+			glyph->u1 = (float)(atlas_x + bitmap->width) / (float)sys->atlas_width;
+			glyph->v1 = (float)(atlas_y + bitmap->rows) / (float)sys->atlas_height;
+
+			// Upload to GPU texture if callback is set
+			if (sys->texture_callback) {
+				sys->texture_callback(sys->texture_uptr,
+					atlas_x, atlas_y,
+					bitmap->width, bitmap->rows,
+					bitmap->buffer);
+			}
+		}
+	}
+
+	// Apply kerning if available
+	if (iter->prev_glyph_index >= 0) {
+		FT_Face face;
+		if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) == 0) {
+			if (FT_HAS_KERNING(face)) {
+				FT_Vector kerning;
+				FT_Get_Kerning(face, iter->prev_glyph_index, glyph_index,
+					FT_KERNING_DEFAULT, &kerning);
+				iter->x += kerning.x / 64.0f;
+			}
+		}
+	}
+
+	// Build output quad
+	if (glyph && glyph->width > 0 && glyph->height > 0) {
+		quad->x0 = iter->x + glyph->offset_x;
+		quad->y0 = iter->y - glyph->offset_y;
+		quad->x1 = quad->x0 + glyph->width;
+		quad->y1 = quad->y0 + glyph->height;
+		quad->s0 = glyph->u0;
+		quad->t0 = glyph->v0;
+		quad->s1 = glyph->u1;
+		quad->t1 = glyph->v1;
+	} else {
+		// Empty glyph
+		quad->x0 = iter->x;
+		quad->y0 = iter->y;
+		quad->x1 = iter->x;
+		quad->y1 = iter->y;
+		quad->s0 = 0;
+		quad->t0 = 0;
+		quad->s1 = 0;
+		quad->t1 = 0;
+	}
+
+	// Advance cursor
+	if (glyph) {
+		iter->x += glyph->advance_x + iter->spacing;
+	}
 	iter->prev_glyph_index = glyph_index;
 
 	return 1;
 }
 
-// Metrics (TODO: implement)
+// Metrics
 float nvgft_text_bounds(NVGFontSystem* sys, float x, float y,
                          const char* string, const char* end, float* bounds) {
-	(void)sys; (void)string; (void)end;  // TODO
-	if (bounds) {
-		bounds[0] = x;
-		bounds[1] = y;
-		bounds[2] = x + 100;
-		bounds[3] = y + 20;
+	NVGFTState* state = nvgft__getState(sys);
+	if (state->font_id < 0 || state->font_id >= sys->font_count) {
+		if (bounds) {
+			bounds[0] = x;
+			bounds[1] = y;
+			bounds[2] = x;
+			bounds[3] = y;
+		}
+		return x;
 	}
-	return x + 100;
+
+	NVGFTFont* font = &sys->fonts[state->font_id];
+	int pixel_size = (int)(state->size + 0.5f);
+
+	if (end == NULL) end = string + strlen(string);
+
+	float minx = x, maxx = x;
+	float miny = y, maxy = y;
+	float advance_x = x;
+	int prev_glyph_index = -1;
+
+	// Get face for metrics
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
+		if (bounds) {
+			bounds[0] = x;
+			bounds[1] = y;
+			bounds[2] = x;
+			bounds[3] = y;
+		}
+		return x;
+	}
+
+	// Set size
+	if (FT_Set_Pixel_Sizes(face, 0, pixel_size) != 0) {
+		if (bounds) {
+			bounds[0] = x;
+			bounds[1] = y;
+			bounds[2] = x;
+			bounds[3] = y;
+		}
+		return x;
+	}
+
+	const char* str = string;
+	while (str < end) {
+		uint32_t codepoint = nvgft__decode_utf8(&str);
+		if (codepoint == 0) continue;
+
+		// Get glyph index
+		FT_UInt glyph_index = FTC_CMapCache_Lookup(sys->cmap_cache, font->face_id, -1, codepoint);
+		if (glyph_index == 0) continue;
+
+		// Load glyph for metrics
+		if (FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT) != 0) continue;
+
+		// Apply kerning
+		if (prev_glyph_index >= 0 && FT_HAS_KERNING(face)) {
+			FT_Vector kerning;
+			FT_Get_Kerning(face, prev_glyph_index, glyph_index, FT_KERNING_DEFAULT, &kerning);
+			advance_x += kerning.x / 64.0f;
+		}
+
+		// Calculate bounds
+		float x0 = advance_x + face->glyph->bitmap_left;
+		float y0 = y - face->glyph->bitmap_top;
+		float x1 = x0 + face->glyph->bitmap.width;
+		float y1 = y0 + face->glyph->bitmap.rows;
+
+		if (x0 < minx) minx = x0;
+		if (x1 > maxx) maxx = x1;
+		if (y0 < miny) miny = y0;
+		if (y1 > maxy) maxy = y1;
+
+		advance_x += (face->glyph->advance.x / 64.0f) + state->spacing;
+		prev_glyph_index = glyph_index;
+	}
+
+	if (bounds) {
+		bounds[0] = minx;
+		bounds[1] = miny;
+		bounds[2] = maxx;
+		bounds[3] = maxy;
+	}
+
+	return advance_x;
 }
 
 void nvgft_vert_metrics(NVGFontSystem* sys, float* ascender, float* descender, float* lineh) {
-	(void)sys;  // TODO
-	if (ascender) *ascender = 12;
-	if (descender) *descender = -4;
-	if (lineh) *lineh = 16;
+	NVGFTState* state = nvgft__getState(sys);
+	if (state->font_id < 0 || state->font_id >= sys->font_count) {
+		if (ascender) *ascender = 0;
+		if (descender) *descender = 0;
+		if (lineh) *lineh = 0;
+		return;
+	}
+
+	NVGFTFont* font = &sys->fonts[state->font_id];
+	int pixel_size = (int)(state->size + 0.5f);
+
+	// Load a glyph to force FTC to set up the size
+	// Use space character (codepoint 32) as it's universally available
+	FT_UInt glyph_index = FTC_CMapCache_Lookup(sys->cmap_cache, font->face_id, -1, 32);
+	if (glyph_index == 0) glyph_index = 1;  // Fallback to .notdef
+
+	FTC_ImageTypeRec type;
+	type.face_id = font->face_id;
+	type.width = 0;
+	type.height = pixel_size;
+	type.flags = FT_LOAD_DEFAULT;
+
+	FT_Glyph ft_glyph;
+	if (FTC_ImageCache_Lookup(sys->image_cache, &type, glyph_index, &ft_glyph, NULL) != 0) {
+		if (ascender) *ascender = 0;
+		if (descender) *descender = 0;
+		if (lineh) *lineh = 0;
+		return;
+	}
+
+	// Now get the face with the size set
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
+		if (ascender) *ascender = 0;
+		if (descender) *descender = 0;
+		if (lineh) *lineh = 0;
+		return;
+	}
+
+	// Calculate metrics based on units_per_EM and pixel size
+	float scale = (float)pixel_size / (float)face->units_per_EM;
+	if (ascender) *ascender = face->ascender * scale;
+	if (descender) *descender = face->descender * scale;
+	if (lineh) *lineh = face->height * scale;
 }
 
 void nvgft_line_bounds(NVGFontSystem* sys, float y, float* miny, float* maxy) {
-	(void)sys;  // TODO
-	if (miny) *miny = y - 12;
-	if (maxy) *maxy = y + 4;
+	float ascender, descender, lineh;
+	nvgft_vert_metrics(sys, &ascender, &descender, &lineh);
+
+	if (miny) *miny = y - ascender;
+	if (maxy) *maxy = y - descender;
 }
 
 // Atlas management
@@ -426,8 +692,7 @@ int nvgft_reset_atlas(NVGFontSystem* sys, int width, int height) {
 	for (int i = 0; i < NVGFT_HASH_LUT_SIZE; i++) {
 		NVGFTGlyph* g = sys->glyphs[i];
 		while (g) {
-			NVGFTGlyph* next = NULL;
-			// TODO: implement linked list properly
+			NVGFTGlyph* next = g->next;
 			free(g);
 			g = next;
 		}

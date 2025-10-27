@@ -336,3 +336,12 @@ $(BUILD_DIR)/test_freetype_system: $(BUILD_DIR)/test_freetype_system.o $(BUILD_D
 	@echo "Linking test_freetype_system..."
 	$(CC) $^ $(LIBS) -o $@
 
+# test_freetype_rendering
+$(BUILD_DIR)/test_freetype_rendering.o: tests/test_freetype_rendering.c | $(BUILD_DIR)
+	@echo "Compiling test_freetype_rendering.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_freetype_rendering: $(BUILD_DIR)/test_freetype_rendering.o $(BUILD_DIR)/nvg_freetype.o
+	@echo "Linking test_freetype_rendering..."
+	$(CC) $^ $(LIBS) -o $@
+
