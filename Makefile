@@ -313,3 +313,12 @@ $(BUILD_DIR)/test_custom_font_render: $(BUILD_DIR)/test_custom_font_render.o $(B
 	@echo "Linking test_custom_font_render..."
 	$(CC) $^ $(LIBS) -o $@
 
+# test_canvas_api
+$(BUILD_DIR)/test_canvas_api.o: tests/test_canvas_api.c | $(BUILD_DIR)
+	@echo "Compiling test_canvas_api.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_canvas_api: $(BUILD_DIR)/test_canvas_api.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_canvas_api..."
+	$(CC) $^ $(LIBS) -o $@
+
