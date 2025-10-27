@@ -369,12 +369,18 @@ static void createFramebuffers(WindowVulkanContext* ctx)
 
 static void createSyncObjects(WindowVulkanContext* ctx)
 {
+	printf("[VULKAN] createSyncObjects...\n");
+	fflush(stdout);
 	// Semaphores indexed by swapchain image to avoid reuse issues
+	printf("[VULKAN] Allocating semaphore arrays for %u swapchain images...\n", ctx->swapchainImageCount);
+	fflush(stdout);
 	ctx->imageAvailableSemaphores = malloc(sizeof(VkSemaphore) * ctx->swapchainImageCount);
 	ctx->renderFinishedSemaphores = malloc(sizeof(VkSemaphore) * ctx->swapchainImageCount);
 	ctx->imageInFlightFences = malloc(sizeof(VkFence) * ctx->swapchainImageCount);
 
 	// Fences and command buffers indexed by frame in flight
+	printf("[VULKAN] Allocating fence/command buffer arrays for %u frames in flight...\n", ctx->maxFramesInFlight);
+	fflush(stdout);
 	ctx->inFlightFences = malloc(sizeof(VkFence) * ctx->maxFramesInFlight);
 	ctx->commandBuffers = malloc(sizeof(VkCommandBuffer) * ctx->maxFramesInFlight);
 
@@ -382,7 +388,11 @@ static void createSyncObjects(WindowVulkanContext* ctx)
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
 	// Create semaphores per swapchain image
+	printf("[VULKAN] Creating semaphores...\n");
+	fflush(stdout);
 	for (uint32_t i = 0; i < ctx->swapchainImageCount; i++) {
+		printf("[VULKAN] Creating semaphore %u/%u...\n", i+1, ctx->swapchainImageCount);
+		fflush(stdout);
 		if (vkCreateSemaphore(ctx->device, &semaphoreInfo, NULL, &ctx->imageAvailableSemaphores[i]) != VK_SUCCESS ||
 			vkCreateSemaphore(ctx->device, &semaphoreInfo, NULL, &ctx->renderFinishedSemaphores[i]) != VK_SUCCESS) {
 			fprintf(stderr, "Failed to create semaphores for image %d\n", i);
@@ -390,17 +400,23 @@ static void createSyncObjects(WindowVulkanContext* ctx)
 		ctx->imageInFlightFences[i] = VK_NULL_HANDLE;  // Initially no frame owns this image
 	}
 
+	printf("[VULKAN] Creating fences...\n");
+	fflush(stdout);
 	VkFenceCreateInfo fenceInfo = {0};
 	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 	// Create fences per frame in flight
 	for (uint32_t i = 0; i < ctx->maxFramesInFlight; i++) {
+		printf("[VULKAN] Creating fence %u/%u...\n", i+1, ctx->maxFramesInFlight);
+		fflush(stdout);
 		if (vkCreateFence(ctx->device, &fenceInfo, NULL, &ctx->inFlightFences[i]) != VK_SUCCESS) {
 			fprintf(stderr, "Failed to create fence for frame %d\n", i);
 		}
 	}
 
+	printf("[VULKAN] Allocating command buffers...\n");
+	fflush(stdout);
 	// Allocate command buffers per frame in flight
 	VkCommandBufferAllocateInfo allocInfo = {0};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -411,6 +427,8 @@ static void createSyncObjects(WindowVulkanContext* ctx)
 	if (vkAllocateCommandBuffers(ctx->device, &allocInfo, ctx->commandBuffers) != VK_SUCCESS) {
 		fprintf(stderr, "Failed to allocate command buffers\n");
 	}
+	printf("[VULKAN] createSyncObjects complete\n");
+	fflush(stdout);
 }
 
 static void cleanupSwapchain(WindowVulkanContext* ctx)
@@ -829,6 +847,8 @@ WindowVulkanContext* window_create_context(int width, int height, const char* ti
 	createFramebuffers(ctx);
 	createSyncObjects(ctx);
 
+	printf("[VULKAN] window_create_context returning...\n");
+	fflush(stdout);
 	return ctx;
 }
 

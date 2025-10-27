@@ -159,6 +159,7 @@ void fonsDrawDebug(FONScontext* s, float x, float y);
 #include FT_FREETYPE_H
 #include FT_ADVANCES_H
 #include <math.h>
+#include "vknvg_msdf.h"
 
 struct FONSttFontImpl {
 	FT_Face font;
@@ -310,7 +311,6 @@ struct FONScontext
 };
 
 #ifdef FONS_USE_FREETYPE
-#include "nanovg_vk_msdf.h"
 
 int fons__tt_init(FONScontext *context)
 {
@@ -437,7 +437,8 @@ void fons__tt_renderGlyphBitmapMSDF(FONSttFontImpl *font, unsigned char *output,
 	VKNVGmsdfParams params;
 	params.width = outWidth;
 	params.height = outHeight;
-	params.range = 4.0f;
+	params.stride = outStride * 4;  // outStride is in pixels, we need bytes (RGBA = 4 bytes/pixel)
+	params.range = 32.0f;  // Large range to avoid clamping for typical glyph sizes
 	params.scale = 1.0f;
 	params.offsetX = msdfPadding;
 	params.offsetY = msdfPadding;
@@ -1078,8 +1079,10 @@ int fonsGetFontByName(FONScontext* s, const char* name)
 
 void fonsSetFontMSDF(FONScontext* s, int font, int msdfMode)
 {
+	printf("[DEBUG FONTSTASH] fonsSetFontMSDF font=%d msdfMode=%d\n", font, msdfMode);
 	if (font < 0 || font >= s->nfonts) return;
 	s->fonts[font]->msdfMode = (unsigned char)msdfMode;
+	printf("[DEBUG FONTSTASH] Font %d msdfMode set to %d\n", font, s->fonts[font]->msdfMode);
 }
 
 

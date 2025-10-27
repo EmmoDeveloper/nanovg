@@ -23,7 +23,7 @@ typedef struct NVGVkShaderSet NVGVkShaderSet;
 #define NVGVK_MAX_CALLS 1024
 #define NVGVK_INITIAL_VERTEX_COUNT 4096
 #define NVGVK_INITIAL_INDEX_COUNT 8192
-#define NVGVK_PIPELINE_COUNT 6
+#define NVGVK_PIPELINE_COUNT 8
 
 // Texture structure
 struct NVGVkTexture {
@@ -31,6 +31,7 @@ struct NVGVkTexture {
 	VkImageView imageView;
 	VkDeviceMemory memory;
 	VkSampler sampler;
+	VkDescriptorSet descriptorSet;  // Per-texture descriptor set
 	int width;
 	int height;
 	int type;
@@ -138,6 +139,16 @@ struct NVGVkContext {
 	// Owned resources
 	VkCommandBuffer commandBuffer;
 
+	// Render pass state (not owned, just tracked)
+	VkRenderPass activeRenderPass;
+	VkFramebuffer activeFramebuffer;
+	VkRect2D renderArea;
+	VkClearValue clearValues[2];
+	uint32_t clearValueCount;
+	VkViewport viewport;
+	VkRect2D scissor;
+	int inRenderPass;
+
 	// Shaders
 	NVGVkShaderSet shaders[NVGVK_PIPELINE_COUNT];
 
@@ -148,6 +159,10 @@ struct NVGVkContext {
 	// Buffers
 	NVGVkBuffer vertexBuffer;
 	NVGVkBuffer uniformBuffer;
+
+	// Texture descriptor resources
+	VkDescriptorSetLayout textureDescriptorSetLayout;
+	VkDescriptorPool textureDescriptorPool;
 
 	// Textures
 	NVGVkTexture textures[NVGVK_MAX_TEXTURES];
@@ -174,6 +189,9 @@ struct NVGVkContext {
 	// Flags
 	int flags;
 	int edgeAntiAlias;
+
+	// Virtual atlas (forward declared in nanovg_vk_virtual_atlas.h)
+	void* virtualAtlas;  // VKNVGvirtualAtlas*
 };
 
 #endif // NVG_VK_TYPES_H

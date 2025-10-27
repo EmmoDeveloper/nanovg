@@ -1,4 +1,5 @@
 #include "window_utils.h"
+#include "../src/nanovg.h"
 #include "../src/vulkan/nvg_vk_context.h"
 #include "../src/vulkan/nvg_vk_buffer.h"
 #include "../src/vulkan/nvg_vk_texture.h"
@@ -118,9 +119,12 @@ int main(void)
 	renderPassInfo.framebuffer = winCtx->framebuffers[imageIndex];
 	renderPassInfo.renderArea.extent = winCtx->swapchainExtent;
 
-	VkClearValue clearColor = {{{0.1f, 0.1f, 0.1f, 1.0f}}};
-	renderPassInfo.clearValueCount = 1;
-	renderPassInfo.pClearValues = &clearColor;
+	VkClearValue clearValues[2] = {0};
+	clearValues[0].color = (VkClearColorValue){{0.1f, 0.1f, 0.1f, 1.0f}};
+	clearValues[1].depthStencil.depth = 1.0f;
+	clearValues[1].depthStencil.stencil = 0;
+	renderPassInfo.clearValueCount = 2;
+	renderPassInfo.pClearValues = clearValues;
 
 	vkCmdBeginRenderPass(nvgCtx.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 

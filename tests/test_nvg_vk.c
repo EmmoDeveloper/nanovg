@@ -1,4 +1,5 @@
 #include "window_utils.h"
+#include "../src/nanovg.h"
 #include "../src/vulkan/nvg_vk_context.h"
 #include "../src/vulkan/nvg_vk_buffer.h"
 #include "../src/vulkan/nvg_vk_texture.h"

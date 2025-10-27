@@ -18,4 +18,9 @@ int nvgvk__allocate_texture(NVGVkContext* vk);
 VkFormat nvgvk__get_vk_format(int type);
 int nvgvk__create_sampler(NVGVkContext* vk, NVGVkTexture* tex, int imageFlags);
 
+// Texture descriptor system initialization/cleanup
+int nvgvk__init_texture_descriptors(NVGVkContext* vk);
+void nvgvk__destroy_texture_descriptors(NVGVkContext* vk);
+int nvgvk__allocate_texture_descriptor_set(NVGVkContext* vk, NVGVkTexture* tex);
+
 #endif // NVG_VK_TEXTURE_H

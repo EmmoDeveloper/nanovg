@@ -11,6 +11,8 @@ static const char* nvgvk__shader_paths[][2] = {
 	{"shaders/simple.vert.spv", "shaders/simple.frag.spv"},        // SIMPLE
 	{"shaders/img.vert.spv", "shaders/img.frag.spv"},              // IMG
 	{"shaders/img.vert.spv", "shaders/img.frag.spv"},              // IMG_STENCIL
+	{"shaders/simple.vert.spv", "shaders/simple.frag.spv"},        // FRINGE (uses simple shader with AA)
+	{"shaders/img.vert.spv", "shaders/text_msdf_simple.frag.spv"}, // TEXT_MSDF
 };
 
 int nvgvk_create_shaders(NVGVkContext* vk)
@@ -41,7 +43,6 @@ int nvgvk_create_shaders(NVGVkContext* vk)
 		}
 	}
 
-	printf("NanoVG Vulkan: Loaded %d shader sets\n", NVGVK_SHADER_COUNT);
 	return 1;
 }
 

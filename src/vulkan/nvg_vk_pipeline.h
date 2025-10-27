@@ -10,7 +10,9 @@ typedef enum NVGVkPipelineType {
 	NVGVK_PIPELINE_FILL_COVER_IMG = 2,   // Cover pass with image (stencil test)
 	NVGVK_PIPELINE_SIMPLE = 3,           // Simple fills (convex, stroke)
 	NVGVK_PIPELINE_IMG = 4,              // Image rendering
-	NVGVK_PIPELINE_IMG_STENCIL = 5       // Image rendering with stencil
+	NVGVK_PIPELINE_IMG_STENCIL = 5,      // Image rendering with stencil
+	NVGVK_PIPELINE_FRINGE = 6,           // AA fringe rendering (triangle strip)
+	NVGVK_PIPELINE_TEXT_MSDF = 7         // MSDF text rendering
 } NVGVkPipelineType;
 
 // Pipeline management

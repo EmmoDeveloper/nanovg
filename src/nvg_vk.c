@@ -95,6 +95,7 @@ NVGcontext* nvgCreateVk(VkDevice device, VkPhysicalDevice physicalDevice,
 	params.renderDelete = nvgvk__renderDelete;
 	params.userPtr = backend;
 	params.edgeAntiAlias = flags & NVG_ANTIALIAS ? 1 : 0;
+	params.msdfText = flags & (1 << 13) ? 1 : 0;  // NVG_MSDF_TEXT flag
 
 	ctx = nvgCreateInternal(&params);
 	if (ctx == NULL) {
@@ -199,7 +200,7 @@ static void nvgvk__renderFlush(void* uptr)
 }
 
 // Helper: Convert NVGpaint to internal uniforms
-static void nvgvk__convertPaint(NVGVkContext* vk, NVGVkUniforms* frag, NVGpaint* paint,
+static void nvgvk__convertPaint(NVGVkBackend* backend, NVGVkUniforms* frag, NVGpaint* paint,
                                 NVGscissor* scissor, float width, float strokeThr)
 {
 	memset(frag, 0, sizeof(*frag));
@@ -279,9 +280,24 @@ static void nvgvk__convertPaint(NVGVkContext* vk, NVGVkUniforms* frag, NVGpaint*
 	// Image or gradient
 	if (paint->image > 0) {
 		frag->type = 1; // Image
-		frag->texType = 0; // Standard RGBA
+		// Set texType based on actual texture type
+		// OpenGL encoding: 0=RGBA premult, 1=RGBA non-premult, 2=ALPHA
+		int texId = paint->image - 1;
+		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES) {
+			NVGVkTexture* tex = &backend->vk.textures[texId];
+			if (tex->type == NVG_TEXTURE_RGBA) {
+				// RGBA texture: check premultiply flag
+				frag->texType = (tex->flags & NVG_IMAGE_PREMULTIPLIED) ? 0 : 1;
+			} else {
+				// ALPHA texture
+				frag->texType = 2;
+			}
+		} else {
+			frag->texType = 0;
+		}
 	} else {
 		frag->type = 0; // Gradient
+		frag->texType = 0;
 	}
 }
 
@@ -308,8 +324,41 @@ static void nvgvk__renderFill(void* uptr, NVGpaint* paint, NVGcompositeOperation
 			vk->vertexCount++;
 		}
 
-		dstPath->strokeOffset = 0;
-		dstPath->strokeCount = 0;
+		// Copy fringe vertices (for AA)
+		dstPath->strokeOffset = vk->vertexCount;
+		dstPath->strokeCount = srcPath->nstroke;
+		for (int j = 0; j < srcPath->nstroke && vk->vertexCount < vk->vertexCapacity; j++) {
+			NVGvertex* dstVert = (NVGvertex*)&vk->vertices[vk->vertexCount * 4];
+			*dstVert = srcPath->stroke[j];
+			vk->vertexCount++;
+		}
+	}
+
+	// Create bounding quad for cover pass (bounds = [minx, miny, maxx, maxy])
+	int quadOffset = vk->vertexCount;
+	if (vk->vertexCount + 6 <= vk->vertexCapacity && bounds) {
+		float minx = bounds[0], miny = bounds[1];
+		float maxx = bounds[2], maxy = bounds[3];
+
+		// Triangle 1: top-left, top-right, bottom-left
+		NVGvertex* v0 = (NVGvertex*)&vk->vertices[vk->vertexCount++ * 4];
+		v0->x = minx; v0->y = miny; v0->u = 0.5f; v0->v = 1.0f;
+
+		NVGvertex* v1 = (NVGvertex*)&vk->vertices[vk->vertexCount++ * 4];
+		v1->x = maxx; v1->y = miny; v1->u = 0.5f; v1->v = 1.0f;
+
+		NVGvertex* v2 = (NVGvertex*)&vk->vertices[vk->vertexCount++ * 4];
+		v2->x = minx; v2->y = maxy; v2->u = 0.5f; v2->v = 1.0f;
+
+		// Triangle 2: top-right, bottom-right, bottom-left
+		NVGvertex* v3 = (NVGvertex*)&vk->vertices[vk->vertexCount++ * 4];
+		v3->x = maxx; v3->y = miny; v3->u = 0.5f; v3->v = 1.0f;
+
+		NVGvertex* v4 = (NVGvertex*)&vk->vertices[vk->vertexCount++ * 4];
+		v4->x = maxx; v4->y = maxy; v4->u = 0.5f; v4->v = 1.0f;
+
+		NVGvertex* v5 = (NVGvertex*)&vk->vertices[vk->vertexCount++ * 4];
+		v5->x = minx; v5->y = maxy; v5->u = 0.5f; v5->v = 1.0f;
 	}
 
 	// Add render call
@@ -320,14 +369,14 @@ static void nvgvk__renderFill(void* uptr, NVGpaint* paint, NVGcompositeOperation
 	call->image = paint->image;
 	call->pathOffset = vk->pathCount - npaths;
 	call->pathCount = npaths;
-	call->triangleOffset = 0;
-	call->triangleCount = 0;
+	call->triangleOffset = quadOffset;
+	call->triangleCount = 6;  // Two triangles for bounding quad
 	call->uniformOffset = vk->uniformCount;
 	call->blendFunc = compositeOperation.srcRGB; // Simplified
 
 	// Setup uniforms
 	if (vk->uniformCount < NVGVK_MAX_CALLS) {
-		nvgvk__convertPaint(vk, &vk->uniforms[vk->uniformCount++], paint, scissor, fringe, 0.0f);
+		nvgvk__convertPaint(backend, &vk->uniforms[vk->uniformCount++], paint, scissor, fringe, 0.0f);
 	}
 }
 
@@ -373,7 +422,7 @@ static void nvgvk__renderStroke(void* uptr, NVGpaint* paint, NVGcompositeOperati
 
 	// Setup uniforms
 	if (vk->uniformCount < NVGVK_MAX_CALLS) {
-		nvgvk__convertPaint(vk, &vk->uniforms[vk->uniformCount++], paint, scissor, strokeWidth, -1.0f);
+		nvgvk__convertPaint(backend, &vk->uniforms[vk->uniformCount++], paint, scissor, strokeWidth, -1.0f);
 	}
 }
 
@@ -406,7 +455,7 @@ static void nvgvk__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOper
 
 	// Setup uniforms
 	if (vk->uniformCount < NVGVK_MAX_CALLS) {
-		nvgvk__convertPaint(vk, &vk->uniforms[vk->uniformCount++], paint, scissor, fringe, -1.0f);
+		nvgvk__convertPaint(backend, &vk->uniforms[vk->uniformCount++], paint, scissor, fringe, -1.0f);
 	}
 }
 
@@ -420,4 +469,28 @@ static void nvgvk__renderDelete(void* uptr)
 
 	nvgvk_delete(&backend->vk);
 	free(backend);
+}
+
+void nvgVkBeginRenderPass(NVGcontext* ctx, const VkRenderPassBeginInfo* renderPassInfo,
+                          VkViewport viewport, VkRect2D scissor)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
+	if (!backend || !renderPassInfo) return;
+
+	nvgvk_begin_render_pass(&backend->vk,
+	                        renderPassInfo->renderPass,
+	                        renderPassInfo->framebuffer,
+	                        renderPassInfo->renderArea,
+	                        renderPassInfo->pClearValues,
+	                        renderPassInfo->clearValueCount,
+	                        viewport,
+	                        scissor);
+}
+
+void nvgVkEndRenderPass(NVGcontext* ctx)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
+	if (!backend) return;
+
+	nvgvk_end_render_pass(&backend->vk);
 }

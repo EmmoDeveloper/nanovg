@@ -318,13 +318,15 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 
 	// Init font rendering
 	memset(&fontParams, 0, sizeof(fontParams));
-	// Use custom atlas size if specified (for virtual atlas), otherwise default 512x512
-	int atlasSize = (params->fontAtlasSize > 0) ? params->fontAtlasSize : NVG_INIT_FONTIMAGE_SIZE;
+	// Use custom atlas size if specified, or 2048 for MSDF (needs higher res), otherwise default 512x512
+	int atlasSize = (params->fontAtlasSize > 0) ? params->fontAtlasSize :
+	                (params->msdfText ? 2048 : NVG_INIT_FONTIMAGE_SIZE);
 	fontParams.width = atlasSize;
 	fontParams.height = atlasSize;
 	fontParams.flags = FONS_ZERO_TOPLEFT;
-	// Use external texture mode for virtual atlas (backend provides texture)
-	if (atlasSize > NVG_INIT_FONTIMAGE_SIZE) {
+	// Use external texture mode only if custom atlas size provided (virtual atlas)
+	// Don't use it for MSDF auto-sizing
+	if (params->fontAtlasSize > NVG_INIT_FONTIMAGE_SIZE) {
 		fontParams.flags |= FONS_EXTERNAL_TEXTURE;
 	}
 	fontParams.renderCreate = NULL;
@@ -335,8 +337,9 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 	ctx->fs = fonsCreateInternal(&fontParams);
 	if (ctx->fs == NULL) goto error;
 
-	// Create font texture
-	ctx->fontImages[0] = ctx->params.renderCreateTexture(ctx->params.userPtr, NVG_TEXTURE_ALPHA, fontParams.width, fontParams.height, 0, NULL);
+	// Create font texture (use MSDF type if MSDF text is enabled, otherwise ALPHA)
+	int texType = ctx->params.msdfText ? NVG_TEXTURE_MSDF : NVG_TEXTURE_ALPHA;
+	ctx->fontImages[0] = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, fontParams.width, fontParams.height, 0, NULL);
 	if (ctx->fontImages[0] == 0) goto error;
 	ctx->fontImageIdx = 0;
 
@@ -1871,11 +1874,11 @@ static int nvg__expandFill(NVGcontext* ctx, float w, int lineJoin, float miterLi
 	for (i = 0; i < cache->npaths; i++) {
 		NVGpath* path = &cache->paths[i];
 		// For Vulkan TRIANGLE_LIST: each edge becomes a triangle (3 vertices)
-		// Non-fringe case: path->count edges * 3 vertices per triangle
+		cverts += path->count * 3; // TRIANGLE_LIST: 3 vertices per edge triangle
+
+		// Fringe also uses TRIANGLE_STRIP (will be generated later if needed)
 		if (fringe)
-			cverts += (path->count + path->nbevel + 1) + (path->count + path->nbevel*5 + 1) * 2;
-		else
-			cverts += path->count * 3; // TRIANGLE_LIST: 3 vertices per edge
+			cverts += (path->count + path->nbevel*5 + 1) * 2;
 	}
 
 	verts = nvg__allocTempVerts(ctx, cverts);
@@ -1897,31 +1900,23 @@ static int nvg__expandFill(NVGcontext* ctx, float w, int lineJoin, float miterLi
 		path->fill = dst;
 
 		if (fringe) {
-			// Looping
-			p0 = &pts[path->count-1];
-			p1 = &pts[0];
+			// For Vulkan with AA: Generate TRIANGLE_LIST geometry (same as non-fringe)
+			// Calculate center point for the shape
+			float cx = 0.0f, cy = 0.0f;
 			for (j = 0; j < path->count; ++j) {
-				if (p1->flags & NVG_PT_BEVEL) {
-					float dlx0 = p0->dy;
-					float dly0 = -p0->dx;
-					float dlx1 = p1->dy;
-					float dly1 = -p1->dx;
-					if (p1->flags & NVG_PT_LEFT) {
-						float lx = p1->x + p1->dmx * woff;
-						float ly = p1->y + p1->dmy * woff;
-						nvg__vset(dst, lx, ly, 0.5f,1); dst++;
-					} else {
-						float lx0 = p1->x + dlx0 * woff;
-						float ly0 = p1->y + dly0 * woff;
-						float lx1 = p1->x + dlx1 * woff;
-						float ly1 = p1->y + dly1 * woff;
-						nvg__vset(dst, lx0, ly0, 0.5f,1); dst++;
-						nvg__vset(dst, lx1, ly1, 0.5f,1); dst++;
-					}
-				} else {
-					nvg__vset(dst, p1->x + (p1->dmx * woff), p1->y + (p1->dmy * woff), 0.5f,1); dst++;
-				}
-				p0 = p1++;
+				cx += pts[j].x;
+				cy += pts[j].y;
+			}
+			cx /= (float)path->count;
+			cy /= (float)path->count;
+
+			// Generate triangles using the path points
+			for (j = 0; j < path->count; ++j) {
+				int j1 = (j + 1) % path->count;
+				// Triangle: center, current vertex, next vertex
+				nvg__vset(dst, cx, cy, 0.5f, 1); dst++;
+				nvg__vset(dst, pts[j].x, pts[j].y, 0.5f, 1); dst++;
+				nvg__vset(dst, pts[j1].x, pts[j1].y, 0.5f, 1); dst++;
 			}
 		} else {
 			// For Vulkan: Generate TRIANGLE_LIST geometry instead of TRIANGLE_FAN
@@ -2460,7 +2455,8 @@ static int nvg__allocTextAtlas(NVGcontext* ctx)
 			iw *= 2;
 		if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
 			iw = ih = NVG_MAX_FONTIMAGE_SIZE;
-		ctx->fontImages[ctx->fontImageIdx+1] = ctx->params.renderCreateTexture(ctx->params.userPtr, NVG_TEXTURE_ALPHA, iw, ih, 0, NULL);
+		int texType = ctx->params.msdfText ? NVG_TEXTURE_MSDF : NVG_TEXTURE_ALPHA;
+		ctx->fontImages[ctx->fontImageIdx+1] = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, iw, ih, 0, NULL);
 	}
 	++ctx->fontImageIdx;
 	fonsResetAtlas(ctx->fs, iw, ih);

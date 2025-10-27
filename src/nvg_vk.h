@@ -59,6 +59,16 @@ VkCommandBuffer nvgVkGetCommandBuffer(NVGcontext* ctx);
 // This must be called before nvgBeginFrame().
 void nvgVkSetFramebuffer(NVGcontext* ctx, VkFramebuffer framebuffer, uint32_t width, uint32_t height);
 
+// Notifies NanoVG that a render pass has started.
+// Call this after vkCmdBeginRenderPass() and vkCmdSetViewport/vkCmdSetScissor to allow NanoVG to track render pass state.
+// The renderPassInfo, viewport, and scissor are stored so the render pass can be restarted if needed (e.g., for texture uploads).
+void nvgVkBeginRenderPass(NVGcontext* ctx, const VkRenderPassBeginInfo* renderPassInfo,
+                          VkViewport viewport, VkRect2D scissor);
+
+// Notifies NanoVG that the render pass has ended.
+// Call this before vkCmdEndRenderPass() if you manage render passes manually.
+void nvgVkEndRenderPass(NVGcontext* ctx);
+
 #ifdef __cplusplus
 }
 #endif

@@ -53,6 +53,45 @@ void nvgvk_setup_render(NVGVkContext* vk)
 	}
 }
 
+// Begin render pass and track state
+void nvgvk_begin_render_pass(NVGVkContext* vk, VkRenderPass renderPass, VkFramebuffer framebuffer,
+                              VkRect2D renderArea, const VkClearValue* clearValues, uint32_t clearValueCount,
+                              VkViewport viewport, VkRect2D scissor)
+{
+	if (!vk || vk->inRenderPass) {
+		return;
+	}
+
+	vk->activeRenderPass = renderPass;
+	vk->activeFramebuffer = framebuffer;
+	vk->renderArea = renderArea;
+	vk->clearValueCount = clearValueCount < 2 ? clearValueCount : 2;
+
+	// Copy clear values
+	for (uint32_t i = 0; i < vk->clearValueCount; i++) {
+		vk->clearValues[i] = clearValues[i];
+	}
+
+	// Store viewport and scissor
+	vk->viewport = viewport;
+	vk->scissor = scissor;
+
+	vk->inRenderPass = 1;
+}
+
+// End render pass and clear state
+void nvgvk_end_render_pass(NVGVkContext* vk)
+{
+	if (!vk || !vk->inRenderPass) {
+		return;
+	}
+
+	vkCmdEndRenderPass(vk->commandBuffer);
+	vk->inRenderPass = 0;
+	vk->activeRenderPass = VK_NULL_HANDLE;
+	vk->activeFramebuffer = VK_NULL_HANDLE;
+}
+
 // Helper: Set stencil test state
 static void nvgvk__set_stencil_test(VkCommandBuffer cmd, int enable, VkCompareOp compareOp,
                                      VkStencilOp passOp, uint32_t ref, uint32_t compareMask, uint32_t writeMask)
@@ -103,10 +142,24 @@ void nvgvk_render_fill(NVGVkContext* vk, NVGVkCall* call)
 
 	// === PASS 2: Cover with Color ===
 	// Bind cover pipeline based on image vs gradient (color writes enabled, stencil test)
-	NVGVkPipelineType coverPipeline = (call->image >= 0) ?
+	// Note: image > 0 means texture, image == 0 means solid color or gradient
+	NVGVkPipelineType coverPipeline = (call->image > 0) ?
 		NVGVK_PIPELINE_FILL_COVER_IMG : NVGVK_PIPELINE_FILL_COVER_GRAD;
 	nvgvk_bind_pipeline(vk, coverPipeline);
 	NVGVkPipeline* pipeline = &vk->pipelines[coverPipeline];
+
+	// Bind texture descriptor set if using image
+	if (call->image > 0) {
+		int texId = call->image - 1;
+		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES && vk->textures[texId].image != VK_NULL_HANDLE) {
+			vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			                        pipeline->layout, 0, 1, &vk->textures[texId].descriptorSet, 0, NULL);
+		}
+	} else {
+		// Bind pipeline's default descriptor set for gradients
+		vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                        pipeline->layout, 0, 1, &pipeline->descriptorSet, 0, NULL);
+	}
 
 	// Push constants (same uniforms for cover pass)
 	vkCmdPushConstants(vk->commandBuffer, pipeline->layout,
@@ -122,6 +175,24 @@ void nvgvk_render_fill(NVGVkContext* vk, NVGVkCall* call)
 	if (call->triangleCount >= 3) {
 		vkCmdDraw(vk->commandBuffer, call->triangleCount, 1, call->triangleOffset, 0);
 	}
+
+	// === PASS 3: AA Fringe ===
+	// Draw anti-aliasing fringe (triangle strip around edges)
+	nvgvk_bind_pipeline(vk, NVGVK_PIPELINE_FRINGE);
+	NVGVkPipeline* fringePipeline = &vk->pipelines[NVGVK_PIPELINE_FRINGE];
+
+	// Push constants (same uniforms)
+	vkCmdPushConstants(vk->commandBuffer, fringePipeline->layout,
+	                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+	                   0, sizeof(NVGVkFragUniforms), frag);
+
+	// Draw fringe for all paths
+	for (int i = 0; i < call->pathCount; i++) {
+		NVGVkPath* path = &vk->paths[call->pathOffset + i];
+		if (path->strokeCount > 0) {
+			vkCmdDraw(vk->commandBuffer, path->strokeCount, 1, path->strokeOffset, 0);
+		}
+	}
 }
 
 void nvgvk_render_convex_fill(NVGVkContext* vk, NVGVkCall* call)
@@ -134,6 +205,19 @@ void nvgvk_render_convex_fill(NVGVkContext* vk, NVGVkCall* call)
 	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_IMG : NVGVK_PIPELINE_SIMPLE;
 	NVGVkPipeline* pipeline = &vk->pipelines[pipelineType];
 	nvgvk_bind_pipeline(vk, pipelineType);
+
+	// Bind texture descriptor set if using image
+	if (call->image > 0) {
+		int texId = call->image - 1;
+		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES && vk->textures[texId].image != VK_NULL_HANDLE) {
+			vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			                        pipeline->layout, 0, 1, &vk->textures[texId].descriptorSet, 0, NULL);
+		}
+	} else {
+		// Bind pipeline's default descriptor set
+		vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                        pipeline->layout, 0, 1, &pipeline->descriptorSet, 0, NULL);
+	}
 
 	// Skip viewSize (2 floats) to get FragUniforms
 	NVGVkFragUniforms* frag = (NVGVkFragUniforms*)(&vk->uniforms[call->uniformOffset].scissorMat);
@@ -155,8 +239,8 @@ void nvgvk_render_stroke(NVGVkContext* vk, NVGVkCall* call)
 		return;
 	}
 
-	// Strokes use SIMPLE pipeline (no stencil, no gradients)
-	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_IMG : NVGVK_PIPELINE_SIMPLE;
+	// Strokes use FRINGE pipeline (triangle strip with AA support)
+	NVGVkPipelineType pipelineType = NVGVK_PIPELINE_FRINGE;
 	NVGVkPipeline* pipeline = &vk->pipelines[pipelineType];
 	nvgvk_bind_pipeline(vk, pipelineType);
 
@@ -180,11 +264,36 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 		return;
 	}
 
-	// Triangle rendering - use SIMPLE for solid colors, IMG for images
-	NVGVkPipelineType pipelineType = (call->image >= 0) ? NVGVK_PIPELINE_IMG : NVGVK_PIPELINE_SIMPLE;
+	// Triangle rendering - choose pipeline based on texture type
+	NVGVkPipelineType pipelineType = NVGVK_PIPELINE_SIMPLE;
+	if (call->image > 0) {
+		int texId = call->image - 1;
+		// Check if texture is MSDF type (type 3 = NVG_TEXTURE_MSDF)
+		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES && vk->textures[texId].type == 3) {
+			pipelineType = NVGVK_PIPELINE_TEXT_MSDF;
+			printf("DEBUG: Using MSDF pipeline for texId=%d type=%d\n", texId, vk->textures[texId].type);
+		} else {
+			pipelineType = NVGVK_PIPELINE_IMG;
+			printf("DEBUG: Using IMG pipeline for texId=%d type=%d\n", texId,
+			       (texId >= 0 && texId < NVGVK_MAX_TEXTURES) ? vk->textures[texId].type : -1);
+		}
+	}
 	NVGVkPipeline* pipeline = &vk->pipelines[pipelineType];
 
 	nvgvk_bind_pipeline(vk, pipelineType);
+
+	// Bind texture descriptor set if using image
+	if (call->image > 0) {
+		int texId = call->image - 1;
+		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES && vk->textures[texId].image != VK_NULL_HANDLE) {
+			vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			                        pipeline->layout, 0, 1, &vk->textures[texId].descriptorSet, 0, NULL);
+		}
+	} else {
+		// Bind pipeline's default descriptor set
+		vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                        pipeline->layout, 0, 1, &pipeline->descriptorSet, 0, NULL);
+	}
 
 	// Skip viewSize (2 floats) to get FragUniforms
 	NVGVkFragUniforms* frag = (NVGVkFragUniforms*)(&vk->uniforms[call->uniformOffset].scissorMat);

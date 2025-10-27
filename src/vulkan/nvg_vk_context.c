@@ -1,7 +1,9 @@
 #include "nvg_vk_context.h"
 #include "nvg_vk_buffer.h"
 #include "nvg_vk_render.h"
+#include "nvg_vk_texture.h"
 #include "../nanovg.h"
+#include "../nanovg_vk_virtual_atlas.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -62,7 +64,29 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 		return 0;
 	}
 
-	printf("NanoVG Vulkan: Context created successfully\n");
+	// Initialize texture descriptor system
+	if (!nvgvk__init_texture_descriptors(vk)) {
+		fprintf(stderr, "NanoVG Vulkan: Failed to initialize texture descriptors\n");
+		nvgvk_buffer_destroy(vk, &vk->uniformBuffer);
+		nvgvk_buffer_destroy(vk, &vk->vertexBuffer);
+		free(vk->vertices);
+		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
+		return 0;
+	}
+
+	// Initialize virtual atlas (for CJK fonts and large glyph sets)
+	// Note: Font context and rasterize callback will be set later via vknvg__setAtlasFontContext
+	vk->virtualAtlas = vknvg__createVirtualAtlas(vk->device, vk->physicalDevice, NULL, NULL);
+	if (!vk->virtualAtlas) {
+		fprintf(stderr, "NanoVG Vulkan: Failed to create virtual atlas\n");
+		nvgvk__destroy_texture_descriptors(vk);
+		nvgvk_buffer_destroy(vk, &vk->uniformBuffer);
+		nvgvk_buffer_destroy(vk, &vk->vertexBuffer);
+		free(vk->vertices);
+		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
+		return 0;
+	}
+
 	return 1;
 }
 
@@ -75,6 +99,15 @@ void nvgvk_delete(void* userPtr)
 
 	// Wait for device to be idle before cleanup
 	vkDeviceWaitIdle(vk->device);
+
+	// Destroy virtual atlas
+	if (vk->virtualAtlas) {
+		vknvg__destroyVirtualAtlas((VKNVGvirtualAtlas*)vk->virtualAtlas);
+		vk->virtualAtlas = NULL;
+	}
+
+	// Destroy texture descriptor system
+	nvgvk__destroy_texture_descriptors(vk);
 
 	// Destroy buffers
 	nvgvk_buffer_destroy(vk, &vk->uniformBuffer);
@@ -91,8 +124,6 @@ void nvgvk_delete(void* userPtr)
 		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
 		vk->commandBuffer = VK_NULL_HANDLE;
 	}
-
-	printf("NanoVG Vulkan: Context deleted\n");
 }
 
 void nvgvk_viewport(void* userPtr, float width, float height, float devicePixelRatio)
@@ -128,9 +159,6 @@ void nvgvk_flush(void* userPtr)
 		return;
 	}
 
-	printf("NanoVG Vulkan: Flush called (vertices: %d, calls: %d)\n",
-	       vk->vertexCount, vk->callCount);
-
 	// Upload vertex data to buffer
 	if (vk->vertexCount > 0) {
 		VkDeviceSize vertexDataSize = vk->vertexCount * sizeof(NVGvertex);
@@ -140,6 +168,9 @@ void nvgvk_flush(void* userPtr)
 	// Upload view uniforms (viewSize)
 	float viewSize[2] = {vk->viewWidth, vk->viewHeight};
 	nvgvk_buffer_upload(vk, &vk->uniformBuffer, viewSize, sizeof(viewSize));
+
+	// Update descriptor sets for all pipelines
+	nvgvk_setup_render(vk);
 
 	// Bind vertex buffer
 	VkDeviceSize offset = 0;

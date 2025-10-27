@@ -634,6 +634,7 @@ int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, floa
 enum NVGtexture {
 	NVG_TEXTURE_ALPHA = 0x01,
 	NVG_TEXTURE_RGBA = 0x02,
+	NVG_TEXTURE_MSDF = 0x03,
 };
 
 struct NVGscissor {
@@ -664,6 +665,7 @@ typedef struct NVGpath NVGpath;
 struct NVGparams {
 	void* userPtr;
 	int edgeAntiAlias;
+	int msdfText;  // Enable MSDF text rendering (requires NVG_MSDF_TEXT flag)
 	int fontAtlasSize;  // Size of font atlas (0 = default 512x512, otherwise e.g. 4096 for virtual atlas)
 	int (*renderCreate)(void* uptr);
 	int (*renderCreateTexture)(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data);

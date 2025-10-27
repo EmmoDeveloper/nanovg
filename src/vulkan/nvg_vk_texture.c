@@ -7,7 +7,7 @@
 // Helper: Get Vulkan format from texture type
 VkFormat nvgvk__get_vk_format(int type)
 {
-	if (type == NVG_TEXTURE_RGBA) {
+	if (type == NVG_TEXTURE_RGBA || type == 3) {  // RGBA or MSDF
 		return VK_FORMAT_R8G8B8A8_UNORM;
 	}
 	return VK_FORMAT_R8_UNORM;  // ALPHA
@@ -41,6 +41,119 @@ int nvgvk__allocate_texture(NVGVkContext* vk)
 	}
 	fprintf(stderr, "NanoVG Vulkan: No free texture slots\n");
 	return -1;
+}
+
+// Initialize texture descriptor system (descriptor set layout and pool)
+int nvgvk__init_texture_descriptors(NVGVkContext* vk)
+{
+	// Create descriptor set layout for textures (uniform buffer + sampler)
+	VkDescriptorSetLayoutBinding bindings[2] = {0};
+
+	// Binding 0: Uniform buffer (viewSize)
+	bindings[0].binding = 0;
+	bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	bindings[0].descriptorCount = 1;
+	bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	// Binding 1: Combined image sampler
+	bindings[1].binding = 1;
+	bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	bindings[1].descriptorCount = 1;
+	bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 2;
+	layoutInfo.pBindings = bindings;
+
+	if (vkCreateDescriptorSetLayout(vk->device, &layoutInfo, NULL, &vk->textureDescriptorSetLayout) != VK_SUCCESS) {
+		fprintf(stderr, "NanoVG Vulkan: Failed to create texture descriptor set layout\n");
+		return 0;
+	}
+
+	// Create descriptor pool for all texture descriptor sets
+	VkDescriptorPoolSize poolSizes[2] = {0};
+	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSizes[0].descriptorCount = NVGVK_MAX_TEXTURES;
+	poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSizes[1].descriptorCount = NVGVK_MAX_TEXTURES;
+
+	VkDescriptorPoolCreateInfo poolInfo = {0};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 2;
+	poolInfo.pPoolSizes = poolSizes;
+	poolInfo.maxSets = NVGVK_MAX_TEXTURES;
+
+	if (vkCreateDescriptorPool(vk->device, &poolInfo, NULL, &vk->textureDescriptorPool) != VK_SUCCESS) {
+		fprintf(stderr, "NanoVG Vulkan: Failed to create texture descriptor pool\n");
+		vkDestroyDescriptorSetLayout(vk->device, vk->textureDescriptorSetLayout, NULL);
+		vk->textureDescriptorSetLayout = VK_NULL_HANDLE;
+		return 0;
+	}
+
+	return 1;
+}
+
+// Destroy texture descriptor system
+void nvgvk__destroy_texture_descriptors(NVGVkContext* vk)
+{
+	if (vk->textureDescriptorPool) {
+		vkDestroyDescriptorPool(vk->device, vk->textureDescriptorPool, NULL);
+		vk->textureDescriptorPool = VK_NULL_HANDLE;
+	}
+	if (vk->textureDescriptorSetLayout) {
+		vkDestroyDescriptorSetLayout(vk->device, vk->textureDescriptorSetLayout, NULL);
+		vk->textureDescriptorSetLayout = VK_NULL_HANDLE;
+	}
+}
+
+// Allocate and initialize descriptor set for a texture
+int nvgvk__allocate_texture_descriptor_set(NVGVkContext* vk, NVGVkTexture* tex)
+{
+	// Allocate descriptor set
+	VkDescriptorSetAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = vk->textureDescriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &vk->textureDescriptorSetLayout;
+
+	if (vkAllocateDescriptorSets(vk->device, &allocInfo, &tex->descriptorSet) != VK_SUCCESS) {
+		fprintf(stderr, "NanoVG Vulkan: Failed to allocate texture descriptor set\n");
+		return 0;
+	}
+
+	// Update descriptor set with uniform buffer and texture
+	VkDescriptorBufferInfo bufferInfo = {0};
+	bufferInfo.buffer = vk->uniformBuffer.buffer;
+	bufferInfo.offset = 0;
+	bufferInfo.range = sizeof(float) * 2; // viewSize
+
+	VkDescriptorImageInfo imageInfo = {0};
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	imageInfo.imageView = tex->imageView;
+	imageInfo.sampler = tex->sampler;
+
+	VkWriteDescriptorSet writes[2] = {0};
+
+	// Uniform buffer
+	writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[0].dstSet = tex->descriptorSet;
+	writes[0].dstBinding = 0;
+	writes[0].descriptorCount = 1;
+	writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	writes[0].pBufferInfo = &bufferInfo;
+
+	// Texture sampler
+	writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[1].dstSet = tex->descriptorSet;
+	writes[1].dstBinding = 1;
+	writes[1].descriptorCount = 1;
+	writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	writes[1].pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(vk->device, 2, writes, 0, NULL);
+
+	return 1;
 }
 
 // Create sampler for texture
@@ -101,7 +214,7 @@ int nvgvk_create_texture(void* userPtr, int type, int w, int h,
 	tex->flags = imageFlags;
 
 	VkFormat format = nvgvk__get_vk_format(type);
-	int bytesPerPixel = (type == NVG_TEXTURE_RGBA) ? 4 : 1;
+	int bytesPerPixel = (type == NVG_TEXTURE_RGBA || type == 3) ? 4 : 1;  // RGBA/MSDF=4, ALPHA=1
 
 	// Create image
 	VkImageCreateInfo imageInfo = {0};
@@ -179,6 +292,12 @@ int nvgvk_create_texture(void* userPtr, int type, int w, int h,
 		}
 	}
 
+	// Allocate and initialize descriptor set for this texture
+	if (!nvgvk__allocate_texture_descriptor_set(vk, tex)) {
+		nvgvk_delete_texture(userPtr, id + 1);
+		return -1;
+	}
+
 	// NanoVG uses 1-based texture IDs (0 = failure)
 	return id + 1;
 }
@@ -198,6 +317,9 @@ void nvgvk_delete_texture(void* userPtr, int image)
 	}
 
 	vkDeviceWaitIdle(vk->device);
+
+	// Note: descriptor sets are automatically freed when pool is destroyed or reset
+	// No need to explicitly free individual descriptor sets
 
 	if (tex->sampler) {
 		vkDestroySampler(vk->device, tex->sampler, NULL);
@@ -231,7 +353,7 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 		return 0;
 	}
 
-	int bytesPerPixel = (tex->type == NVG_TEXTURE_RGBA) ? 4 : 1;
+	int bytesPerPixel = (tex->type == NVG_TEXTURE_RGBA || tex->type == 3) ? 4 : 1;  // RGBA/MSDF=4, ALPHA=1
 	VkDeviceSize dataSize = w * h * bytesPerPixel;
 
 	// Create staging buffer
@@ -243,17 +365,53 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	// Copy data to staging buffer
 	memcpy(stagingBuffer.mapped, data, dataSize);
 
+	// If we're in a render pass, end it temporarily and flush
+	int wasInRenderPass = vk->inRenderPass;
+	VkRenderPass savedRenderPass = VK_NULL_HANDLE;
+	VkFramebuffer savedFramebuffer = VK_NULL_HANDLE;
+
+	if (wasInRenderPass) {
+		savedRenderPass = vk->activeRenderPass;
+		savedFramebuffer = vk->activeFramebuffer;
+		vkCmdEndRenderPass(vk->commandBuffer);
+		vkEndCommandBuffer(vk->commandBuffer);
+
+		// Submit and wait
+		VkSubmitInfo submitInfo = {0};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &vk->commandBuffer;
+		vkQueueSubmit(vk->queue, 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(vk->queue);
+
+		vk->inRenderPass = 0;
+	}
+
+	// Allocate temporary command buffer for upload
+	VkCommandBuffer uploadCmd;
+	VkCommandBufferAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool = vk->commandPool;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = 1;
+
+	if (vkAllocateCommandBuffers(vk->device, &allocInfo, &uploadCmd) != VK_SUCCESS) {
+		nvgvk_buffer_destroy(vk, &stagingBuffer);
+		return 0;
+	}
+
 	// Record commands for image upload
 	VkCommandBufferBeginInfo beginInfo = {0};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-	vkBeginCommandBuffer(vk->commandBuffer, &beginInfo);
+	vkBeginCommandBuffer(uploadCmd, &beginInfo);
 
 	// Transition to transfer dst
 	VkImageMemoryBarrier barrier = {0};
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	// If texture was already used, it's in SHADER_READ_ONLY_OPTIMAL, otherwise UNDEFINED
+	barrier.oldLayout = (tex->flags & 0x8000) ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
 	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -264,7 +422,7 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	barrier.srcAccessMask = 0;
 	barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-	vkCmdPipelineBarrier(vk->commandBuffer,
+	vkCmdPipelineBarrier(uploadCmd,
 	                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
 	                     0, 0, NULL, 0, NULL, 1, &barrier);
@@ -279,7 +437,7 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	region.imageExtent.height = h;
 	region.imageExtent.depth = 1;
 
-	vkCmdCopyBufferToImage(vk->commandBuffer, stagingBuffer.buffer, tex->image,
+	vkCmdCopyBufferToImage(uploadCmd, stagingBuffer.buffer, tex->image,
 	                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 	// Transition to shader read
@@ -288,24 +446,52 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-	vkCmdPipelineBarrier(vk->commandBuffer,
+	vkCmdPipelineBarrier(uploadCmd,
 	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
 	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 	                     0, 0, NULL, 0, NULL, 1, &barrier);
 
-	vkEndCommandBuffer(vk->commandBuffer);
+	vkEndCommandBuffer(uploadCmd);
+
+	// Mark texture as initialized
+	tex->flags |= 0x8000;
 
 	// Submit and wait
 	VkSubmitInfo submitInfo = {0};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &vk->commandBuffer;
+	submitInfo.pCommandBuffers = &uploadCmd;
 
 	vkQueueSubmit(vk->queue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(vk->queue);
 
-	// Cleanup staging buffer
+	// Cleanup
+	vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &uploadCmd);
 	nvgvk_buffer_destroy(vk, &stagingBuffer);
+
+	// If we were in a render pass, restart the command buffer and render pass
+	if (wasInRenderPass) {
+		VkCommandBufferBeginInfo restartBegin = {0};
+		restartBegin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		restartBegin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(vk->commandBuffer, &restartBegin);
+
+		// Restart render pass with saved info
+		VkRenderPassBeginInfo rpBeginInfo = {0};
+		rpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		rpBeginInfo.renderPass = savedRenderPass;
+		rpBeginInfo.framebuffer = savedFramebuffer;
+		rpBeginInfo.renderArea = vk->renderArea;
+		rpBeginInfo.clearValueCount = vk->clearValueCount;
+		rpBeginInfo.pClearValues = vk->clearValues;
+
+		vkCmdBeginRenderPass(vk->commandBuffer, &rpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vk->inRenderPass = 1;
+
+		// Restore viewport and scissor state
+		vkCmdSetViewport(vk->commandBuffer, 0, 1, &vk->viewport);
+		vkCmdSetScissor(vk->commandBuffer, 0, 1, &vk->scissor);
+	}
 
 	return 1;
 }

@@ -24,7 +24,21 @@ layout(push_constant) uniform FragUniforms {
 } frag;
 
 void main() {
+	// Transform fragment position by paint matrix to get texture coordinate
+	mat3 paintMat3 = mat3(
+		frag.paintMat[0].xyz,  // column 0
+		frag.paintMat[1].xyz,  // column 1
+		frag.paintMat[2].xyz   // column 2
+	);
+	vec3 pt = vec3(fragPos.x, fragPos.y, 1.0);
+	vec2 paintPos = (paintMat3 * pt).xy;
+
+	// Normalize by extent to get UV coordinates [0, 1]
+	vec2 uv = paintPos / frag.extent;
+
 	// Sample texture
-	vec4 texColor = texture(texSampler, fragTexCoord);
+	vec4 texColor = texture(texSampler, uv);
+
+	// Apply alpha from innerCol (image patterns use white * alpha)
 	outColor = texColor * frag.innerCol;
 }

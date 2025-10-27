@@ -24,5 +24,19 @@ layout(push_constant) uniform FragUniforms {
 
 void main() {
 	vec4 texColor = texture(texSampler, fragTexCoord);
-	outColor = texColor;
+	// Match OpenGL behavior:
+	// texType: 0=RGBA premultiplied, 1=RGBA non-premultiplied, 2=ALPHA
+
+	if (frag.texType == 2) {
+		// ALPHA texture: use R channel as grayscale mask
+		float alpha = texColor.r;
+		outColor = vec4(frag.innerCol.rgb, frag.innerCol.a) * alpha;
+	} else if (frag.texType == 1) {
+		// RGBA non-premultiplied: premultiply alpha
+		vec4 color = vec4(texColor.xyz * texColor.w, texColor.w);
+		outColor = color * frag.innerCol;
+	} else {
+		// RGBA premultiplied or other
+		outColor = texColor * frag.innerCol;
+	}
 }

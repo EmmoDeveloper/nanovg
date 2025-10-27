@@ -1,5 +1,6 @@
 #include "nvg_vk_pipeline.h"
 #include "nvg_vk_shader.h"
+#include "../nanovg.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -67,7 +68,7 @@ typedef enum {
 // Helper: Create graphics pipeline
 static int nvgvk__create_graphics_pipeline(NVGVkContext* vk, NVGVkPipeline* pipeline,
                                             VkRenderPass renderPass, NVGVkShaderSet* shaders,
-                                            StencilMode stencilMode)
+                                            StencilMode stencilMode, VkPrimitiveTopology topology)
 {
 	// Vertex input state
 	VkVertexInputBindingDescription binding = {0};
@@ -97,7 +98,7 @@ static int nvgvk__create_graphics_pipeline(NVGVkContext* vk, NVGVkPipeline* pipe
 	// Input assembly
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0};
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssembly.topology = topology;
 
 	// Viewport state (dynamic)
 	VkPipelineViewportStateCreateInfo viewportState = {0};
@@ -265,17 +266,24 @@ int nvgvk_create_pipelines(NVGVkContext* vk, VkRenderPass renderPass)
 			return 0;
 		}
 
-		// Graphics pipeline - configure stencil mode based on pipeline type
+		// Graphics pipeline - configure stencil mode and topology based on pipeline type
 		StencilMode stencilMode = STENCIL_NONE;
+		VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
 		if (i == NVGVK_PIPELINE_FILL_STENCIL) {
 			stencilMode = STENCIL_WRITE;
+			topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;  // Modified NanoVG generates triangle lists
 		} else if (i == NVGVK_PIPELINE_FILL_COVER_GRAD || i == NVGVK_PIPELINE_FILL_COVER_IMG) {
 			stencilMode = STENCIL_TEST_NONZERO;
+			topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;  // Bounding quad uses triangle list
 		} else if (i == NVGVK_PIPELINE_IMG_STENCIL) {
 			stencilMode = STENCIL_TEST_NONZERO;
+		} else if (i == NVGVK_PIPELINE_FRINGE) {
+			stencilMode = STENCIL_NONE;
+			topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;  // Fringe uses triangle strip
 		}
 
-		if (!nvgvk__create_graphics_pipeline(vk, pipeline, renderPass, &vk->shaders[i], stencilMode)) {
+		if (!nvgvk__create_graphics_pipeline(vk, pipeline, renderPass, &vk->shaders[i], stencilMode, topology)) {
 			nvgvk_destroy_pipelines(vk);
 			return 0;
 		}
@@ -294,7 +302,6 @@ int nvgvk_create_pipelines(NVGVkContext* vk, VkRenderPass renderPass)
 		}
 	}
 
-	printf("NanoVG Vulkan: Created %d pipelines\n", NVGVK_PIPELINE_COUNT);
 	return 1;
 }
 
