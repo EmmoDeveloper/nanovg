@@ -295,6 +295,11 @@ $(BUILD_DIR)/nvg_font.o: src/nvg_font.c src/nvg_font.h | $(BUILD_DIR)
 	@echo "Compiling nvg_font.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
+# FreeType direct integration
+$(BUILD_DIR)/nvg_freetype.o: src/nvg_freetype.c src/nvg_freetype.h | $(BUILD_DIR)
+	@echo "Compiling nvg_freetype.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
 # test_custom_font
 $(BUILD_DIR)/test_custom_font.o: tests/test_custom_font.c | $(BUILD_DIR)
 	@echo "Compiling test_custom_font.c..."
@@ -320,5 +325,14 @@ $(BUILD_DIR)/test_canvas_api.o: tests/test_canvas_api.c | $(BUILD_DIR)
 
 $(BUILD_DIR)/test_canvas_api: $(BUILD_DIR)/test_canvas_api.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_canvas_api..."
+	$(CC) $^ $(LIBS) -o $@
+
+# test_freetype_system
+$(BUILD_DIR)/test_freetype_system.o: tests/test_freetype_system.c | $(BUILD_DIR)
+	@echo "Compiling test_freetype_system.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_freetype_system: $(BUILD_DIR)/test_freetype_system.o $(BUILD_DIR)/nvg_freetype.o
+	@echo "Linking test_freetype_system..."
 	$(CC) $^ $(LIBS) -o $@
 
