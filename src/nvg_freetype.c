@@ -512,9 +512,9 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 	// Build output quad
 	if (glyph && glyph->width > 0 && glyph->height > 0) {
 		quad->x0 = iter->x + glyph->offset_x;
-		quad->y0 = iter->y - glyph->offset_y;
+		quad->y0 = iter->y + glyph->offset_y;
 		quad->x1 = quad->x0 + glyph->width;
-		quad->y1 = quad->y0 + glyph->height;
+		quad->y1 = quad->y0 - glyph->height;
 		quad->s0 = glyph->u0;
 		quad->t0 = glyph->v0;
 		quad->s1 = glyph->u1;
