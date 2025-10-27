@@ -224,7 +224,7 @@ $(BUILD_DIR)/test_shapes.o: tests/test_shapes.c | $(BUILD_DIR)
 	@echo "Compiling test_shapes.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_shapes: $(BUILD_DIR)/test_shapes.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+$(BUILD_DIR)/test_shapes: $(BUILD_DIR)/test_shapes.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_shapes..."
 	$(CC) $^ $(LIBS) -o $@
 
@@ -343,5 +343,14 @@ $(BUILD_DIR)/test_freetype_rendering.o: tests/test_freetype_rendering.c | $(BUIL
 
 $(BUILD_DIR)/test_freetype_rendering: $(BUILD_DIR)/test_freetype_rendering.o $(BUILD_DIR)/nvg_freetype.o
 	@echo "Linking test_freetype_rendering..."
+	$(CC) $^ $(LIBS) -o $@
+
+# test_nvg_freetype
+$(BUILD_DIR)/test_nvg_freetype.o: tests/test_nvg_freetype.c | $(BUILD_DIR)
+	@echo "Compiling test_nvg_freetype.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_nvg_freetype: $(BUILD_DIR)/test_nvg_freetype.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_nvg_freetype..."
 	$(CC) $^ $(LIBS) -o $@
 

@@ -39,10 +39,12 @@ typedef struct NVGFTQuad {
 typedef struct NVGFTTextIter {
 	const char* str;
 	const char* end;
+	const char* next;  // Next character position
 	float x, y;
 	float spacing;
 	int prev_glyph_index;
 	int font_id;
+	uint32_t codepoint;  // Current codepoint (for text breaking)
 	void* internal;  // FTC scaler data
 } NVGFTTextIter;
 

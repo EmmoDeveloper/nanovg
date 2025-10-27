@@ -371,9 +371,11 @@ void nvgft_text_iter_init(NVGFontSystem* sys, NVGFTTextIter* iter,
 
 	iter->str = str;
 	iter->end = end;
+	iter->next = str;
 	iter->x = x;
 	iter->y = y;
 	iter->prev_glyph_index = -1;
+	iter->codepoint = 0;
 
 	NVGFTState* state = nvgft__getState(sys);
 	iter->font_id = state->font_id;
@@ -388,8 +390,15 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 	NVGFTFont* font = &sys->fonts[iter->font_id];
 
 	// Decode UTF-8
+	const char* str_before = iter->str;
 	uint32_t codepoint = nvgft__decode_utf8(&iter->str);
-	if (codepoint == 0) return nvgft_text_iter_next(sys, iter, quad);
+	iter->next = iter->str;  // Update next position
+	iter->codepoint = codepoint;  // Store codepoint for text breaking
+
+	if (codepoint == 0) {
+		iter->str = str_before;  // Restore position before recursion
+		return nvgft_text_iter_next(sys, iter, quad);
+	}
 
 	// Get glyph index via charmap cache
 	FT_UInt glyph_index = FTC_CMapCache_Lookup(sys->cmap_cache, font->face_id, -1, codepoint);
