@@ -6,6 +6,10 @@
 #include <string.h>
 #include <stdio.h>
 
+// Forward declarations
+static void vknvg__defragUpdateCallback(void* userData, const VKNVGglyphMove* moves,
+                                         uint32_t moveCount, uint32_t atlasIndex);
+
 // Memory utility functions
 static uint32_t vknvg__findMemoryType(VkPhysicalDevice physicalDevice,
                                        uint32_t typeFilter,
@@ -312,9 +316,11 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		return NULL;
 	}
 
-	// Phase 1: Initialize defragmentation context (placeholder for now)
+	// Phase 3: Initialize defragmentation context with callback
 	memset(&atlas->defragContext, 0, sizeof(VKNVGdefragContext));
-	atlas->enableDefrag = 0;	// Disabled by default
+	atlas->defragContext.updateCallback = vknvg__defragUpdateCallback;
+	atlas->defragContext.callbackUserData = atlas;
+	atlas->enableDefrag = 1;	// Enabled for cache space reclamation
 
 	// Create staging buffer for uploads
 	atlas->stagingSize = VKNVG_ATLAS_PAGE_SIZE * VKNVG_ATLAS_PAGE_SIZE * VKNVG_UPLOAD_QUEUE_SIZE;
@@ -571,6 +577,50 @@ static void vknvg__evictLRU(VKNVGvirtualAtlas* atlas)
 
 	// Phase 3: Space is not immediately reclaimed with Guillotine packing
 	// Defragmentation (Phase 3 advanced) will compact the atlas to reclaim space
+}
+
+// Update glyph cache entries after defragmentation moves
+// Called after defragmentation completes to update atlas positions
+static void vknvg__updateGlyphCacheAfterDefrag(VKNVGvirtualAtlas* atlas,
+                                                 const VKNVGglyphMove* moves,
+                                                 uint32_t moveCount,
+                                                 uint32_t atlasIndex)
+{
+	if (!atlas || !moves || moveCount == 0) {
+		return;
+	}
+
+	// Iterate through all cache entries and update positions if they match a move
+	for (uint32_t i = 0; i < atlas->glyphCacheSize; i++) {
+		VKNVGglyphCacheEntry* entry = &atlas->glyphCache[i];
+
+		// Skip empty entries or entries in different atlas
+		if (entry->state == VKNVG_GLYPH_EMPTY || entry->atlasIndex != atlasIndex) {
+			continue;
+		}
+
+		// Check if this entry was moved
+		for (uint32_t m = 0; m < moveCount; m++) {
+			const VKNVGglyphMove* move = &moves[m];
+
+			// Match by source position and dimensions
+			if (entry->atlasX == move->srcX && entry->atlasY == move->srcY &&
+			    entry->width == move->width && entry->height == move->height) {
+				// Update to new position
+				entry->atlasX = move->dstX;
+				entry->atlasY = move->dstY;
+				break;
+			}
+		}
+	}
+}
+
+// Callback wrapper for defragmentation system
+static void vknvg__defragUpdateCallback(void* userData, const VKNVGglyphMove* moves,
+                                         uint32_t moveCount, uint32_t atlasIndex)
+{
+	VKNVGvirtualAtlas* atlas = (VKNVGvirtualAtlas*)userData;
+	vknvg__updateGlyphCacheAfterDefrag(atlas, moves, moveCount, atlasIndex);
 }
 
 // Allocate a free page (legacy - Phase 2: kept as fallback)
@@ -1041,11 +1091,8 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 	// Phase 4 Advanced: Continue defragmentation if in progress
 	if (atlas->enableDefrag && atlas->defragContext.state != VKNVG_DEFRAG_IDLE) {
 		// Execute incremental defragmentation with 2ms time budget
-		// Note: updateDefragmentation will execute glyph moves and update the packer
-		// vknvg__updateDefragmentation(&atlas->defragContext, atlas->atlasManager, cmd, 2.0f);
-
-		// For now, defragmentation execution is deferred until glyph cache integration
-		// Full implementation requires updating glyph cache entries after moves
+		// Glyph cache integration is now complete via callback
+		vknvg__updateDefragmentation(&atlas->defragContext, atlas->atlasManager, cmd, 2.0f);
 	}
 }
 

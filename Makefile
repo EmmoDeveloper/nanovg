@@ -3,14 +3,14 @@
 CC := gcc
 CFLAGS := -std=c11 -Wall -Wextra -O2 -g
 INCLUDES := -I./src -I./tests \
-	-I/.local/include/freetype2 \
-	-I/.local/include/cairo \
+	-I/opt/freetype/include \
+	-I/opt/freetype/cairo/src \
 	$(shell pkg-config --cflags vulkan glfw3 harfbuzz fribidi)
 LIBS := $(shell pkg-config --libs vulkan glfw3 harfbuzz fribidi) \
-	-L/.local/lib -lfreetype \
-	-L/.local/lib/x86_64-linux-gnu -lcairo \
+	-L/opt/freetype/objs/.libs -lfreetype \
+	-L/opt/freetype/cairo/builddir/src -lcairo \
 	-lm -lpthread \
-	-Wl,-rpath,/.local/lib -Wl,-rpath,/.local/lib/x86_64-linux-gnu
+	-Wl,-rpath,/opt/freetype/objs/.libs -Wl,-rpath,/opt/freetype/cairo/builddir/src
 
 BUILD_DIR := build
 

@@ -39,6 +39,10 @@ typedef struct VKNVGglyphMove {
 	uint32_t glyphId;			// Glyph identifier (for updating metadata)
 } VKNVGglyphMove;
 
+// Callback for updating glyph cache after moves
+typedef void (*VKNVGdefragUpdateCallback)(void* userData, const VKNVGglyphMove* moves,
+                                           uint32_t moveCount, uint32_t atlasIndex);
+
 // Defragmentation context
 typedef struct VKNVGdefragContext {
 	VKNVGdefragState state;
@@ -59,6 +63,10 @@ typedef struct VKNVGdefragContext {
 
 	// Temporary packer for replanning
 	VKNVGatlasPacker newPacker;
+
+	// Callback for updating external glyph cache
+	VKNVGdefragUpdateCallback updateCallback;
+	void* callbackUserData;
 } VKNVGdefragContext;
 
 // Calculate fragmentation metric for an atlas
@@ -256,9 +264,13 @@ static void vknvg__completeDefragmentation(VKNVGdefragContext* ctx,
 	}
 
 	// Update atlas packer with new layout
-	// (In real implementation, would need to update all glyph metadata)
 	VKNVGatlasInstance* atlas = &manager->atlases[ctx->atlasIndex];
 	atlas->packer = ctx->newPacker;
+
+	// Call glyph cache update callback if registered
+	if (ctx->updateCallback) {
+		ctx->updateCallback(ctx->callbackUserData, ctx->moves, ctx->moveCount, ctx->atlasIndex);
+	}
 
 	ctx->state = VKNVG_DEFRAG_IDLE;
 }
