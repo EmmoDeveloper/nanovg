@@ -9,7 +9,7 @@ int main() {
 	FT_Init_FreeType(&library);
 	
 	FT_Face face;
-	if (FT_New_Face(library, "/opt/noto-emoji/fonts/Noto-COLRv1.ttf", 0, &face) != 0) {
+	if (FT_New_Face(library, "fonts/emoji/Noto-COLRv1.ttf", 0, &face) != 0) {
 		printf("Failed to load font\n");
 		return 1;
 	}
