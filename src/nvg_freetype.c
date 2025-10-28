@@ -11,6 +11,14 @@
 #include FT_BITMAP_H
 #include FT_OUTLINE_H
 #include FT_GLYPH_H
+#include FT_COLOR_H
+#include FT_TRUETYPE_TABLES_H
+
+#include <hb.h>
+#include <hb-ft.h>
+#include <fribidi.h>
+#include <cairo/cairo.h>
+#include <cairo/cairo-ft.h>
 
 #define NVGFT_MAX_FONTS 32
 #define NVGFT_MAX_STATES 8
@@ -50,6 +58,8 @@ typedef struct NVGFTFont {
 	int id;
 	int fallback;  // Fallback font ID (-1 = none)
 	FTC_FaceID face_id;  // Pointer to this struct (used by FTC)
+	hb_font_t* hb_font;  // HarfBuzz font (created on demand)
+	unsigned char has_colr;  // 0 = not checked, 1 = has COLR, 2 = no COLR
 } NVGFTFont;
 
 // Glyph in atlas
@@ -62,6 +72,7 @@ typedef struct NVGFTGlyph {
 	short offset_x, offset_y;  // Bearing
 	short advance_x;
 	float u0, v0, u1, v1;  // Normalized UV
+	unsigned char is_color;  // 1 if this is a color emoji (RGBA), 0 if grayscale
 	struct NVGFTGlyph* next;  // Hash chain
 } NVGFTGlyph;
 
@@ -109,6 +120,9 @@ struct NVGFontSystem {
 	// Texture callback
 	NVGFTTextureUpdateFunc texture_callback;
 	void* texture_uptr;
+
+	// HarfBuzz buffer (reusable)
+	hb_buffer_t* hb_buffer;
 };
 
 // FTC face requester callback
@@ -160,6 +174,16 @@ NVGFontSystem* nvgft_create(int atlasWidth, int atlasHeight) {
 	sys->atlas_width = atlasWidth;
 	sys->atlas_height = atlasHeight;
 
+	// Initialize HarfBuzz buffer
+	sys->hb_buffer = hb_buffer_create();
+	if (!sys->hb_buffer) {
+		fprintf(stderr, "Failed to create HarfBuzz buffer\n");
+		FTC_Manager_Done(sys->cache_manager);
+		FT_Done_FreeType(sys->library);
+		free(sys);
+		return NULL;
+	}
+
 	// Initial state
 	sys->nstates = 1;
 	sys->states[0].font_id = -1;
@@ -175,11 +199,19 @@ NVGFontSystem* nvgft_create(int atlasWidth, int atlasHeight) {
 void nvgft_destroy(NVGFontSystem* sys) {
 	if (!sys) return;
 
-	// Free font data
+	// Free HarfBuzz fonts
 	for (int i = 0; i < sys->font_count; i++) {
+		if (sys->fonts[i].hb_font) {
+			hb_font_destroy(sys->fonts[i].hb_font);
+		}
 		if (sys->fonts[i].data && sys->fonts[i].free_data) {
 			free(sys->fonts[i].data);
 		}
+	}
+
+	// Free HarfBuzz buffer
+	if (sys->hb_buffer) {
+		hb_buffer_destroy(sys->hb_buffer);
 	}
 
 	// Free glyph hash table
@@ -323,6 +355,166 @@ static NVGFTGlyph* nvgft__add_glyph(NVGFontSystem* sys, uint32_t codepoint, int 
 	return g;
 }
 
+// Check if font has COLR table (works for both v0 and v1)
+static int nvgft__has_colr_table(FT_Face face) {
+	FT_ULong length = 0;
+	FT_Load_Sfnt_Table(face, FT_MAKE_TAG('C','O','L','R'), 0, NULL, &length);
+	return length > 0;
+}
+
+// Render color emoji using Cairo (required for COLR v1)
+// FreeType's FT_LOAD_COLOR only supports COLR v0, not v1
+// Returns RGBA bitmap (4 bytes per pixel) or NULL on failure
+static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* font,
+                                                  FT_UInt glyph_index, int pixel_size,
+                                                  int* out_width, int* out_height,
+                                                  int* out_left, int* out_top) {
+	// Create a fresh FT_Face for Cairo (cached faces don't work with Cairo)
+	FT_Face cairo_face;
+	FT_Error err = FT_New_Face(sys->library, font->path, 0, &cairo_face);
+	if (err != 0) {
+		printf("DEBUG: Failed to create fresh FT_Face for Cairo: error %d\n", err);
+		return NULL;
+	}
+
+	// Set pixel size on the fresh face
+	FT_Set_Pixel_Sizes(cairo_face, 0, pixel_size);
+
+	int width = pixel_size;
+	int height = pixel_size;
+
+	// Create Cairo surface for rendering
+	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+		printf("DEBUG: Cairo surface creation failed\n");
+		return NULL;
+	}
+
+	cairo_t* cr = cairo_create(surface);
+
+	// Clear to white background (for debugging - should be transparent in production)
+	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+	cairo_paint(cr);
+
+	// Translate so glyph baseline is at bottom
+	// Y-axis is flipped in Cairo (0 at top)
+	cairo_translate(cr, 0, height * 0.8);
+
+	// Create Cairo font face from FreeType face with FT_LOAD_COLOR flag
+	printf("DEBUG: FT_Face=%p family=%s style=%s\n", (void*)cairo_face, cairo_face->family_name, cairo_face->style_name);
+	printf("DEBUG: FT_Face num_glyphs=%ld units_per_EM=%d\n", cairo_face->num_glyphs, cairo_face->units_per_EM);
+
+	cairo_font_face_t* font_face = cairo_ft_font_face_create_for_ft_face(cairo_face, FT_LOAD_COLOR);
+	printf("DEBUG: cairo_font_face=%p status=%s\n", (void*)font_face,
+	       cairo_status_to_string(cairo_font_face_status(font_face)));
+
+	// Set up font matrix (scale to pixel size)
+	cairo_matrix_t font_matrix;
+	cairo_matrix_init_scale(&font_matrix, pixel_size, pixel_size);
+
+	cairo_matrix_t ctm;
+	cairo_matrix_init_identity(&ctm);
+
+	cairo_font_options_t* font_options = cairo_font_options_create();
+	cairo_font_options_set_hint_style(font_options, CAIRO_HINT_STYLE_NONE);
+	cairo_font_options_set_hint_metrics(font_options, CAIRO_HINT_METRICS_OFF);
+
+	// Enable color mode for COLR fonts
+	printf("DEBUG: Setting CAIRO_COLOR_MODE_COLOR\n");
+	cairo_font_options_set_color_mode(font_options, CAIRO_COLOR_MODE_COLOR);
+
+
+	// Create scaled font - this is where COLR v1 rendering happens
+	cairo_scaled_font_t* scaled_font = cairo_scaled_font_create(
+		font_face, &font_matrix, &ctm, font_options
+	);
+	printf("DEBUG: scaled_font=%p status=%s\n", (void*)scaled_font,
+	       cairo_status_to_string(cairo_scaled_font_status(scaled_font)));
+
+	cairo_set_scaled_font(cr, scaled_font);
+
+	// Set source to white (for visibility in case color isn't working)
+	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+
+	// Render the glyph
+	cairo_glyph_t cairo_glyph;
+	cairo_glyph.index = glyph_index;
+	cairo_glyph.x = 0;
+	cairo_glyph.y = 0;
+
+	printf("DEBUG: Rendering glyph index %u at (%.1f, %.1f)\n", glyph_index, cairo_glyph.x, cairo_glyph.y);
+	cairo_show_glyphs(cr, &cairo_glyph, 1);
+
+	// Check for errors
+	cairo_status_t status = cairo_status(cr);
+	if (status != CAIRO_STATUS_SUCCESS) {
+		printf("DEBUG: Cairo error: %s\n", cairo_status_to_string(status));
+	}
+
+	// Debug: save first glyph to file
+	static int save_count = 0;
+	if (save_count < 1) {
+		char filename[256];
+		snprintf(filename, sizeof(filename), "/tmp/cairo_glyph_%d.png", save_count);
+		cairo_surface_write_to_png(surface, filename);
+		printf("DEBUG: Saved Cairo surface to %s\n", filename);
+		save_count++;
+	}
+
+	// Cleanup Cairo objects
+	cairo_scaled_font_destroy(scaled_font);
+	cairo_font_options_destroy(font_options);
+	cairo_font_face_destroy(font_face);
+	cairo_destroy(cr);
+
+	// Extract RGBA data
+	unsigned char* cairo_data = cairo_image_surface_get_data(surface);
+	int cairo_stride = cairo_image_surface_get_stride(surface);
+
+	unsigned char* rgba = (unsigned char*)malloc(width * height * 4);
+	if (rgba) {
+		// Cairo uses BGRA (premultiplied), convert to RGBA
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				int cairo_idx = y * cairo_stride + x * 4;
+				int rgba_idx = (y * width + x) * 4;
+
+				// Cairo BGRA (premultiplied) → RGBA (straight alpha)
+				unsigned char b = cairo_data[cairo_idx + 0];
+				unsigned char g = cairo_data[cairo_idx + 1];
+				unsigned char r = cairo_data[cairo_idx + 2];
+				unsigned char a = cairo_data[cairo_idx + 3];
+
+				// Unpremultiply alpha if needed
+				if (a > 0 && a < 255) {
+					r = (r * 255) / a;
+					g = (g * 255) / a;
+					b = (b * 255) / a;
+				}
+
+				rgba[rgba_idx + 0] = r;
+				rgba[rgba_idx + 1] = g;
+				rgba[rgba_idx + 2] = b;
+				rgba[rgba_idx + 3] = a;
+			}
+		}
+
+		printf("DEBUG: Cairo rendered successfully!\n");
+	}
+
+	cairo_surface_destroy(surface);
+
+	// Cleanup the fresh FT_Face we created for Cairo
+	FT_Done_Face(cairo_face);
+
+	*out_width = width;
+	*out_height = height;
+	*out_left = 0;
+	*out_top = height;
+
+	return rgba;
+}
+
 // Atlas packing (simple row-based)
 static int nvgft__pack_glyph(NVGFontSystem* sys, int gw, int gh, short* x, short* y) {
 	int best_h = sys->atlas_height;
@@ -422,7 +614,68 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 	NVGFTGlyph* glyph = nvgft__find_glyph(sys, codepoint, font->id, pixel_size);
 
 	if (!glyph) {
-		// Need to render and pack glyph
+		// Check if font has COLR table (color emoji)
+		FT_Face face;
+		if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) == 0) {
+			// Cache COLR check per font
+			if (font->has_colr == 0) {
+				font->has_colr = nvgft__has_colr_table(face) ? 1 : 2;
+			}
+
+			if (font->has_colr == 1) {
+				printf("DEBUG: Trying color emoji, codepoint=%u glyph_index=%u\n", codepoint, glyph_index);
+				// Render color emoji using COLR (v0 or v1)
+				int width, height, left, top;
+				unsigned char* rgba = nvgft__render_color_emoji(sys, font, glyph_index,
+				                                                  pixel_size, &width, &height,
+				                                                  &left, &top);
+
+				printf("DEBUG: Rendered color emoji: rgba=%p w=%d h=%d\n", (void*)rgba, width, height);
+				if (rgba && width > 0 && height > 0) {
+					// Pack into atlas
+					short atlas_x, atlas_y;
+					if (nvgft__pack_glyph(sys, width, height, &atlas_x, &atlas_y)) {
+						// Add to glyph cache
+						glyph = nvgft__add_glyph(sys, codepoint, font->id, pixel_size);
+						if (glyph) {
+							glyph->x = atlas_x;
+							glyph->y = atlas_y;
+							glyph->width = (short)width;
+							glyph->height = (short)height;
+							glyph->offset_x = left;
+							glyph->offset_y = top;
+							glyph->is_color = 1;  // Mark as color glyph
+
+							// Get advance from face
+							if (FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT) == 0) {
+								glyph->advance_x = (short)(face->glyph->advance.x >> 6);
+							}
+
+							// Calculate UV coordinates
+							glyph->u0 = (float)atlas_x / (float)sys->atlas_width;
+							glyph->v0 = (float)atlas_y / (float)sys->atlas_height;
+							glyph->u1 = (float)(atlas_x + width) / (float)sys->atlas_width;
+							glyph->v1 = (float)(atlas_y + height) / (float)sys->atlas_height;
+
+							// Upload RGBA to GPU (note: 4 bytes per pixel for color!)
+							if (sys->texture_callback) {
+								sys->texture_callback(sys->texture_uptr,
+									atlas_x, atlas_y,
+									width, height,
+									rgba);
+							}
+						}
+					}
+
+					free(rgba);
+
+					// Skip regular glyph rendering below
+					if (glyph) goto glyph_ready;
+				}
+			}
+		}
+
+		// Regular grayscale glyph rendering
 		// Setup FTC image type
 		FTC_ImageTypeRec type;
 		type.face_id = font->face_id;
@@ -479,6 +732,7 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 			glyph->offset_x = bitmap_glyph->left;
 			glyph->offset_y = bitmap_glyph->top;
 			glyph->advance_x = (short)(ft_glyph->advance.x >> 16);
+			glyph->is_color = 0;  // Grayscale glyph
 
 			// Calculate normalized UV coordinates
 			glyph->u0 = (float)atlas_x / (float)sys->atlas_width;
@@ -496,6 +750,7 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 		}
 	}
 
+glyph_ready:
 	// Apply kerning if available
 	if (iter->prev_glyph_index >= 0) {
 		FT_Face face;
@@ -715,4 +970,319 @@ int nvgft_reset_atlas(NVGFontSystem* sys, int width, int height) {
 int nvgft_expand_atlas(NVGFontSystem* sys, int width, int height) {
 	// TODO: handle atlas expansion (need to preserve existing glyphs)
 	return nvgft_reset_atlas(sys, width, height);
+}
+// Shaped text iteration with HarfBuzz + FriBidi
+// This file is appended to nvg_freetype.c
+
+// Helper: Get HarfBuzz font for a FreeType face
+static hb_font_t* nvgft__get_hb_font(NVGFontSystem* sys, int font_id) {
+	if (font_id < 0 || font_id >= sys->font_count) return NULL;
+
+	NVGFTFont* font = &sys->fonts[font_id];
+
+	// Create HarfBuzz font if not already created
+	if (!font->hb_font) {
+		// Get FreeType face from cache
+		FT_Face face;
+		if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
+			return NULL;
+		}
+
+		// Create HarfBuzz font from FreeType face
+		font->hb_font = hb_ft_font_create(face, NULL);
+	}
+
+	return font->hb_font;
+}
+
+// Shaped text iteration initialization
+void nvgft_shaped_text_iter_init(NVGFontSystem* sys, NVGFTTextIter* iter,
+                                  float x, float y, const char* str, const char* end,
+                                  int direction, const char* language) {
+	memset(iter, 0, sizeof(*iter));
+
+	if (!str || !sys) return;
+	if (end == NULL) end = str + strlen(str);
+
+	int length = end - str;
+	if (length <= 0) return;
+
+	iter->str = str;
+	iter->end = end;
+	iter->x = x;
+	iter->y = y;
+
+	NVGFTState* state = nvgft__getState(sys);
+	iter->font_id = state->font_id;
+	iter->spacing = state->spacing;
+
+	// Step 1: Apply BiDi reordering if needed
+	FriBidiChar* unicode_str = NULL;
+	FriBidiStrIndex unicode_len = 0;
+	char* visual_str = NULL;
+
+	// Convert UTF-8 to Unicode (FriBidi uses UTF-32)
+	unicode_len = length;  // Approximate
+	unicode_str = (FriBidiChar*)malloc(sizeof(FriBidiChar) * (unicode_len + 1));
+	if (!unicode_str) return;
+
+	// Decode UTF-8 to UTF-32
+	const char* p = str;
+	FriBidiStrIndex idx = 0;
+	while (p < end && idx < unicode_len) {
+		uint32_t cp = nvgft__decode_utf8(&p);
+		if (cp == 0) break;
+		unicode_str[idx++] = (FriBidiChar)cp;
+	}
+	unicode_len = idx;
+
+	// Detect paragraph direction
+	FriBidiParType base_dir = FRIBIDI_PAR_ON;  // Auto-detect
+	if (direction == 1) base_dir = FRIBIDI_PAR_LTR;
+	else if (direction == 2) base_dir = FRIBIDI_PAR_RTL;
+
+	// Apply BiDi algorithm
+	FriBidiChar* visual_unicode = (FriBidiChar*)malloc(sizeof(FriBidiChar) * (unicode_len + 1));
+	if (!visual_unicode) {
+		free(unicode_str);
+		return;
+	}
+
+	// Simple BiDi - no embedding levels for now
+	FriBidiLevel max_level = fribidi_log2vis(
+		unicode_str, unicode_len, &base_dir,
+		visual_unicode, NULL, NULL, NULL
+	);
+
+	if (max_level == 0) {
+		// BiDi failed, use original order
+		memcpy(visual_unicode, unicode_str, unicode_len * sizeof(FriBidiChar));
+	}
+
+	free(unicode_str);
+
+	// Convert back to UTF-8
+	int visual_utf8_len = unicode_len * 4 + 1;  // Max UTF-8 bytes
+	visual_str = (char*)malloc(visual_utf8_len);
+	if (!visual_str) {
+		free(visual_unicode);
+		return;
+	}
+
+	// Encode UTF-32 to UTF-8
+	char* out = visual_str;
+	for (FriBidiStrIndex i = 0; i < unicode_len; i++) {
+		uint32_t cp = visual_unicode[i];
+		if (cp < 0x80) {
+			*out++ = (char)cp;
+		} else if (cp < 0x800) {
+			*out++ = (char)(0xc0 | (cp >> 6));
+			*out++ = (char)(0x80 | (cp & 0x3f));
+		} else if (cp < 0x10000) {
+			*out++ = (char)(0xe0 | (cp >> 12));
+			*out++ = (char)(0x80 | ((cp >> 6) & 0x3f));
+			*out++ = (char)(0x80 | (cp & 0x3f));
+		} else {
+			*out++ = (char)(0xf0 | (cp >> 18));
+			*out++ = (char)(0x80 | ((cp >> 12) & 0x3f));
+			*out++ = (char)(0x80 | ((cp >> 6) & 0x3f));
+			*out++ = (char)(0x80 | (cp & 0x3f));
+		}
+	}
+	*out = '\0';
+	int visual_str_len = out - visual_str;
+
+	free(visual_unicode);
+
+	// Step 2: Shape with HarfBuzz
+	hb_font_t* hb_font = nvgft__get_hb_font(sys, state->font_id);
+	if (!hb_font) {
+		free(visual_str);
+		return;
+	}
+
+	// Set font size
+	int pixel_size = (int)(state->size + 0.5f);
+	hb_font_set_scale(hb_font, pixel_size * 64, pixel_size * 64);
+
+	// Clear and configure buffer
+	hb_buffer_clear_contents(sys->hb_buffer);
+
+	// Set direction
+	if (base_dir == FRIBIDI_PAR_RTL) {
+		hb_buffer_set_direction(sys->hb_buffer, HB_DIRECTION_RTL);
+	} else {
+		hb_buffer_set_direction(sys->hb_buffer, HB_DIRECTION_LTR);
+	}
+
+	// Set script (auto-detect for now)
+	hb_buffer_set_script(sys->hb_buffer, HB_SCRIPT_INVALID);
+	hb_buffer_guess_segment_properties(sys->hb_buffer);
+
+	// Set language
+	if (language) {
+		hb_buffer_set_language(sys->hb_buffer, hb_language_from_string(language, -1));
+	}
+
+	// Add text
+	hb_buffer_add_utf8(sys->hb_buffer, visual_str, visual_str_len, 0, visual_str_len);
+
+	// Shape
+	hb_shape(hb_font, sys->hb_buffer, NULL, 0);
+
+	// Get shaped glyphs
+	unsigned int glyph_count;
+	hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(sys->hb_buffer, &glyph_count);
+	hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(sys->hb_buffer, &glyph_count);
+
+	// Allocate shaped glyphs array
+	iter->shaped_glyphs = (NVGFTShapedGlyph*)malloc(sizeof(NVGFTShapedGlyph) * glyph_count);
+	if (!iter->shaped_glyphs) {
+		free(visual_str);
+		return;
+	}
+
+	// Convert HarfBuzz output to our format
+	for (unsigned int i = 0; i < glyph_count; i++) {
+		iter->shaped_glyphs[i].glyph_index = glyph_info[i].codepoint;
+		iter->shaped_glyphs[i].x_offset = glyph_pos[i].x_offset / 64.0f;
+		iter->shaped_glyphs[i].y_offset = glyph_pos[i].y_offset / 64.0f;
+		iter->shaped_glyphs[i].x_advance = glyph_pos[i].x_advance / 64.0f;
+		iter->shaped_glyphs[i].y_advance = glyph_pos[i].y_advance / 64.0f;
+		iter->shaped_glyphs[i].cluster = glyph_info[i].cluster;
+	}
+
+	iter->num_shaped_glyphs = glyph_count;
+	iter->current_glyph = 0;
+	iter->shaped_x = x;
+	iter->shaped_y = y;
+
+	free(visual_str);
+}
+
+// Shaped text iteration - get next glyph
+int nvgft_shaped_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* quad) {
+	if (!iter || !iter->shaped_glyphs || iter->current_glyph >= iter->num_shaped_glyphs) {
+		return 0;
+	}
+
+	NVGFTState* state = nvgft__getState(sys);
+	NVGFTShapedGlyph* sg = &iter->shaped_glyphs[iter->current_glyph];
+	iter->current_glyph++;
+
+	// Render glyph using glyph index
+	// Note: We use glyph_index as "codepoint" in cache since HarfBuzz gives us glyph IDs
+	NVGFTFont* font = &sys->fonts[state->font_id];
+	int pixel_size = (int)(state->size + 0.5f);
+
+	// Check cache using glyph_index as lookup key
+	NVGFTGlyph* glyph = nvgft__find_glyph(sys, sg->glyph_index, font->id, pixel_size);
+
+	if (!glyph) {
+		// Need to render glyph by index
+		FTC_ImageTypeRec type;
+		type.face_id = font->face_id;
+		type.width = 0;
+		type.height = pixel_size;
+		type.flags = FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL;
+
+		FT_Glyph ft_glyph;
+		if (FTC_ImageCache_Lookup(sys->image_cache, &type, sg->glyph_index, &ft_glyph, NULL) != 0) {
+			// Skip missing glyph
+			iter->shaped_x += sg->x_advance;
+			iter->shaped_y += sg->y_advance;
+			return nvgft_shaped_text_iter_next(sys, iter, quad);
+		}
+
+		if (ft_glyph->format != FT_GLYPH_FORMAT_BITMAP) {
+			iter->shaped_x += sg->x_advance;
+			iter->shaped_y += sg->y_advance;
+			return nvgft_shaped_text_iter_next(sys, iter, quad);
+		}
+
+		FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)ft_glyph;
+		FT_Bitmap* bitmap = &bitmap_glyph->bitmap;
+
+		if (bitmap->width == 0 || bitmap->rows == 0) {
+			glyph = nvgft__add_glyph(sys, sg->glyph_index, font->id, pixel_size);
+			if (glyph) {
+				glyph->width = 0;
+				glyph->height = 0;
+			}
+		} else {
+			short atlas_x, atlas_y;
+			if (!nvgft__pack_glyph(sys, bitmap->width, bitmap->rows, &atlas_x, &atlas_y)) {
+				iter->shaped_x += sg->x_advance;
+				iter->shaped_y += sg->y_advance;
+				return nvgft_shaped_text_iter_next(sys, iter, quad);
+			}
+
+			glyph = nvgft__add_glyph(sys, sg->glyph_index, font->id, pixel_size);
+			if (!glyph) {
+				iter->shaped_x += sg->x_advance;
+				iter->shaped_y += sg->y_advance;
+				return nvgft_shaped_text_iter_next(sys, iter, quad);
+			}
+
+			glyph->x = atlas_x;
+			glyph->y = atlas_y;
+			glyph->width = (short)bitmap->width;
+			glyph->height = (short)bitmap->rows;
+			glyph->offset_x = bitmap_glyph->left;
+			glyph->offset_y = bitmap_glyph->top;
+			glyph->advance_x = (short)(ft_glyph->advance.x >> 16);
+
+			glyph->u0 = (float)atlas_x / (float)sys->atlas_width;
+			glyph->v0 = (float)atlas_y / (float)sys->atlas_height;
+			glyph->u1 = (float)(atlas_x + bitmap->width) / (float)sys->atlas_width;
+			glyph->v1 = (float)(atlas_y + bitmap->rows) / (float)sys->atlas_height;
+
+			if (sys->texture_callback) {
+				sys->texture_callback(sys->texture_uptr,
+					atlas_x, atlas_y,
+					bitmap->width, bitmap->rows,
+					bitmap->buffer);
+			}
+		}
+	}
+
+	if (!glyph) {
+		iter->shaped_x += sg->x_advance;
+		iter->shaped_y += sg->y_advance;
+		return nvgft_shaped_text_iter_next(sys, iter, quad);
+	}
+
+	// Build quad with offsets from HarfBuzz
+	float x = iter->shaped_x + sg->x_offset;
+	float y = iter->shaped_y + sg->y_offset;
+
+	if (glyph && glyph->width > 0 && glyph->height > 0) {
+		quad->x0 = x + glyph->offset_x;
+		quad->y0 = y + glyph->offset_y;
+		quad->x1 = quad->x0 + glyph->width;
+		quad->y1 = quad->y0 - glyph->height;
+		quad->s0 = glyph->u0;
+		quad->t0 = glyph->v0;
+		quad->s1 = glyph->u1;
+		quad->t1 = glyph->v1;
+	} else {
+		quad->x0 = quad->y0 = quad->x1 = quad->y1 = 0;
+		quad->s0 = quad->t0 = quad->s1 = quad->t1 = 0;
+	}
+
+	// Advance position
+	iter->shaped_x += sg->x_advance;
+	iter->shaped_y += sg->y_advance;
+
+	return 1;
+}
+
+// Free iterator resources
+void nvgft_text_iter_free(NVGFTTextIter* iter) {
+	if (!iter) return;
+
+	if (iter->shaped_glyphs) {
+		free(iter->shaped_glyphs);
+		iter->shaped_glyphs = NULL;
+	}
 }

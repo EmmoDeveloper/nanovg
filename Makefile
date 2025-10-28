@@ -2,8 +2,15 @@
 
 CC := gcc
 CFLAGS := -std=c11 -Wall -Wextra -O2 -g
-INCLUDES := -I./src -I./tests $(shell pkg-config --cflags vulkan glfw3 freetype2)
-LIBS := $(shell pkg-config --libs vulkan glfw3 freetype2) -lm -lpthread
+INCLUDES := -I./src -I./tests \
+	-I/.local/include/freetype2 \
+	-I/.local/include/cairo \
+	$(shell pkg-config --cflags vulkan glfw3 harfbuzz fribidi)
+LIBS := $(shell pkg-config --libs vulkan glfw3 harfbuzz fribidi) \
+	-L/.local/lib -lfreetype \
+	-L/.local/lib/x86_64-linux-gnu -lcairo \
+	-lm -lpthread \
+	-Wl,-rpath,/.local/lib -Wl,-rpath,/.local/lib/x86_64-linux-gnu
 
 BUILD_DIR := build
 
@@ -290,6 +297,15 @@ $(BUILD_DIR)/test_text_simple_bitmap: $(BUILD_DIR)/test_text_simple_bitmap.o $(B
 	@echo "Linking test_text_simple_bitmap..."
 	$(CC) $^ $(LIBS) -o $@
 
+# test_color_emoji
+$(BUILD_DIR)/test_color_emoji.o: tests/test_color_emoji.c | $(BUILD_DIR)
+	@echo "Compiling test_color_emoji.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_color_emoji: $(BUILD_DIR)/test_color_emoji.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_color_emoji..."
+	$(CC) $^ $(LIBS) -o $@
+
 # Custom font system
 $(BUILD_DIR)/nvg_font.o: src/nvg_font.c src/nvg_font.h | $(BUILD_DIR)
 	@echo "Compiling nvg_font.c..."
@@ -298,6 +314,10 @@ $(BUILD_DIR)/nvg_font.o: src/nvg_font.c src/nvg_font.h | $(BUILD_DIR)
 # FreeType direct integration
 $(BUILD_DIR)/nvg_freetype.o: src/nvg_freetype.c src/nvg_freetype.h | $(BUILD_DIR)
 	@echo "Compiling nvg_freetype.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/nvg_harfbuzz.o: src/nvg_harfbuzz.c src/nvg_harfbuzz.h | $(BUILD_DIR)
+	@echo "Compiling nvg_harfbuzz.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 # test_custom_font
@@ -353,4 +373,47 @@ $(BUILD_DIR)/test_nvg_freetype.o: tests/test_nvg_freetype.c | $(BUILD_DIR)
 $(BUILD_DIR)/test_nvg_freetype: $(BUILD_DIR)/test_nvg_freetype.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_nvg_freetype..."
 	$(CC) $^ $(LIBS) -o $@
+
+test-nvg-freetype: $(BUILD_DIR)/test_nvg_freetype
+	@echo "Running test_nvg_freetype..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" timeout 3 ./$(BUILD_DIR)/test_nvg_freetype
+
+# test_unicode_limits
+$(BUILD_DIR)/test_unicode_limits.o: tests/test_unicode_limits.c | $(BUILD_DIR)
+	@echo "Compiling test_unicode_limits.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_unicode_limits: $(BUILD_DIR)/test_unicode_limits.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_unicode_limits..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-unicode-limits: $(BUILD_DIR)/test_unicode_limits
+	@echo "Running test_unicode_limits..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" timeout 3 ./$(BUILD_DIR)/test_unicode_limits
+
+# test_harfbuzz_demo
+$(BUILD_DIR)/test_harfbuzz_demo.o: tests/test_harfbuzz_demo.c | $(BUILD_DIR)
+	@echo "Compiling test_harfbuzz_demo.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_harfbuzz_demo: $(BUILD_DIR)/test_harfbuzz_demo.o $(BUILD_DIR)/nvg_harfbuzz.o
+	@echo "Linking test_harfbuzz_demo..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-harfbuzz-demo: $(BUILD_DIR)/test_harfbuzz_demo
+	@echo "Running test_harfbuzz_demo..."
+	@./$(BUILD_DIR)/test_harfbuzz_demo
+
+# test_shaped_text
+$(BUILD_DIR)/test_shaped_text.o: tests/test_shaped_text.c | $(BUILD_DIR)
+	@echo "Compiling test_shaped_text.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_shaped_text: $(BUILD_DIR)/test_shaped_text.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_shaped_text..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-shaped-text: $(BUILD_DIR)/test_shaped_text
+	@echo "Running test_shaped_text..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" timeout 5 ./$(BUILD_DIR)/test_shaped_text
 

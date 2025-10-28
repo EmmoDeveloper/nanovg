@@ -35,6 +35,16 @@ typedef struct NVGFTQuad {
 	float s0, t0, s1, t1;  // Texture coordinates
 } NVGFTQuad;
 
+// Shaped glyph (output from HarfBuzz)
+typedef struct NVGFTShapedGlyph {
+	uint32_t glyph_index;
+	float x_offset;
+	float y_offset;
+	float x_advance;
+	float y_advance;
+	uint32_t cluster;  // Byte offset in original text
+} NVGFTShapedGlyph;
+
 // Text iterator
 typedef struct NVGFTTextIter {
 	const char* str;
@@ -46,6 +56,12 @@ typedef struct NVGFTTextIter {
 	int font_id;
 	uint32_t codepoint;  // Current codepoint (for text breaking)
 	void* internal;  // FTC scaler data
+
+	// HarfBuzz shaped glyphs (when using shaped iteration)
+	NVGFTShapedGlyph* shaped_glyphs;
+	int num_shaped_glyphs;
+	int current_glyph;
+	float shaped_x, shaped_y;  // Current position for shaped glyphs
 } NVGFTTextIter;
 
 // System management
@@ -67,10 +83,19 @@ void nvgft_set_align(NVGFontSystem* sys, int align);
 void nvgft_set_font(NVGFontSystem* sys, int font_id);
 void nvgft_set_render_mode(NVGFontSystem* sys, NVGFTRenderMode mode);
 
-// Text iteration
+// Text iteration (simple, no shaping)
 void nvgft_text_iter_init(NVGFontSystem* sys, NVGFTTextIter* iter,
                            float x, float y, const char* str, const char* end);
 int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* quad);
+
+// Shaped text iteration (with HarfBuzz + FriBidi)
+// direction: 0=auto, 1=LTR, 2=RTL
+// language: "en", "ar", "hi", etc. (NULL for auto-detect)
+void nvgft_shaped_text_iter_init(NVGFontSystem* sys, NVGFTTextIter* iter,
+                                  float x, float y, const char* str, const char* end,
+                                  int direction, const char* language);
+int nvgft_shaped_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* quad);
+void nvgft_text_iter_free(NVGFTTextIter* iter);
 
 // Text metrics
 float nvgft_text_bounds(NVGFontSystem* sys, float x, float y,
