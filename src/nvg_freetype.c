@@ -527,16 +527,21 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 	unsigned char* rgba = (unsigned char*)malloc(width * height * 4);
 	if (rgba) {
 		// Cairo uses BGRA (premultiplied), convert to RGBA
+		// Optimize with 32-bit operations where possible
+		uint32_t* cairo32 = (uint32_t*)cairo_data;
+		uint32_t* rgba32 = (uint32_t*)rgba;
+
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
-				int cairo_idx = y * cairo_stride + x * 4;
-				int rgba_idx = (y * width + x) * 4;
+				int cairo_idx = y * (cairo_stride / 4) + x;
+				int rgba_idx = y * width + x;
 
 				// Cairo BGRA (premultiplied) → RGBA (straight alpha)
-				unsigned char b = cairo_data[cairo_idx + 0];
-				unsigned char g = cairo_data[cairo_idx + 1];
-				unsigned char r = cairo_data[cairo_idx + 2];
-				unsigned char a = cairo_data[cairo_idx + 3];
+				uint32_t pixel = cairo32[cairo_idx];
+				unsigned char b = (pixel >> 0) & 0xFF;
+				unsigned char g = (pixel >> 8) & 0xFF;
+				unsigned char r = (pixel >> 16) & 0xFF;
+				unsigned char a = (pixel >> 24) & 0xFF;
 
 				// Unpremultiply alpha if needed
 				if (a > 0 && a < 255) {
@@ -545,10 +550,8 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 					b = (b * 255) / a;
 				}
 
-				rgba[rgba_idx + 0] = r;
-				rgba[rgba_idx + 1] = g;
-				rgba[rgba_idx + 2] = b;
-				rgba[rgba_idx + 3] = a;
+				// Pack as RGBA: 0xAABBGGRR
+				rgba32[rgba_idx] = r | (g << 8) | (b << 16) | (a << 24);
 			}
 		}
 	}
@@ -793,11 +796,12 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 				unsigned char* rgba = nvgft__get_rgba_buffer(sys, pixel_count * 4);
 				if (rgba) {
 					// Convert grayscale alpha to RGBA (white with alpha)
+					// Optimize with 32-bit writes (4 bytes at once)
+					uint32_t* rgba32 = (uint32_t*)rgba;
 					for (int i = 0; i < pixel_count; i++) {
-						rgba[i*4 + 0] = 255;  // R
-						rgba[i*4 + 1] = 255;  // G
-						rgba[i*4 + 2] = 255;  // B
-						rgba[i*4 + 3] = bitmap->buffer[i];  // A (grayscale value)
+						// Pack RGBA as single 32-bit value: 0xAABBGGRR
+						uint32_t alpha = bitmap->buffer[i];
+						rgba32[i] = 0x00FFFFFF | (alpha << 24);  // R=255, G=255, B=255, A=alpha
 					}
 					sys->texture_callback(sys->texture_uptr,
 						atlas_x, atlas_y,

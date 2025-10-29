@@ -76,6 +76,9 @@ void nvgvk_begin_render_pass(NVGVkContext* vk, VkRenderPass renderPass, VkFrameb
 	vk->viewport = viewport;
 	vk->scissor = scissor;
 
+	// Invalidate pipeline state (force rebind on first use)
+	vk->currentPipeline = NVGVK_PIPELINE_COUNT;  // Invalid value
+
 	vk->inRenderPass = 1;
 }
 

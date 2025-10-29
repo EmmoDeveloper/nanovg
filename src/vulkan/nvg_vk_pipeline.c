@@ -344,6 +344,11 @@ void nvgvk_bind_pipeline(NVGVkContext* vk, NVGVkPipelineType type)
 		return;
 	}
 
+	// Skip if already bound (avoid redundant state changes)
+	if (vk->currentPipeline == type && vk->commandBuffer != VK_NULL_HANDLE) {
+		return;
+	}
+
 	vk->currentPipeline = type;
 	vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelines[type].pipeline);
 	vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,

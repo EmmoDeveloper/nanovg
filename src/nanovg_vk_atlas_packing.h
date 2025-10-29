@@ -114,10 +114,27 @@ static int32_t vknvg__findBestRect(VKNVGatlasPacker* packer,
 	int32_t bestIndex = -1;
 
 	for (uint32_t i = 0; i < packer->freeRectCount; i++) {
-		int32_t score = vknvg__scoreRect(&packer->freeRects[i], width, height, heuristic);
+		VKNVGrect* rect = &packer->freeRects[i];
+
+		// Early termination: perfect fit
+		if (rect->width == width && rect->height == height) {
+			return (int32_t)i;
+		}
+
+		int32_t score = vknvg__scoreRect(rect, width, height, heuristic);
 		if (score < bestScore) {
 			bestScore = score;
 			bestIndex = (int32_t)i;
+
+			// Early termination: very good fit (waste < 5%)
+			if (rect->width >= width && rect->height >= height) {
+				uint32_t rectArea = rect->width * rect->height;
+				uint32_t usedArea = width * height;
+				uint32_t wastedArea = rectArea - usedArea;
+				if (wastedArea * 20 < rectArea) {  // Less than 5% waste
+					break;
+				}
+			}
 		}
 	}
 
