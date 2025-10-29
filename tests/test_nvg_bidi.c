@@ -76,14 +76,16 @@ int main(void)
 	int textFonts[] = {arabicFont, hebrewFont, arabicFont, hebrewFont, arabicFont, latinFont};
 	const char* labels[] = {"Arabic RTL:", "Hebrew RTL:", "Mixed AR+EN:", "Mixed HE+EN:", "Arabic RTL:", "English LTR:"};
 
-	// Render loop
+	// Render loop - capture screenshot on first frame
 	int frameCount = 0;
 	int maxFrames = 300;  // 5 seconds at 60fps
+	int screenshotSaved = 0;
+	uint32_t imageIndex = 0;
+
 	while (!glfwWindowShouldClose(winCtx->window) && frameCount < maxFrames) {
 		glfwPollEvents();
 
 		// Acquire swapchain image
-		uint32_t imageIndex;
 		VkSemaphoreCreateInfo semaphoreInfo = {0};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 		VkSemaphore imageAvailableSemaphore;
@@ -204,6 +206,15 @@ int main(void)
 		vkQueuePresentKHR(winCtx->graphicsQueue, &presentInfo);
 
 		vkDestroySemaphore(winCtx->device, imageAvailableSemaphore, NULL);
+
+		// Save screenshot after first frame
+		if (frameCount == 0 && !screenshotSaved) {
+			printf("   Saving screenshot...\n");
+			if (window_save_screenshot(winCtx, imageIndex, "bidi_test.ppm")) {
+				printf("   ✓ Screenshot saved to bidi_test.ppm\n");
+				screenshotSaved = 1;
+			}
+		}
 
 		frameCount++;
 	}

@@ -48,6 +48,9 @@ VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./build/test_canvas_api
 # Text rendering
 VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./build/test_nvg_text
 
+# BiDi text rendering (saves bidi_test.ppm screenshot)
+VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./build/test_nvg_bidi
+
 # Custom font system
 VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./build/test_custom_font_render
 ```
@@ -151,10 +154,12 @@ nanovg/
 - Support for solid fills, gradients, images, and text
 
 ### Test Coverage
-- 26 test files covering all major features
+- 27 test files covering all major features
 - Tests verified working:
   - `test_canvas_api` - Shapes + text integration ✓
   - `test_nvg_text` - NanoVG text API ✓
+  - `test_nvg_bidi` - BiDi text rendering with screenshot ✓
+  - `test_bidi` - Low-level BiDi iterator (8/8 tests pass) ✓
   - `test_custom_font` - Font system ✓
   - `test_custom_font_render` - Vulkan text rendering ✓
 

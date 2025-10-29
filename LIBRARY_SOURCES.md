@@ -110,7 +110,7 @@ The color emoji rendering uses:
 
 ## Testing
 
-### BiDi Text Test
+### BiDi Text Test (Low-level)
 - **Source**: `tests/test_bidi.c`
 - **Binary**: `build/test_bidi`
 - **Build**: `make build/test_bidi`
@@ -121,6 +121,22 @@ The color emoji rendering uses:
   - Mixed LTR/RTL text
   - Auto-detection vs explicit direction
 - **Result**: All tests passing (8/8)
+
+### BiDi Visual Test (NanoVG Integration)
+- **Source**: `tests/test_nvg_bidi.c`
+- **Binary**: `build/test_nvg_bidi`
+- **Build**: `make build/test_nvg_bidi`
+- **Run**: `VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./build/test_nvg_bidi`
+- **Output**: Creates `bidi_test.ppm` screenshot (convert to PNG: `convert bidi_test.ppm bidi_test.png`)
+- **Visual Tests**:
+  - Arabic RTL: "مرحبا بالعالم" (Hello World)
+  - Hebrew RTL: "שלום עולם" (Hello World)
+  - Mixed AR+EN: "Hello مرحبا World"
+  - Mixed HE+EN: "Hello שלום World"
+  - Arabic RTL: "السلام عليكم" (Peace be upon you)
+  - English LTR: "Testing BiDi"
+- **Verification**: All text properly shaped with HarfBuzz and reordered with FriBidi
+- **Result**: Visual rendering confirms RTL text displays correctly (not backwards)
 
 ### Color Emoji Test
 - **Source**: `tests/test_color_emoji.c`
