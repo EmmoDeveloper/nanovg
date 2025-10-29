@@ -112,6 +112,13 @@ int nvgft_expand_atlas(NVGFontSystem* sys, int width, int height);
 typedef void (*NVGFTTextureUpdateFunc)(void* uptr, int x, int y, int w, int h, const unsigned char* data);
 void nvgft_set_texture_callback(NVGFontSystem* sys, NVGFTTextureUpdateFunc callback, void* uptr);
 
+// Glyph rasterization (for virtual atlas integration)
+// Returns RGBA pixel data (caller must free with free())
+// Returns NULL on failure
+unsigned char* nvgft_rasterize_glyph(NVGFontSystem* sys, int font_id, uint32_t codepoint,
+                                       int pixel_size, int* width, int* height,
+                                       int* bearing_x, int* bearing_y, int* advance_x);
+
 #ifdef __cplusplus
 }
 #endif

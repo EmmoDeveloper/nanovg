@@ -383,42 +383,21 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 	FT_Face cairo_face;
 	FT_Error err = FT_New_Face(sys->library, font->path, 0, &cairo_face);
 	if (err != 0) {
-		printf("DEBUG: Failed to create fresh FT_Face for Cairo: error %d\n", err);
 		return NULL;
 	}
 
 	// Set pixel size on the fresh face
 	FT_Set_Pixel_Sizes(cairo_face, 0, pixel_size);
 
-	int width = pixel_size;
-	int height = pixel_size;
-
-	// Create Cairo surface for rendering
-	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
-	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
-		printf("DEBUG: Cairo surface creation failed\n");
+	// Load glyph to get metrics
+	err = FT_Load_Glyph(cairo_face, glyph_index, FT_LOAD_DEFAULT);
+	if (err != 0) {
+		FT_Done_Face(cairo_face);
 		return NULL;
 	}
 
-	cairo_t* cr = cairo_create(surface);
-
-	// Clear to transparent background
-	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
-	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-	cairo_paint(cr);
-	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-
-	// Translate so glyph baseline is at bottom
-	// Y-axis is flipped in Cairo (0 at top)
-	cairo_translate(cr, 0, height * 0.8);
-
-	// Create Cairo font face from FreeType face with FT_LOAD_COLOR flag
-	printf("DEBUG: FT_Face=%p family=%s style=%s\n", (void*)cairo_face, cairo_face->family_name, cairo_face->style_name);
-	printf("DEBUG: FT_Face num_glyphs=%ld units_per_EM=%d\n", cairo_face->num_glyphs, cairo_face->units_per_EM);
-
+	// Step 1: Create font face and measure glyph extents
 	cairo_font_face_t* font_face = cairo_ft_font_face_create_for_ft_face(cairo_face, FT_LOAD_COLOR);
-	printf("DEBUG: cairo_font_face=%p status=%s\n", (void*)font_face,
-	       cairo_status_to_string(cairo_font_face_status(font_face)));
 
 	// Set up font matrix (scale to pixel size)
 	cairo_matrix_t font_matrix;
@@ -430,44 +409,72 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 	cairo_font_options_t* font_options = cairo_font_options_create();
 	cairo_font_options_set_hint_style(font_options, CAIRO_HINT_STYLE_NONE);
 	cairo_font_options_set_hint_metrics(font_options, CAIRO_HINT_METRICS_OFF);
-
-	// Enable color mode for COLR fonts
-	printf("DEBUG: Setting CAIRO_COLOR_MODE_COLOR\n");
 	cairo_font_options_set_color_mode(font_options, CAIRO_COLOR_MODE_COLOR);
 
-
-	// Create scaled font - this is where COLR v1 rendering happens
+	// Create scaled font to measure extents
 	cairo_scaled_font_t* scaled_font = cairo_scaled_font_create(
 		font_face, &font_matrix, &ctm, font_options
 	);
-	printf("DEBUG: scaled_font=%p status=%s\n", (void*)scaled_font,
-	       cairo_status_to_string(cairo_scaled_font_status(scaled_font)));
 
-	cairo_set_scaled_font(cr, scaled_font);
-
-	// Render the glyph (color comes from the font itself via COLR table)
+	// Get glyph extents
 	cairo_glyph_t cairo_glyph;
 	cairo_glyph.index = glyph_index;
 	cairo_glyph.x = 0;
 	cairo_glyph.y = 0;
 
-	printf("DEBUG: Rendering glyph index %u at (%.1f, %.1f)\n", glyph_index, cairo_glyph.x, cairo_glyph.y);
+	cairo_text_extents_t extents;
+	cairo_scaled_font_glyph_extents(scaled_font, &cairo_glyph, 1, &extents);
+
+	// Step 2: Create properly sized surface based on extents
+	// In Cairo text extents:
+	//   - width/height are the bounding box dimensions
+	//   - x_bearing/y_bearing are offsets from origin to top-left of bounding box
+	// We need a surface large enough for the bounding box plus padding
+	int width = (int)(extents.width + 4);   // Bounding box width + padding
+	int height = (int)(extents.height + 4);  // Bounding box height + padding
+
+	// Ensure minimum size (for very small glyphs like spaces)
+	if (width < 4) width = 4;
+	if (height < 4) height = 4;
+
+	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+		cairo_scaled_font_destroy(scaled_font);
+		cairo_font_options_destroy(font_options);
+		cairo_font_face_destroy(font_face);
+		FT_Done_Face(cairo_face);
+		return NULL;
+	}
+
+	cairo_t* cr = cairo_create(surface);
+
+	// Step 3: Render glyph on properly sized surface
+	cairo_set_scaled_font(cr, scaled_font);
+
+	// Clear background
+	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	cairo_paint(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+	// Position glyph to avoid clipping
+	// The glyph origin should be positioned so the bounding box starts at (2, 2)
+	// Since bearings are offsets from origin to bounding box, we need: origin - bearing = 2
+	cairo_glyph.x = 2 - extents.x_bearing;
+	cairo_glyph.y = 2 - extents.y_bearing;
+
 	cairo_show_glyphs(cr, &cairo_glyph, 1);
 
 	// Check for errors
 	cairo_status_t status = cairo_status(cr);
 	if (status != CAIRO_STATUS_SUCCESS) {
-		printf("DEBUG: Cairo error: %s\n", cairo_status_to_string(status));
-	}
-
-	// Debug: save first glyph to file
-	static int save_count = 0;
-	if (save_count < 1) {
-		char filename[256];
-		snprintf(filename, sizeof(filename), "/tmp/cairo_glyph_%d.png", save_count);
-		cairo_surface_write_to_png(surface, filename);
-		printf("DEBUG: Saved Cairo surface to %s\n", filename);
-		save_count++;
+		// Rendering failed
+		cairo_scaled_font_destroy(scaled_font);
+		cairo_font_options_destroy(font_options);
+		cairo_font_face_destroy(font_face);
+		cairo_destroy(cr);
+		cairo_surface_destroy(surface);
+		return NULL;
 	}
 
 	// Cleanup Cairo objects
@@ -517,8 +524,9 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 
 	*out_width = width;
 	*out_height = height;
-	*out_left = 0;
-	*out_top = height;
+	// Bearing values: offset from text origin to glyph bounding box (with padding accounted for)
+	*out_left = (int)(extents.x_bearing - 2);
+	*out_top = (int)(-extents.y_bearing + 2);
 
 	return rgba;
 }
@@ -631,14 +639,11 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 			}
 
 			if (font->has_colr == 1) {
-				printf("DEBUG: Trying color emoji, codepoint=%u glyph_index=%u\n", codepoint, glyph_index);
 				// Render color emoji using COLR (v0 or v1)
 				int width, height, left, top;
 				unsigned char* rgba = nvgft__render_color_emoji(sys, font, glyph_index,
 				                                                  pixel_size, &width, &height,
 				                                                  &left, &top);
-
-				printf("DEBUG: Rendered color emoji: rgba=%p w=%d h=%d\n", (void*)rgba, width, height);
 				if (rgba && width > 0 && height > 0) {
 					// Pack into atlas
 					short atlas_x, atlas_y;
@@ -1313,4 +1318,68 @@ void nvgft_text_iter_free(NVGFTTextIter* iter) {
 		free(iter->shaped_glyphs);
 		iter->shaped_glyphs = NULL;
 	}
+}
+
+// Rasterize a glyph for virtual atlas integration
+// Returns RGBA pixel data (caller must free())
+unsigned char* nvgft_rasterize_glyph(NVGFontSystem* sys, int font_id, uint32_t codepoint,
+                                       int pixel_size, int* width, int* height,
+                                       int* bearing_x, int* bearing_y, int* advance_x)
+{
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return NULL;
+
+	NVGFTFont* font = &sys->fonts[font_id];
+
+	// Get glyph index from codepoint
+	FT_UInt glyph_index = FTC_CMapCache_Lookup(sys->cmap_cache, (FTC_FaceID)font,
+	                                            -1, codepoint);
+	if (glyph_index == 0) return NULL;  // Glyph not found
+
+	// Setup FTC image type for rasterization
+	FTC_ImageTypeRec type;
+	type.face_id = (FTC_FaceID)font;
+	type.width = 0;
+	type.height = pixel_size;
+	type.flags = FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL;
+
+	// Get glyph from FTC image cache
+	FT_Glyph ft_glyph;
+	if (FTC_ImageCache_Lookup(sys->image_cache, &type, glyph_index, &ft_glyph, NULL) != 0) {
+		return NULL;  // Failed to load glyph
+	}
+
+	// Convert to bitmap glyph
+	if (ft_glyph->format != FT_GLYPH_FORMAT_BITMAP) {
+		return NULL;  // Not a bitmap glyph
+	}
+
+	FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)ft_glyph;
+	FT_Bitmap* bitmap = &bitmap_glyph->bitmap;
+
+	// Return glyph metrics
+	if (width) *width = bitmap->width;
+	if (height) *height = bitmap->rows;
+	if (bearing_x) *bearing_x = bitmap_glyph->left;
+	if (bearing_y) *bearing_y = bitmap_glyph->top;
+	if (advance_x) *advance_x = (int)(ft_glyph->advance.x >> 16);
+
+	// Handle empty glyphs
+	if (bitmap->width == 0 || bitmap->rows == 0) {
+		return NULL;
+	}
+
+	// Allocate RGBA buffer
+	int pixel_count = bitmap->width * bitmap->rows;
+	unsigned char* rgba = (unsigned char*)malloc(pixel_count * 4);
+	if (!rgba) return NULL;
+
+	// Convert grayscale to RGBA (white with alpha)
+	for (int i = 0; i < pixel_count; i++) {
+		rgba[i*4 + 0] = 255;  // R
+		rgba[i*4 + 1] = 255;  // G
+		rgba[i*4 + 2] = 255;  // B
+		rgba[i*4 + 3] = bitmap->buffer[i];  // A (grayscale value)
+	}
+
+	return rgba;
 }

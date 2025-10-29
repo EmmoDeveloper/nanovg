@@ -326,6 +326,11 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 	// Set texture upload callback
 	nvgft_set_texture_callback(ctx->fs, nvg__textureUpdate, ctx);
 
+	// Notify backend that font system has been created (for virtual atlas integration)
+	if (ctx->params.renderFontSystemCreated) {
+		ctx->params.renderFontSystemCreated(ctx->params.userPtr, ctx->fs);
+	}
+
 	// Create font texture as RGBA to support color emoji
 	// Grayscale glyphs will be uploaded as R channel, color emoji as full RGBA
 	int texType = ctx->params.msdfText ? NVG_TEXTURE_MSDF : NVG_TEXTURE_RGBA;

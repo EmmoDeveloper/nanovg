@@ -87,6 +87,20 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 		return 0;
 	}
 
+	// Enable async uploads using the graphics queue
+	// TODO: Find dedicated transfer queue for better performance
+	// For now, use graphics queue (works but not optimal)
+	VkResult result = vknvg__enableAsyncUploads((VKNVGvirtualAtlas*)vk->virtualAtlas,
+	                                             vk->queue,  // Use graphics queue
+	                                             0);          // Queue family 0 (graphics)
+
+	if (result == VK_SUCCESS) {
+		printf("NanoVG Vulkan: Async uploads enabled (using graphics queue)\n");
+	} else {
+		printf("NanoVG Vulkan: Warning - Failed to enable async uploads (error %d)\n", result);
+		// Not a fatal error - continue without async uploads
+	}
+
 	return 1;
 }
 

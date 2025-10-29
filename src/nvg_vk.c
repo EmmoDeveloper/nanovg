@@ -22,6 +22,8 @@
 #include "vulkan/nvg_vk_pipeline.h"
 #include "vulkan/nvg_vk_render.h"
 #include "vulkan/nvg_vk_types.h"
+#include "nanovg_vk_virtual_atlas.h"
+#include "nvg_freetype.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -50,6 +52,38 @@ static void nvgvk__renderFill(void* uptr, NVGpaint* paint, NVGcompositeOperation
 static void nvgvk__renderStroke(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, float fringe, float strokeWidth, const NVGpath* paths, int npaths);
 static void nvgvk__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, const NVGvertex* verts, int nverts, float fringe);
 static void nvgvk__renderDelete(void* uptr);
+static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem);
+
+// Glyph rasterization callback for virtual atlas
+static uint8_t* nvgvk__rasterizeGlyph(void* fontContext, VKNVGglyphKey key,
+                                        uint16_t* width, uint16_t* height,
+                                        int16_t* bearingX, int16_t* bearingY,
+                                        uint16_t* advance)
+{
+	NVGFontSystem* fs = (NVGFontSystem*)fontContext;
+	if (!fs) return NULL;
+
+	// Extract parameters from VKNVGglyphKey
+	int font_id = (int)key.fontID;
+	uint32_t codepoint = key.codepoint;
+	int pixel_size = (int)(key.size >> 16);  // Convert from 16.16 fixed point
+
+	// Use the new nvgft_rasterize_glyph API
+	int w, h, bx, by, ax;
+	unsigned char* rgba = nvgft_rasterize_glyph(fs, font_id, codepoint, pixel_size,
+	                                              &w, &h, &bx, &by, &ax);
+
+	// Fill output parameters
+	if (rgba) {
+		if (width) *width = (uint16_t)w;
+		if (height) *height = (uint16_t)h;
+		if (bearingX) *bearingX = (int16_t)bx;
+		if (bearingY) *bearingY = (int16_t)by;
+		if (advance) *advance = (uint16_t)ax;
+	}
+
+	return rgba;  // Caller must free()
+}
 
 NVGcontext* nvgCreateVk(VkDevice device, VkPhysicalDevice physicalDevice,
                         VkQueue queue, VkCommandPool commandPool,
@@ -93,6 +127,7 @@ NVGcontext* nvgCreateVk(VkDevice device, VkPhysicalDevice physicalDevice,
 	params.renderStroke = nvgvk__renderStroke;
 	params.renderTriangles = nvgvk__renderTriangles;
 	params.renderDelete = nvgvk__renderDelete;
+	params.renderFontSystemCreated = nvgvk__renderFontSystemCreated;
 	params.userPtr = backend;
 	params.edgeAntiAlias = flags & NVG_ANTIALIAS ? 1 : 0;
 	params.msdfText = flags & (1 << 13) ? 1 : 0;  // NVG_MSDF_TEXT flag
@@ -493,4 +528,17 @@ void nvgVkEndRenderPass(NVGcontext* ctx)
 	if (!backend) return;
 
 	nvgvk_end_render_pass(&backend->vk);
+}
+
+static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)uptr;
+	if (!backend || !backend->vk.virtualAtlas || !fontSystem) return;
+
+	// Connect the font system to the virtual atlas
+	vknvg__setAtlasFontContext((VKNVGvirtualAtlas*)backend->vk.virtualAtlas,
+	                           fontSystem,
+	                           nvgvk__rasterizeGlyph);
+
+	printf("NanoVG Vulkan: Font context connected to virtual atlas\n");
 }

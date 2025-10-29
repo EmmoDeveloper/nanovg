@@ -21,7 +21,8 @@ BUILD_DIR := build
 all: $(BUILD_DIR)/test_window $(BUILD_DIR)/test_nvg_vk $(BUILD_DIR)/test_render \
      $(BUILD_DIR)/test_shapes $(BUILD_DIR)/test_gradients $(BUILD_DIR)/test_fill \
      $(BUILD_DIR)/test_convexfill $(BUILD_DIR)/test_stroke $(BUILD_DIR)/test_textures \
-     $(BUILD_DIR)/test_blending $(BUILD_DIR)/test_scissor $(BUILD_DIR)/test_nvg_api
+     $(BUILD_DIR)/test_blending $(BUILD_DIR)/test_scissor $(BUILD_DIR)/test_nvg_api \
+     $(BUILD_DIR)/test_virtual_atlas_integration
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -30,7 +31,7 @@ $(BUILD_DIR):
 NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
                $(BUILD_DIR)/nvg_vk_texture.o $(BUILD_DIR)/nvg_vk_shader.o \
                $(BUILD_DIR)/nvg_vk_pipeline.o $(BUILD_DIR)/nvg_vk_render.o \
-               $(BUILD_DIR)/nanovg_vk_virtual_atlas.o
+               $(BUILD_DIR)/nanovg_vk_virtual_atlas.o $(BUILD_DIR)/nvg_freetype.o
 
 $(BUILD_DIR)/nvg_vk_context.o: src/vulkan/nvg_vk_context.c src/vulkan/nvg_vk_context.h src/vulkan/nvg_vk_types.h | $(BUILD_DIR)
 	@echo "Compiling nvg_vk_context.c..."
@@ -405,6 +406,15 @@ $(BUILD_DIR)/test_nvg_color_emoji: $(BUILD_DIR)/test_nvg_color_emoji.o $(BUILD_D
 	@echo "Linking test_nvg_color_emoji..."
 	$(CC) $^ $(LIBS) -o $@
 
+# test_nvg_chinese_poem
+$(BUILD_DIR)/test_nvg_chinese_poem.o: tests/test_nvg_chinese_poem.c | $(BUILD_DIR)
+	@echo "Compiling test_nvg_chinese_poem.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_nvg_chinese_poem: $(BUILD_DIR)/test_nvg_chinese_poem.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_nvg_chinese_poem..."
+	$(CC) $^ $(LIBS) -o $@
+
 # test_unicode_limits
 $(BUILD_DIR)/test_unicode_limits.o: tests/test_unicode_limits.c | $(BUILD_DIR)
 	@echo "Compiling test_unicode_limits.c..."
@@ -444,3 +454,16 @@ test-shaped-text: $(BUILD_DIR)/test_shaped_text
 	@echo "Running test_shaped_text..."
 	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" timeout 5 ./$(BUILD_DIR)/test_shaped_text
 
+
+# Virtual Atlas Integration Test
+$(BUILD_DIR)/test_virtual_atlas_integration.o: tests/test_virtual_atlas_integration.c src/nanovg_vk_virtual_atlas.h src/nanovg_vk_multi_atlas.h src/nanovg_vk_atlas_defrag.h | $(BUILD_DIR)
+	@echo "Compiling test_virtual_atlas_integration.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_virtual_atlas_integration: $(BUILD_DIR)/test_virtual_atlas_integration.o $(BUILD_DIR)/nanovg_vk_virtual_atlas.o
+	@echo "Linking test_virtual_atlas_integration..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-virtual-atlas: $(BUILD_DIR)/test_virtual_atlas_integration
+	@echo "Running virtual atlas integration test..."
+	@./$(BUILD_DIR)/test_virtual_atlas_integration
