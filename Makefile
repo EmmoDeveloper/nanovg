@@ -396,6 +396,15 @@ $(BUILD_DIR)/test_nvg_bidi: $(BUILD_DIR)/test_nvg_bidi.o $(BUILD_DIR)/nanovg.o $
 	@echo "Linking test_nvg_bidi..."
 	$(CC) $^ $(LIBS) -o $@
 
+# test_nvg_color_emoji
+$(BUILD_DIR)/test_nvg_color_emoji.o: tests/test_nvg_color_emoji.c | $(BUILD_DIR)
+	@echo "Compiling test_nvg_color_emoji.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_nvg_color_emoji: $(BUILD_DIR)/test_nvg_color_emoji.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_freetype.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_nvg_color_emoji..."
+	$(CC) $^ $(LIBS) -o $@
+
 # test_unicode_limits
 $(BUILD_DIR)/test_unicode_limits.o: tests/test_unicode_limits.c | $(BUILD_DIR)
 	@echo "Compiling test_unicode_limits.c..."

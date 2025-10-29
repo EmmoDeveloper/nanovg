@@ -402,9 +402,11 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 
 	cairo_t* cr = cairo_create(surface);
 
-	// Clear to white background (for debugging - should be transparent in production)
-	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+	// Clear to transparent background
+	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
 	cairo_paint(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
 	// Translate so glyph baseline is at bottom
 	// Y-axis is flipped in Cairo (0 at top)
@@ -443,10 +445,7 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 
 	cairo_set_scaled_font(cr, scaled_font);
 
-	// Set source to white (for visibility in case color isn't working)
-	cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
-
-	// Render the glyph
+	// Render the glyph (color comes from the font itself via COLR table)
 	cairo_glyph_t cairo_glyph;
 	cairo_glyph.index = glyph_index;
 	cairo_glyph.x = 0;
@@ -509,7 +508,6 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 			}
 		}
 
-		printf("DEBUG: Cairo rendered successfully!\n");
 	}
 
 	cairo_surface_destroy(surface);
@@ -751,11 +749,24 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 			glyph->v1 = (float)(atlas_y + bitmap->rows) / (float)sys->atlas_height;
 
 			// Upload to GPU texture if callback is set
+			// Convert grayscale to RGBA format (atlas is RGBA to support color emoji)
 			if (sys->texture_callback) {
-				sys->texture_callback(sys->texture_uptr,
-					atlas_x, atlas_y,
-					bitmap->width, bitmap->rows,
-					bitmap->buffer);
+				int pixel_count = bitmap->width * bitmap->rows;
+				unsigned char* rgba = (unsigned char*)malloc(pixel_count * 4);
+				if (rgba) {
+					// Convert grayscale alpha to RGBA (white with alpha)
+					for (int i = 0; i < pixel_count; i++) {
+						rgba[i*4 + 0] = 255;  // R
+						rgba[i*4 + 1] = 255;  // G
+						rgba[i*4 + 2] = 255;  // B
+						rgba[i*4 + 3] = bitmap->buffer[i];  // A (grayscale value)
+					}
+					sys->texture_callback(sys->texture_uptr,
+						atlas_x, atlas_y,
+						bitmap->width, bitmap->rows,
+						rgba);
+					free(rgba);
+				}
 			}
 		}
 	}
