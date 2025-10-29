@@ -195,6 +195,15 @@ static void vknvg__executeSingleMove(VKNVGdefragContext* ctx,
 
 	if (ctx->useCompute && ctx->computeContext && ctx->atlasDescriptorSet) {
 		// Use compute shader for GPU-accelerated copy
+		static int first_compute_move = 1;
+		if (first_compute_move) {
+			printf("[DEFRAG] Using COMPUTE SHADER path for defragmentation\n");
+			printf("[DEFRAG] Move %u: (%u,%u)->(%u,%u) size %ux%u\n",
+			       ctx->currentMove, move->srcX, move->srcY,
+			       move->dstX, move->dstY, move->width, move->height);
+			first_compute_move = 0;
+		}
+
 		VKNVGdefragPushConstants pushConstants = {0};
 		pushConstants.srcOffsetX = move->srcX;
 		pushConstants.srcOffsetY = move->srcY;

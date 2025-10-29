@@ -1189,11 +1189,17 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 			if (defragDescriptorSet != VK_NULL_HANDLE) {
 				// Enable compute defragmentation
 				vknvg__enableComputeDefrag(&atlas->defragContext, atlas->computeContext, defragDescriptorSet);
+				printf("[ATLAS] Compute defragmentation enabled for atlas %u\n", atlas->defragContext.atlasIndex);
+				printf("[ATLAS] Descriptor set: %p\n", (void*)defragDescriptorSet);
+			} else {
+				printf("[ATLAS] WARNING: Failed to create descriptor set for compute defrag\n");
 			}
 		}
 
 		// Execute incremental defragmentation with 2ms time budget
 		// Glyph cache integration is now complete via callback
+		printf("[ATLAS] Executing defragmentation (state=%d, compute=%d)\n",
+		       atlas->defragContext.state, atlas->useComputeDefrag);
 		vknvg__updateDefragmentation(&atlas->defragContext, atlas->atlasManager, cmd, 2.0f);
 
 		// Transition atlas back to SHADER_READ_ONLY_OPTIMAL after defrag
