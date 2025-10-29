@@ -11,7 +11,7 @@ This project has **full read access** to all library sources used in the build. 
 - **Build Directory**: `/opt/freetype/objs/.libs/`
 - **Library**: `libfreetype.so.6.20.4`
 - **Headers**: `/opt/freetype/include/`
-- **Access**: Full read and write access to source code
+- **Access**: Read access to source code (write access only for building)
 - **Features**: Built with PNG support and COLR table detection
 
 ### Cairo 1.18.5
@@ -19,7 +19,7 @@ This project has **full read access** to all library sources used in the build. 
 - **Build Directory**: `/opt/freetype/cairo/builddir/src/`
 - **Library**: `libcairo.so.2.11805.5`
 - **Headers**: `/opt/freetype/cairo/src/`
-- **Access**: Full read and write access to source code
+- **Access**: Read access to source code (write access only for building)
 - **Features**: Built with COLR v1 support (`HAVE_FT_COLR_V1`)
 - **Key Files**:
   - `src/cairo-ft-font.c` - FreeType integration and COLR rendering
@@ -29,17 +29,17 @@ This project has **full read access** to all library sources used in the build. 
 - **Location**: `/opt/noto-emoji/`
 - **Fonts Directory**: `/opt/noto-emoji/fonts/`
 - **Key Font**: `Noto-COLRv1.ttf` (1,086,145 bytes COLR table)
-- **Access**: Read access to fonts and build scripts
+- **Access**: Read access to fonts and build scripts (write access only for building)
 - **Source**: Google Noto Emoji project with Python build environment
 
 ### Noto CJK Fonts
 - **Location**: `/opt/noto-cjk/`
-- **Access**: Read access to CJK font files
+- **Access**: Read access to CJK font files (write access only for building)
 
 ### Other Libraries in /opt
-- `/opt/notofonts.github.io/` - Extended Noto font collection
-- `/opt/emojicompat/` - Emoji compatibility library sources
-- `/opt/freetype/` - Main FreeType/Cairo development location
+- `/opt/notofonts.github.io/` - Extended Noto font collection (write access only for building)
+- `/opt/emojicompat/` - Emoji compatibility library sources (write access only for building)
+- `/opt/freetype/` - Main FreeType/Cairo development location (write access only for building)
 
 ## Build Configuration
 
@@ -98,16 +98,10 @@ libfreetype.so.6 => /opt/freetype/objs/.libs/libfreetype.so.6
 libcairo.so.2 => /opt/freetype/cairo/builddir/src/libcairo.so.2
 ```
 
-## Modification Capability
-
-Since we have write access to library sources:
-
-1. **FreeType modifications** can be made in `/opt/freetype/src/`
-2. **Cairo modifications** can be made in `/opt/freetype/cairo/src/`
-3. **Rebuild** libraries after changes:
+1 **Build** libraries after changes:
    - FreeType: `cd /opt/freetype && make`
    - Cairo: `cd /opt/freetype/cairo/builddir && ninja`
-4. **No installation needed** - Project links directly to build directories
+2 **No installation needed** - Project links directly to build directories
 
 ## Architecture
 

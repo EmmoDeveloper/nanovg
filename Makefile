@@ -365,6 +365,15 @@ $(BUILD_DIR)/test_freetype_rendering: $(BUILD_DIR)/test_freetype_rendering.o $(B
 	@echo "Linking test_freetype_rendering..."
 	$(CC) $^ $(LIBS) -o $@
 
+# test_bidi
+$(BUILD_DIR)/test_bidi.o: tests/test_bidi.c | $(BUILD_DIR)
+	@echo "Compiling test_bidi.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_bidi: $(BUILD_DIR)/test_bidi.o $(BUILD_DIR)/nvg_freetype.o
+	@echo "Linking test_bidi..."
+	$(CC) $^ $(LIBS) -o $@
+
 # test_nvg_freetype
 $(BUILD_DIR)/test_nvg_freetype.o: tests/test_nvg_freetype.c | $(BUILD_DIR)
 	@echo "Compiling test_nvg_freetype.c..."

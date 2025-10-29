@@ -58,6 +58,7 @@ typedef struct NVGFTFont {
 	int id;
 	int fallback;  // Fallback font ID (-1 = none)
 	FTC_FaceID face_id;  // Pointer to this struct (used by FTC)
+	FT_Face hb_face;  // Fresh FT_Face for HarfBuzz (not cached)
 	hb_font_t* hb_font;  // HarfBuzz font (created on demand)
 	unsigned char has_colr;  // 0 = not checked, 1 = has COLR, 2 = no COLR
 } NVGFTFont;
@@ -199,10 +200,13 @@ NVGFontSystem* nvgft_create(int atlasWidth, int atlasHeight) {
 void nvgft_destroy(NVGFontSystem* sys) {
 	if (!sys) return;
 
-	// Free HarfBuzz fonts
+	// Free HarfBuzz fonts and fresh FT_Faces
 	for (int i = 0; i < sys->font_count; i++) {
 		if (sys->fonts[i].hb_font) {
 			hb_font_destroy(sys->fonts[i].hb_font);
+		}
+		if (sys->fonts[i].hb_face) {
+			FT_Done_Face(sys->fonts[i].hb_face);
 		}
 		if (sys->fonts[i].data && sys->fonts[i].free_data) {
 			free(sys->fonts[i].data);
@@ -241,6 +245,9 @@ int nvgft_add_font(NVGFontSystem* sys, const char* name, const char* path) {
 	font->id = sys->font_count;
 	font->fallback = -1;
 	font->face_id = (FTC_FaceID)font;
+	font->hb_face = NULL;
+	font->hb_font = NULL;
+	font->has_colr = 0;
 
 	return sys->font_count++;
 }
@@ -258,6 +265,9 @@ int nvgft_add_font_mem(NVGFontSystem* sys, const char* name,
 	font->id = sys->font_count;
 	font->fallback = -1;
 	font->face_id = (FTC_FaceID)font;
+	font->hb_face = NULL;
+	font->hb_font = NULL;
+	font->has_colr = 0;
 
 	return sys->font_count++;
 }
@@ -982,14 +992,21 @@ static hb_font_t* nvgft__get_hb_font(NVGFontSystem* sys, int font_id) {
 
 	// Create HarfBuzz font if not already created
 	if (!font->hb_font) {
-		// Get FreeType face from cache
-		FT_Face face;
-		if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
-			return NULL;
+		// Create fresh FT_Face for HarfBuzz (cached faces don't work)
+		if (!font->hb_face) {
+			FT_Error error;
+			if (font->data) {
+				error = FT_New_Memory_Face(sys->library, font->data, font->data_size, 0, &font->hb_face);
+			} else {
+				error = FT_New_Face(sys->library, font->path, 0, &font->hb_face);
+			}
+			if (error != 0) {
+				return NULL;
+			}
 		}
 
-		// Create HarfBuzz font from FreeType face
-		font->hb_font = hb_ft_font_create(face, NULL);
+		// Create HarfBuzz font from fresh FreeType face
+		font->hb_font = hb_ft_font_create(font->hb_face, NULL);
 	}
 
 	return font->hb_font;
