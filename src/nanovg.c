@@ -2506,7 +2506,7 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 	verts = nvg__allocTempVerts(ctx, cverts);
 	if (verts == NULL) return x;
 
-	nvgft_text_iter_init(ctx->fs, &iter, x*scale, y*scale, string, end);
+	nvgft_shaped_text_iter_init(ctx->fs, &iter, x*scale, y*scale, string, end, 0, NULL);
 	while (nvgft_text_iter_next(ctx->fs, &iter, &q)) {
 		float c[4*2];
 		if(isFlipped) {
@@ -2530,6 +2530,8 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 			nvg__vset(&verts[nverts], c[4], c[5], q.s1, q.t1); nverts++;
 		}
 	}
+
+	nvgft_text_iter_free(&iter);
 
 	nvg__flushTextTexture(ctx);
 
@@ -2594,7 +2596,7 @@ int nvgTextGlyphPositions(NVGcontext* ctx, float x, float y, const char* string,
 	nvgft_set_align(ctx->fs, state->textAlign);
 	nvgft_set_font(ctx->fs, state->fontId);
 
-	nvgft_text_iter_init(ctx->fs, &iter, x*scale, y*scale, string, end);
+	nvgft_shaped_text_iter_init(ctx->fs, &iter, x*scale, y*scale, string, end, 0, NULL);
 	prevIter = iter;
 	while (nvgft_text_iter_next(ctx->fs, &iter, &q)) {
 		prevIter = iter;
@@ -2606,6 +2608,8 @@ int nvgTextGlyphPositions(NVGcontext* ctx, float x, float y, const char* string,
 		if (npos >= maxPositions)
 			break;
 	}
+
+	nvgft_text_iter_free(&iter);
 
 	return npos;
 }
@@ -2656,7 +2660,7 @@ int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, floa
 
 	breakRowWidth *= scale;
 
-	nvgft_text_iter_init(ctx->fs, &iter, 0, 0, string, end);
+	nvgft_shaped_text_iter_init(ctx->fs, &iter, 0, 0, string, end, 0, NULL);
 	prevIter = iter;
 	while (nvgft_text_iter_next(ctx->fs, &iter, &q)) {
 		prevIter = iter;
@@ -2815,6 +2819,8 @@ int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, floa
 		rows[nrows].next = end;
 		nrows++;
 	}
+
+	nvgft_text_iter_free(&iter);
 
 	return nrows;
 }
