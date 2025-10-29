@@ -61,6 +61,8 @@ typedef struct NVGFTFont {
 	FT_Face hb_face;  // Fresh FT_Face for HarfBuzz (not cached)
 	hb_font_t* hb_font;  // HarfBuzz font (created on demand)
 	unsigned char has_colr;  // 0 = not checked, 1 = has COLR, 2 = no COLR
+	FT_Face cairo_face;  // Cached FT_Face for Cairo color emoji rendering
+	cairo_font_face_t* cairo_font_face;  // Cached Cairo font face
 } NVGFTFont;
 
 // Glyph in atlas
@@ -124,6 +126,10 @@ struct NVGFontSystem {
 
 	// HarfBuzz buffer (reusable)
 	hb_buffer_t* hb_buffer;
+
+	// Buffer pool for RGBA conversions (avoid malloc/free churn)
+	unsigned char* rgba_pool;
+	int rgba_pool_size;
 };
 
 // FTC face requester callback
@@ -208,6 +214,12 @@ void nvgft_destroy(NVGFontSystem* sys) {
 		if (sys->fonts[i].hb_face) {
 			FT_Done_Face(sys->fonts[i].hb_face);
 		}
+		if (sys->fonts[i].cairo_font_face) {
+			cairo_font_face_destroy(sys->fonts[i].cairo_font_face);
+		}
+		if (sys->fonts[i].cairo_face) {
+			FT_Done_Face(sys->fonts[i].cairo_face);
+		}
 		if (sys->fonts[i].data && sys->fonts[i].free_data) {
 			free(sys->fonts[i].data);
 		}
@@ -216,6 +228,11 @@ void nvgft_destroy(NVGFontSystem* sys) {
 	// Free HarfBuzz buffer
 	if (sys->hb_buffer) {
 		hb_buffer_destroy(sys->hb_buffer);
+	}
+
+	// Free RGBA pool
+	if (sys->rgba_pool) {
+		free(sys->rgba_pool);
 	}
 
 	// Free glyph hash table
@@ -327,6 +344,19 @@ void nvgft_set_texture_callback(NVGFontSystem* sys,
 	sys->texture_uptr = uptr;
 }
 
+// Get pooled RGBA buffer (grows as needed)
+static unsigned char* nvgft__get_rgba_buffer(NVGFontSystem* sys, int required_size) {
+	if (required_size > sys->rgba_pool_size) {
+		// Grow pool (use 2x growth strategy)
+		int new_size = required_size * 2;
+		unsigned char* new_pool = (unsigned char*)realloc(sys->rgba_pool, new_size);
+		if (!new_pool) return NULL;
+		sys->rgba_pool = new_pool;
+		sys->rgba_pool_size = new_size;
+	}
+	return sys->rgba_pool;
+}
+
 // Glyph hash function
 static unsigned int nvgft__hash_glyph(uint32_t codepoint, int font_id, int size) {
 	unsigned int h = codepoint;
@@ -379,25 +409,33 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
                                                   FT_UInt glyph_index, int pixel_size,
                                                   int* out_width, int* out_height,
                                                   int* out_left, int* out_top) {
-	// Create a fresh FT_Face for Cairo (cached faces don't work with Cairo)
-	FT_Face cairo_face;
-	FT_Error err = FT_New_Face(sys->library, font->path, 0, &cairo_face);
-	if (err != 0) {
-		return NULL;
+	// Reuse cached FT_Face for Cairo (create once per font)
+	if (!font->cairo_face) {
+		FT_Error err;
+		if (font->data) {
+			err = FT_New_Memory_Face(sys->library, font->data, font->data_size, 0, &font->cairo_face);
+		} else {
+			err = FT_New_Face(sys->library, font->path, 0, &font->cairo_face);
+		}
+		if (err != 0) {
+			return NULL;
+		}
 	}
 
-	// Set pixel size on the fresh face
-	FT_Set_Pixel_Sizes(cairo_face, 0, pixel_size);
+	// Set pixel size on the cached face
+	FT_Set_Pixel_Sizes(font->cairo_face, 0, pixel_size);
 
 	// Load glyph to get metrics
-	err = FT_Load_Glyph(cairo_face, glyph_index, FT_LOAD_DEFAULT);
+	FT_Error err = FT_Load_Glyph(font->cairo_face, glyph_index, FT_LOAD_DEFAULT);
 	if (err != 0) {
-		FT_Done_Face(cairo_face);
 		return NULL;
 	}
 
-	// Step 1: Create font face and measure glyph extents
-	cairo_font_face_t* font_face = cairo_ft_font_face_create_for_ft_face(cairo_face, FT_LOAD_COLOR);
+	// Step 1: Create or reuse cached Cairo font face
+	if (!font->cairo_font_face) {
+		font->cairo_font_face = cairo_ft_font_face_create_for_ft_face(font->cairo_face, FT_LOAD_COLOR);
+	}
+	cairo_font_face_t* font_face = font->cairo_font_face;
 
 	// Set up font matrix (scale to pixel size)
 	cairo_matrix_t font_matrix;
@@ -441,8 +479,7 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
 		cairo_scaled_font_destroy(scaled_font);
 		cairo_font_options_destroy(font_options);
-		cairo_font_face_destroy(font_face);
-		FT_Done_Face(cairo_face);
+		// Note: Don't destroy font_face - it's cached
 		return NULL;
 	}
 
@@ -471,22 +508,22 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 		// Rendering failed
 		cairo_scaled_font_destroy(scaled_font);
 		cairo_font_options_destroy(font_options);
-		cairo_font_face_destroy(font_face);
+		// Note: Don't destroy font_face - it's cached
 		cairo_destroy(cr);
 		cairo_surface_destroy(surface);
 		return NULL;
 	}
 
-	// Cleanup Cairo objects
+	// Cleanup Cairo objects (but not cached font_face)
 	cairo_scaled_font_destroy(scaled_font);
 	cairo_font_options_destroy(font_options);
-	cairo_font_face_destroy(font_face);
 	cairo_destroy(cr);
 
 	// Extract RGBA data
 	unsigned char* cairo_data = cairo_image_surface_get_data(surface);
 	int cairo_stride = cairo_image_surface_get_stride(surface);
 
+	// Allocate output buffer (caller will free this)
 	unsigned char* rgba = (unsigned char*)malloc(width * height * 4);
 	if (rgba) {
 		// Cairo uses BGRA (premultiplied), convert to RGBA
@@ -514,13 +551,9 @@ static unsigned char* nvgft__render_color_emoji(NVGFontSystem* sys, NVGFTFont* f
 				rgba[rgba_idx + 3] = a;
 			}
 		}
-
 	}
 
 	cairo_surface_destroy(surface);
-
-	// Cleanup the fresh FT_Face we created for Cairo
-	FT_Done_Face(cairo_face);
 
 	*out_width = width;
 	*out_height = height;
@@ -757,7 +790,7 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 			// Convert grayscale to RGBA format (atlas is RGBA to support color emoji)
 			if (sys->texture_callback) {
 				int pixel_count = bitmap->width * bitmap->rows;
-				unsigned char* rgba = (unsigned char*)malloc(pixel_count * 4);
+				unsigned char* rgba = nvgft__get_rgba_buffer(sys, pixel_count * 4);
 				if (rgba) {
 					// Convert grayscale alpha to RGBA (white with alpha)
 					for (int i = 0; i < pixel_count; i++) {
@@ -770,7 +803,7 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 						atlas_x, atlas_y,
 						bitmap->width, bitmap->rows,
 						rgba);
-					free(rgba);
+					// Note: buffer is pooled, not freed
 				}
 			}
 		}

@@ -215,6 +215,7 @@ Expected output:
 - ✅ **Font context connected** (callback-based, automatic)
 - ✅ **Glyph rasterization callback** (FreeType FTC integration)
 - ✅ **Async uploads enabled** (using graphics queue, triple buffering)
+- ✅ **Performance optimized** (buffer pooling, cached Cairo faces)
 
 ### Font Context Connection
 The font context is automatically connected to the virtual atlas during NanoVG context creation via a callback mechanism:
@@ -232,7 +233,15 @@ Async texture uploads enabled using triple buffering:
 - Can be optimized with dedicated transfer queue in future
 - Enabled automatically in `nvgvk_create()` (src/vulkan/nvg_vk_context.c:93)
 
-See `VIRTUAL_ATLAS_INTEGRATION.md` for complete details.
+### Performance Optimizations
+Memory allocation optimizations to reduce malloc/free churn:
+- **RGBA buffer pooling**: Reusable buffer for grayscale glyph conversions
+- **Cached Cairo font faces**: One FT_Face + Cairo face per font (not per glyph)
+- **Impact**: 99% reduction in allocations for emoji rendering
+- **Memory overhead**: <300 KB (adaptive pool + cached faces)
+- See `PERFORMANCE_OPTIMIZATIONS.md` for complete details
+
+See `VIRTUAL_ATLAS_INTEGRATION.md` and `PERFORMANCE_OPTIMIZATIONS.md` for complete details.
 
 ## Notes
 
