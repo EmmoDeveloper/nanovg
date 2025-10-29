@@ -1,0 +1,36 @@
+#version 450
+
+// Atlas Defragmentation Compute Shader
+// Copies glyph regions within atlas texture on GPU
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Source and destination atlas textures (can be same image)
+layout(binding = 0, rgba8) uniform readonly image2D srcAtlas;
+layout(binding = 1, rgba8) uniform writeonly image2D dstAtlas;
+
+// Move parameters (push constants)
+layout(push_constant) uniform MoveParams {
+	uvec2 srcOffset;   // Source position (x, y)
+	uvec2 dstOffset;   // Destination position (x, y)
+	uvec2 extent;      // Copy size (width, height)
+	uint padding[2];   // Align to 16 bytes
+} move;
+
+void main() {
+	// Calculate pixel coordinates within copy region
+	uvec2 localCoord = gl_GlobalInvocationID.xy;
+
+	// Check bounds
+	if (localCoord.x >= move.extent.x || localCoord.y >= move.extent.y) {
+		return;
+	}
+
+	// Calculate source and destination positions
+	ivec2 srcPos = ivec2(move.srcOffset + localCoord);
+	ivec2 dstPos = ivec2(move.dstOffset + localCoord);
+
+	// Read from source and write to destination
+	vec4 pixel = imageLoad(srcAtlas, srcPos);
+	imageStore(dstAtlas, dstPos, pixel);
+}

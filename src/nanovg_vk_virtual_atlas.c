@@ -2,6 +2,7 @@
 
 #include "nanovg_vk_virtual_atlas.h"
 #include "nanovg_vk_async_upload.h"
+#include "nanovg_vk_compute.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -322,6 +323,11 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	atlas->defragContext.callbackUserData = atlas;
 	atlas->enableDefrag = 1;	// Enabled for cache space reclamation
 
+	// Compute context will be initialized later via separate function
+	// that has access to VkQueue and queue family index
+	atlas->computeContext = NULL;
+	atlas->useComputeDefrag = VK_FALSE;
+
 	// Create staging buffer for uploads
 	atlas->stagingSize = VKNVG_ATLAS_PAGE_SIZE * VKNVG_ATLAS_PAGE_SIZE * VKNVG_UPLOAD_QUEUE_SIZE;
 
@@ -455,6 +461,13 @@ void vknvg__destroyVirtualAtlas(VKNVGvirtualAtlas* atlas)
 	if (atlas->atlasManager) {
 		vknvg__destroyAtlasManager(atlas->atlasManager);
 		atlas->atlasManager = NULL;
+	}
+
+	// Destroy compute context
+	if (atlas->computeContext) {
+		vknvg__destroyComputeContext(atlas->computeContext);
+		free(atlas->computeContext);
+		atlas->computeContext = NULL;
 	}
 
 	// Phase 1: Destroy descriptor resources
@@ -922,6 +935,59 @@ VKNVGglyphCacheEntry* vknvg__addGlyphDirect(VKNVGvirtualAtlas* atlas,
 }
 
 // Process upload queue
+// Create compute descriptor set for defragmentation
+static VkDescriptorSet vknvg__createDefragDescriptorSet(VKNVGvirtualAtlas* atlas,
+                                                         uint32_t atlasIndex)
+{
+	if (!atlas->computeContext || atlasIndex >= atlas->atlasManager->atlasCount) {
+		return VK_NULL_HANDLE;
+	}
+
+	VKNVGatlasInstance* atlasInst = &atlas->atlasManager->atlases[atlasIndex];
+	VKNVGcomputePipeline* pipeline = &atlas->computeContext->pipelines[VKNVG_COMPUTE_ATLAS_DEFRAG];
+
+	// Allocate descriptor set
+	VkDescriptorSetAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = pipeline->descriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &pipeline->descriptorSetLayout;
+
+	VkDescriptorSet descriptorSet;
+	if (vkAllocateDescriptorSets(atlas->device, &allocInfo, &descriptorSet) != VK_SUCCESS) {
+		return VK_NULL_HANDLE;
+	}
+
+	// Update descriptor set with atlas image (same image for both src and dst)
+	VkDescriptorImageInfo imageInfo = {0};
+	imageInfo.imageView = atlasInst->imageView;
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+	VkWriteDescriptorSet writes[2] = {0};
+
+	// Binding 0: Source atlas
+	writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[0].dstSet = descriptorSet;
+	writes[0].dstBinding = 0;
+	writes[0].dstArrayElement = 0;
+	writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	writes[0].descriptorCount = 1;
+	writes[0].pImageInfo = &imageInfo;
+
+	// Binding 1: Destination atlas (same image)
+	writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[1].dstSet = descriptorSet;
+	writes[1].dstBinding = 1;
+	writes[1].dstArrayElement = 0;
+	writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	writes[1].descriptorCount = 1;
+	writes[1].pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(atlas->device, 2, writes, 0, NULL);
+
+	return descriptorSet;
+}
+
 void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 {
 	if (!atlas || !cmd) return;
@@ -1090,9 +1156,72 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 
 	// Phase 4 Advanced: Continue defragmentation if in progress
 	if (atlas->enableDefrag && atlas->defragContext.state != VKNVG_DEFRAG_IDLE) {
+		// Enable compute defragmentation if compute context is available
+		if (atlas->computeContext && atlas->useComputeDefrag &&
+		    atlas->defragContext.atlasIndex < atlas->atlasManager->atlasCount) {
+
+			VKNVGatlasInstance* atlasInst = &atlas->atlasManager->atlases[atlas->defragContext.atlasIndex];
+
+			// Transition atlas image to GENERAL layout for compute shader access
+			VkImageMemoryBarrier barrier = {0};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.image = atlasInst->image;
+			barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			barrier.subresourceRange.baseMipLevel = 0;
+			barrier.subresourceRange.levelCount = 1;
+			barrier.subresourceRange.baseArrayLayer = 0;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+			vkCmdPipelineBarrier(cmd,
+			                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			                     0, 0, NULL, 0, NULL, 1, &barrier);
+
+			// Create descriptor set for this atlas
+			VkDescriptorSet defragDescriptorSet = vknvg__createDefragDescriptorSet(atlas, atlas->defragContext.atlasIndex);
+
+			if (defragDescriptorSet != VK_NULL_HANDLE) {
+				// Enable compute defragmentation
+				vknvg__enableComputeDefrag(&atlas->defragContext, atlas->computeContext, defragDescriptorSet);
+			}
+		}
+
 		// Execute incremental defragmentation with 2ms time budget
 		// Glyph cache integration is now complete via callback
 		vknvg__updateDefragmentation(&atlas->defragContext, atlas->atlasManager, cmd, 2.0f);
+
+		// Transition atlas back to SHADER_READ_ONLY_OPTIMAL after defrag
+		if (atlas->computeContext && atlas->useComputeDefrag &&
+		    atlas->defragContext.atlasIndex < atlas->atlasManager->atlasCount) {
+
+			VKNVGatlasInstance* atlasInst = &atlas->atlasManager->atlases[atlas->defragContext.atlasIndex];
+
+			VkImageMemoryBarrier barrier = {0};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.image = atlasInst->image;
+			barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			barrier.subresourceRange.baseMipLevel = 0;
+			barrier.subresourceRange.levelCount = 1;
+			barrier.subresourceRange.baseArrayLayer = 0;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			vkCmdPipelineBarrier(cmd,
+			                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			                     0, 0, NULL, 0, NULL, 1, &barrier);
+		}
 	}
 }
 
@@ -1189,4 +1318,36 @@ VkSemaphore vknvg__getUploadSemaphore(VKNVGvirtualAtlas* atlas)
 	}
 
 	return vknvg__getUploadCompleteSemaphore(atlas->asyncUpload);
+}
+
+// Enable compute shader defragmentation
+VkResult vknvg__enableComputeDefragmentation(VKNVGvirtualAtlas* atlas,
+                                              VkQueue computeQueue,
+                                              uint32_t computeQueueFamily)
+{
+	if (!atlas) return VK_ERROR_INITIALIZATION_FAILED;
+
+	// Already enabled
+	if (atlas->computeContext) return VK_SUCCESS;
+
+	// Allocate compute context
+	atlas->computeContext = (VKNVGcomputeContext*)malloc(sizeof(VKNVGcomputeContext));
+	if (!atlas->computeContext) {
+		return VK_ERROR_OUT_OF_HOST_MEMORY;
+	}
+
+	// Initialize compute context
+	if (!vknvg__initComputeContext(atlas->computeContext,
+	                                atlas->device,
+	                                computeQueue,
+	                                computeQueueFamily)) {
+		free(atlas->computeContext);
+		atlas->computeContext = NULL;
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	atlas->useComputeDefrag = VK_TRUE;
+	printf("Compute shader defragmentation enabled\n");
+
+	return VK_SUCCESS;
 }

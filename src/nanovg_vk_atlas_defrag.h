@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include "nanovg_vk_atlas_packing.h"
 #include "nanovg_vk_multi_atlas.h"
+#include "nanovg_vk_compute.h"
 
 #define VKNVG_DEFRAG_TIME_BUDGET_MS 2.0f	// Max 2ms per frame for defrag
 #define VKNVG_DEFRAG_THRESHOLD 0.3f			// Defrag if efficiency < 30%
@@ -67,6 +68,11 @@ typedef struct VKNVGdefragContext {
 	// Callback for updating external glyph cache
 	VKNVGdefragUpdateCallback updateCallback;
 	void* callbackUserData;
+
+	// Compute shader support
+	VKNVGcomputeContext* computeContext;
+	VkDescriptorSet atlasDescriptorSet;
+	int useCompute;				// Use compute shader instead of vkCmdCopyImage
 } VKNVGdefragContext;
 
 // Calculate fragmentation metric for an atlas
@@ -176,7 +182,7 @@ static int vknvg__planDefragMoves(VKNVGdefragContext* ctx,
 	return 1;
 }
 
-// Execute a single glyph move using compute shader
+// Execute a single glyph move using compute shader or vkCmdCopyImage
 static void vknvg__executeSingleMove(VKNVGdefragContext* ctx,
                                       VkCommandBuffer cmdBuffer,
                                       VkImage atlasImage)
@@ -187,27 +193,42 @@ static void vknvg__executeSingleMove(VKNVGdefragContext* ctx,
 
 	VKNVGglyphMove* move = &ctx->moves[ctx->currentMove];
 
-	// Record image copy command
-	VkImageCopy copyRegion = {0};
-	copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	copyRegion.srcSubresource.layerCount = 1;
-	copyRegion.srcOffset.x = move->srcX;
-	copyRegion.srcOffset.y = move->srcY;
+	if (ctx->useCompute && ctx->computeContext && ctx->atlasDescriptorSet) {
+		// Use compute shader for GPU-accelerated copy
+		VKNVGdefragPushConstants pushConstants = {0};
+		pushConstants.srcOffsetX = move->srcX;
+		pushConstants.srcOffsetY = move->srcY;
+		pushConstants.dstOffsetX = move->dstX;
+		pushConstants.dstOffsetY = move->dstY;
+		pushConstants.extentWidth = move->width;
+		pushConstants.extentHeight = move->height;
 
-	copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	copyRegion.dstSubresource.layerCount = 1;
-	copyRegion.dstOffset.x = move->dstX;
-	copyRegion.dstOffset.y = move->dstY;
+		vknvg__dispatchDefragCompute(ctx->computeContext,
+		                              ctx->atlasDescriptorSet,
+		                              &pushConstants);
+	} else {
+		// Fall back to vkCmdCopyImage (CPU-initiated)
+		VkImageCopy copyRegion = {0};
+		copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copyRegion.srcSubresource.layerCount = 1;
+		copyRegion.srcOffset.x = move->srcX;
+		copyRegion.srcOffset.y = move->srcY;
 
-	copyRegion.extent.width = move->width;
-	copyRegion.extent.height = move->height;
-	copyRegion.extent.depth = 1;
+		copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copyRegion.dstSubresource.layerCount = 1;
+		copyRegion.dstOffset.x = move->dstX;
+		copyRegion.dstOffset.y = move->dstY;
 
-	// Self-copy within same image
-	vkCmdCopyImage(cmdBuffer,
-	               atlasImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-	               atlasImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-	               1, &copyRegion);
+		copyRegion.extent.width = move->width;
+		copyRegion.extent.height = move->height;
+		copyRegion.extent.depth = 1;
+
+		// Self-copy within same image
+		vkCmdCopyImage(cmdBuffer,
+		               atlasImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		               atlasImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		               1, &copyRegion);
+	}
 
 	ctx->bytesCopied += move->width * move->height;
 	ctx->currentMove++;
@@ -324,6 +345,24 @@ static void vknvg__getDefragStats(const VKNVGdefragContext* ctx,
 	if (outTotalMoves) *outTotalMoves = ctx->totalMoves;
 	if (outBytesCopied) *outBytesCopied = ctx->bytesCopied;
 	if (outFragmentation) *outFragmentation = 0.0f;	// Would calculate from current state
+}
+
+// Enable compute shader defragmentation
+static void vknvg__enableComputeDefrag(VKNVGdefragContext* ctx,
+                                        VKNVGcomputeContext* computeContext,
+                                        VkDescriptorSet atlasDescriptorSet)
+{
+	ctx->computeContext = computeContext;
+	ctx->atlasDescriptorSet = atlasDescriptorSet;
+	ctx->useCompute = 1;
+}
+
+// Disable compute shader defragmentation (fall back to vkCmdCopyImage)
+static void vknvg__disableComputeDefrag(VKNVGdefragContext* ctx)
+{
+	ctx->computeContext = NULL;
+	ctx->atlasDescriptorSet = VK_NULL_HANDLE;
+	ctx->useCompute = 0;
 }
 
 #endif // NANOVG_VK_ATLAS_DEFRAG_H

@@ -130,6 +130,10 @@ struct VKNVGvirtualAtlas {
 	uint8_t enableDefrag;				// Enable idle-frame defragmentation
 	uint8_t padding[3];					// Alignment
 
+	// Compute shader support for defragmentation
+	VKNVGcomputeContext* computeContext;	// NULL if compute shaders disabled
+	VkBool32 useComputeDefrag;				// Enable GPU-side defragmentation
+
 	// Staging buffer for uploads
 	VkBuffer stagingBuffer;
 	VkDeviceMemory stagingMemory;
@@ -264,6 +268,13 @@ VkResult vknvg__enableAsyncUploads(VKNVGvirtualAtlas* atlas,
 // Get semaphore to wait on for async uploads (for graphics queue synchronization)
 // Returns VK_NULL_HANDLE if no uploads are pending
 VkSemaphore vknvg__getUploadSemaphore(VKNVGvirtualAtlas* atlas);
+
+// Enable compute shader defragmentation (creates compute context)
+// Call after virtual atlas creation to enable GPU-accelerated defragmentation
+// Returns VK_SUCCESS on success, error code otherwise
+VkResult vknvg__enableComputeDefragmentation(VKNVGvirtualAtlas* atlas,
+                                              VkQueue computeQueue,
+                                              uint32_t computeQueueFamily);
 
 // Internal functions
 
