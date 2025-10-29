@@ -24,6 +24,9 @@ A re-implementation of the [NanoVG](https://github.com/memononen/nanovg) vector 
 - ✓ MSDF (Multi-channel Signed Distance Field) support
 - ✓ Multiple font sizes
 - ✓ Text measurement and layout
+- ✓ BiDi (Bidirectional text) with FriBidi
+- ✓ Complex script shaping with HarfBuzz
+- ✓ Arabic, Hebrew, and mixed LTR/RTL text
 
 ### Architecture
 - **Original NanoVG**: `src/nanovg.c/h` - Public API, path tessellation, state management
@@ -160,6 +163,8 @@ nanovg/
 - **Vulkan** - GPU rendering API
 - **GLFW3** - Window/surface creation (tests only)
 - **FreeType2** - Font rasterization
+- **HarfBuzz** - Complex script shaping
+- **FriBidi** - Bidirectional text algorithm
 - **C11 compiler** - gcc or clang
 
 ## Building
@@ -188,9 +193,7 @@ make clean
 - Scissor clipping
 
 🚧 **Limitations**:
-- No HarfBuzz integration (simple Latin text only)
-- No BiDi support (left-to-right text only)
-- No color emoji support
+- No color emoji support (implementation in progress)
 - Virtual atlas features (multi-atlas, defrag, async upload) exist in headers but not fully integrated
 - MSDF text works but not fully tested
 

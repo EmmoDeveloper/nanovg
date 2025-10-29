@@ -59,12 +59,44 @@ LIBS := $(shell pkg-config --libs vulkan glfw3 harfbuzz fribidi) \
 	-Wl,-rpath,/opt/freetype/cairo/builddir/src
 ```
 
+### HarfBuzz 10.2.0
+- **Installation**: System package (via pkg-config)
+- **Purpose**: Complex script text shaping (Arabic, Hebrew, Indic scripts, etc.)
+- **Access**: Read-only via system libraries
+- **Integration**: Used in `src/nvg_freetype.c` for shaped text iteration
+
+### FriBidi 1.0.16
+- **Installation**: System package (via pkg-config)
+- **Purpose**: Unicode Bidirectional Algorithm (BiDi) for RTL text
+- **Access**: Read-only via system libraries
+- **Integration**: Used in `src/nvg_freetype.c` for BiDi text reordering
+
 ### Key Points
 
-1. **No `.local` dependencies** - All library paths point directly to `/opt/` source/build directories
-2. **Direct linking** - Libraries are linked from their build directories, not system install locations
-3. **Runtime paths** - `rpath` ensures binaries find the correct library versions at runtime
-4. **Source availability** - All library source code is accessible for debugging and modification
+1. **No `.local` dependencies** - All font library paths point directly to `/opt/` source/build directories
+2. **System packages** - HarfBuzz and FriBidi use system installations via pkg-config
+3. **Direct linking** - Font libraries (FreeType, Cairo) linked from build directories
+4. **Runtime paths** - `rpath` ensures binaries find the correct library versions at runtime
+5. **Source availability** - All library source code is accessible for debugging and modification
+
+## BiDi Text Implementation
+
+The bidirectional text rendering uses:
+- FriBidi for Unicode BiDi algorithm (logical to visual order conversion)
+- HarfBuzz for complex script shaping (glyph selection and positioning)
+- Custom integration in `src/nvg_freetype.c`:
+  - Function: `nvgft_shaped_text_iter_init()` (line 1015)
+  - Converts UTF-8 ↔ UTF-32 for FriBidi processing
+  - Applies BiDi reordering: `fribidi_log2vis()`
+  - Shapes text with HarfBuzz: `hb_shape()`
+  - Direction parameter: 0=auto, 1=LTR, 2=RTL
+  - Language tags: "ar", "he", "en", etc.
+
+### Fresh FT_Face for HarfBuzz
+HarfBuzz requires a fresh (non-cached) FreeType face for proper operation:
+- Each font maintains `hb_face` (fresh FT_Face) in addition to cached face
+- Created on-demand in `nvgft__get_hb_font()` (line 992)
+- Properly cleaned up in `nvgft_destroy()` (line 200)
 
 ## Color Emoji Implementation
 
@@ -77,6 +109,18 @@ The color emoji rendering uses:
   - Uses `CAIRO_COLOR_MODE_COLOR` for color glyph rendering
 
 ## Testing
+
+### BiDi Text Test
+- **Source**: `tests/test_bidi.c`
+- **Binary**: `build/test_bidi`
+- **Build**: `make build/test_bidi`
+- **Run**: `./build/test_bidi`
+- **Coverage**: 8 test cases
+  - Arabic RTL: "مرحبا بالعالم" (Hello World)
+  - Hebrew RTL: "שלום עולם" (Hello World)
+  - Mixed LTR/RTL text
+  - Auto-detection vs explicit direction
+- **Result**: All tests passing (8/8)
 
 ### Color Emoji Test
 - **Source**: `tests/test_color_emoji.c`
