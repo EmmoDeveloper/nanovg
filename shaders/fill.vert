@@ -18,9 +18,10 @@ void main() {
 	outPosition = inPosition;
 
 	// Transform to NDC: (0,0) top-left -> (-1,-1), (viewSize.x, viewSize.y) bottom-right -> (1,1)
+	// Match text shader convention: Y increases downward
 	gl_Position = vec4(
 		2.0 * inPosition.x / pc.viewSize.x - 1.0,
-		1.0 - 2.0 * inPosition.y / pc.viewSize.y,
+		2.0 * inPosition.y / pc.viewSize.y - 1.0,
 		0.0,
 		1.0
 	);

@@ -181,6 +181,7 @@ void nvgvk_flush(void* userPtr)
 
 	// Upload view uniforms (viewSize)
 	float viewSize[2] = {vk->viewWidth, vk->viewHeight};
+	printf("[nvg_vk] viewSize = %.1f x %.1f, devicePixelRatio = %.2f\n", viewSize[0], viewSize[1], vk->devicePixelRatio);
 	nvgvk_buffer_upload(vk, &vk->uniformBuffer, viewSize, sizeof(viewSize));
 
 	// Update descriptor sets for all pipelines

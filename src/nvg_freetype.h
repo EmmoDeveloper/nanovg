@@ -82,6 +82,8 @@ void nvgft_set_blur(NVGFontSystem* sys, float blur);
 void nvgft_set_align(NVGFontSystem* sys, int align);
 void nvgft_set_font(NVGFontSystem* sys, int font_id);
 void nvgft_set_render_mode(NVGFontSystem* sys, NVGFTRenderMode mode);
+void nvgft_set_kerning(NVGFontSystem* sys, int enabled);
+void nvgft_set_hinting(NVGFontSystem* sys, int hinting);
 
 // Text iteration (simple, no shaping)
 void nvgft_text_iter_init(NVGFontSystem* sys, NVGFTTextIter* iter,
@@ -100,6 +102,8 @@ void nvgft_text_iter_free(NVGFTTextIter* iter);
 // Text metrics
 float nvgft_text_bounds(NVGFontSystem* sys, float x, float y,
                          const char* string, const char* end, float* bounds);
+float nvgft_text_bounds_shaped(NVGFontSystem* sys, float x, float y,
+                                 const char* string, const char* end, float* bounds);
 void nvgft_vert_metrics(NVGFontSystem* sys, float* ascender, float* descender, float* lineh);
 void nvgft_line_bounds(NVGFontSystem* sys, float y, float* miny, float* maxy);
 
@@ -118,6 +122,58 @@ void nvgft_set_texture_callback(NVGFontSystem* sys, NVGFTTextureUpdateFunc callb
 unsigned char* nvgft_rasterize_glyph(NVGFontSystem* sys, int font_id, uint32_t codepoint,
                                        int pixel_size, int* width, int* height,
                                        int* bearing_x, int* bearing_y, int* advance_x);
+
+// Glyph-level API extensions
+typedef struct NVGFTGlyphMetrics {
+	float bearingX, bearingY;    // Glyph placement offset from baseline
+	float advanceX, advanceY;    // Cursor movement after glyph
+	float width, height;         // Bitmap dimensions
+	int glyphIndex;              // FreeType glyph index
+} NVGFTGlyphMetrics;
+
+// Get metrics for a codepoint (returns 0 on success, -1 on failure)
+int nvgft_get_glyph_metrics(NVGFontSystem* sys, int font_id, uint32_t codepoint,
+                              NVGFTGlyphMetrics* metrics);
+
+// Get kerning between two codepoints (in pixels)
+float nvgft_get_kerning(NVGFontSystem* sys, int font_id,
+                         uint32_t left_codepoint, uint32_t right_codepoint);
+
+// Render a single glyph and return quad (returns 0 on success, -1 on failure)
+int nvgft_render_glyph(NVGFontSystem* sys, int font_id, uint32_t codepoint,
+                        float x, float y, NVGFTQuad* quad);
+
+// Render glyph by FreeType glyph index (returns 0 on success, -1 on failure)
+int nvgft_render_glyph_index(NVGFontSystem* sys, int font_id, int glyph_index,
+                               float x, float y, NVGFTQuad* quad);
+
+// Font information queries
+const char* nvgft_get_family_name(NVGFontSystem* sys, int font_id);
+const char* nvgft_get_style_name(NVGFontSystem* sys, int font_id);
+int nvgft_get_glyph_count(NVGFontSystem* sys, int font_id);
+int nvgft_is_scalable(NVGFontSystem* sys, int font_id);
+int nvgft_is_fixed_width(NVGFontSystem* sys, int font_id);
+
+// Variable font support
+typedef struct NVGFTVarAxis {
+	char name[64];
+	float minimum;
+	float def;
+	float maximum;
+	unsigned int tag;
+} NVGFTVarAxis;
+
+int nvgft_is_variable(NVGFontSystem* sys, int font_id);
+int nvgft_get_var_axis_count(NVGFontSystem* sys, int font_id);
+int nvgft_get_var_axis(NVGFontSystem* sys, int font_id, int axis_index, NVGFTVarAxis* axis);
+int nvgft_set_var_design_coords(NVGFontSystem* sys, int font_id, const float* coords, int num_coords);
+int nvgft_get_var_design_coords(NVGFontSystem* sys, int font_id, float* coords, int num_coords);
+int nvgft_get_named_instance_count(NVGFontSystem* sys, int font_id);
+int nvgft_set_named_instance(NVGFontSystem* sys, int font_id, int instance_index);
+
+// OpenType features
+void nvgft_set_feature(NVGFontSystem* sys, unsigned int tag, int enabled);
+void nvgft_reset_features(NVGFontSystem* sys);
 
 #ifdef __cplusplus
 }

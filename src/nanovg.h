@@ -83,6 +83,13 @@ enum NVGalign {
 	NVG_ALIGN_BASELINE	= 1<<6, // Default, align text vertically to baseline.
 };
 
+enum NVGhinting {
+	NVG_HINTING_DEFAULT = 0,	// Use font's native hinting (default)
+	NVG_HINTING_NONE = 1,		// No hinting - pixel positions from outlines only
+	NVG_HINTING_LIGHT = 2,		// Light hinting - subtle grid fitting
+	NVG_HINTING_FULL = 3,		// Full hinting - maximum grid fitting
+};
+
 enum NVGblendFactor {
 	NVG_ZERO = 1<<0,
 	NVG_ONE = 1<<1,
@@ -125,6 +132,14 @@ struct NVGglyphPosition {
 	float minx, maxx;	// The bounds of the glyph shape.
 };
 typedef struct NVGglyphPosition NVGglyphPosition;
+
+struct NVGglyphMetrics {
+	float bearingX, bearingY;    // Glyph placement offset from baseline
+	float advanceX, advanceY;    // Cursor movement after glyph
+	float width, height;         // Bitmap dimensions
+	int glyphIndex;              // FreeType glyph index
+};
+typedef struct NVGglyphMetrics NVGglyphMetrics;
 
 struct NVGtextRow {
 	const char* start;	// Pointer to the input text where the row starts.
@@ -211,6 +226,21 @@ NVGcolor nvgHSL(float h, float s, float l);
 // Returns color value specified by hue, saturation and lightness and alpha.
 // HSL values are all in range [0..1], alpha in range [0..255]
 NVGcolor nvgHSLA(float h, float s, float l, unsigned char a);
+
+//
+// Common Color Constants
+//
+
+static inline NVGcolor nvgColorWhite(void) { return nvgRGBA(255, 255, 255, 255); }
+static inline NVGcolor nvgColorBlack(void) { return nvgRGBA(0, 0, 0, 255); }
+static inline NVGcolor nvgColorRed(void) { return nvgRGBA(255, 0, 0, 255); }
+static inline NVGcolor nvgColorGreen(void) { return nvgRGBA(0, 255, 0, 255); }
+static inline NVGcolor nvgColorBlue(void) { return nvgRGBA(0, 0, 255, 255); }
+static inline NVGcolor nvgColorYellow(void) { return nvgRGBA(255, 255, 0, 255); }
+static inline NVGcolor nvgColorCyan(void) { return nvgRGBA(0, 255, 255, 255); }
+static inline NVGcolor nvgColorMagenta(void) { return nvgRGBA(255, 0, 255, 255); }
+static inline NVGcolor nvgColorGray(void) { return nvgRGBA(128, 128, 128, 255); }
+static inline NVGcolor nvgColorTransparent(void) { return nvgRGBA(0, 0, 0, 0); }
 
 //
 // State Handling
@@ -608,7 +638,15 @@ void nvgTextBox(NVGcontext* ctx, float x, float y, float breakRowWidth, const ch
 // if the bounding box of the text should be returned. The bounds value are [xmin,ymin, xmax,ymax]
 // Returns the horizontal advance of the measured text (i.e. where the next character should drawn).
 // Measured values are returned in local coordinate space.
+// Note: Uses simple glyph iteration without text shaping, so ligatures and OpenType features are not applied.
 float nvgTextBounds(NVGcontext* ctx, float x, float y, const char* string, const char* end, float* bounds);
+
+// Measures text using HarfBuzz shaping with OpenType features (ligatures, kerning, etc.).
+// This gives accurate bounds matching the rendered output from nvgText().
+// Parameter bounds should be a pointer to float[4] for [xmin,ymin, xmax,ymax].
+// Returns the horizontal advance of the shaped text.
+// Measured values are returned in local coordinate space.
+float nvgTextBoundsWithShaping(NVGcontext* ctx, float x, float y, const char* string, const char* end, float* bounds);
 
 // Measures the specified multi-text string. Parameter bounds should be a pointer to float[4],
 // if the bounding box of the text should be returned. The bounds value are [xmin,ymin, xmax,ymax]
@@ -627,6 +665,156 @@ void nvgTextMetrics(NVGcontext* ctx, float* ascender, float* descender, float* l
 // White space is stripped at the beginning of the rows, the text is split at word boundaries or when new-line characters are encountered.
 // Words longer than the max width are slit at nearest character (i.e. no hyphenation).
 int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, float breakRowWidth, NVGtextRow* rows, int maxRows);
+
+// Draws pre-formatted multi-line text, splitting only on newline characters (\n).
+// Does not word-wrap. Each line is rendered at the specified x position, with y incrementing by line height.
+void nvgTextLines(NVGcontext* ctx, float x, float y, const char* string, const char* end);
+
+//
+// Glyph-level API (FreeType features)
+//
+
+// Get detailed metrics for a single codepoint. Returns 0 on success, -1 on failure.
+int nvgGetGlyphMetrics(NVGcontext* ctx, unsigned int codepoint, NVGglyphMetrics* metrics);
+
+// Get kerning adjustment between two codepoints (in pixels).
+float nvgGetKerning(NVGcontext* ctx, unsigned int left, unsigned int right);
+
+// Render a single glyph at specified position. Returns advance width.
+float nvgRenderGlyph(NVGcontext* ctx, unsigned int codepoint, float x, float y);
+
+// Enable or disable subpixel text positioning.
+// When enabled, text coordinates are not rounded to integer pixels, allowing fractional positioning.
+// Default: disabled (coordinates are rounded for pixel-perfect rendering).
+void nvgSubpixelText(NVGcontext* ctx, int enabled);
+
+// Shift text baseline vertically by the specified offset (in pixels).
+// Positive values move the baseline down, negative values move it up.
+// Default: 0.0f (no shift).
+void nvgBaselineShift(NVGcontext* ctx, float offset);
+
+// Enable or disable automatic kerning in text rendering.
+// When disabled, characters are positioned using only their advance widths.
+// Default: enabled.
+void nvgKerningEnabled(NVGcontext* ctx, int enabled);
+
+// Get font baseline metrics for the current font face and size.
+// ascender: distance from baseline to top of typical capital letter (positive, upward)
+// descender: distance from baseline to bottom of descenders (negative, downward)
+// lineHeight: recommended vertical spacing between baselines
+// All values in pixels. Pass NULL for metrics you don't need.
+void nvgFontBaseline(NVGcontext* ctx, float* ascender, float* descender, float* lineHeight);
+
+// Set font hinting mode.
+// Controls how glyphs are fitted to the pixel grid.
+// hinting: NVG_HINTING_DEFAULT, NVG_HINTING_NONE, NVG_HINTING_LIGHT, or NVG_HINTING_FULL
+// Default: NVG_HINTING_DEFAULT (uses font's native hinting).
+void nvgFontHinting(NVGcontext* ctx, int hinting);
+
+//
+// Font Information
+//
+
+// Get the family name of the current font (e.g., "DejaVu Sans").
+// Returns NULL if no font is set or on error.
+const char* nvgFontFamilyName(NVGcontext* ctx);
+
+// Get the style name of the current font (e.g., "Bold", "Italic").
+// Returns NULL if no font is set or on error.
+const char* nvgFontStyleName(NVGcontext* ctx);
+
+// Get the number of glyphs in the current font.
+// Returns 0 if no font is set or on error.
+int nvgFontGlyphCount(NVGcontext* ctx);
+
+// Check if the current font is scalable (vector-based).
+// Returns 1 if scalable, 0 if not or on error.
+int nvgFontIsScalable(NVGcontext* ctx);
+
+// Check if the current font is fixed-width (monospace).
+// Returns 1 if fixed-width, 0 if not or on error.
+int nvgFontIsFixedWidth(NVGcontext* ctx);
+
+//
+// Variable Fonts (OpenType Font Variations)
+//
+
+// Variable font axis descriptor
+typedef struct NVGvarAxis {
+	char name[64];        // Axis name (e.g., "Weight", "Width")
+	float minimum;        // Minimum axis value
+	float def;            // Default axis value
+	float maximum;        // Maximum axis value
+	unsigned int tag;     // Four-character axis tag (e.g., 'wght')
+} NVGvarAxis;
+
+// Check if the current font is a variable font.
+// Returns 1 if variable, 0 if not or on error.
+int nvgFontIsVariable(NVGcontext* ctx);
+
+// Get the number of variation axes in the current font.
+// Returns 0 if font is not variable or on error.
+int nvgFontVariationAxisCount(NVGcontext* ctx);
+
+// Get information about a specific variation axis.
+// axis_index: Zero-based axis index (0 to nvgFontVariationAxisCount()-1)
+// axis: Output structure to receive axis information
+// Returns 0 on success, -1 on error.
+int nvgFontVariationAxis(NVGcontext* ctx, int axis_index, NVGvarAxis* axis);
+
+// Set design coordinates for variable font axes.
+// coords: Array of axis values (length must match axis count)
+// num_coords: Number of coordinates (should match nvgFontVariationAxisCount())
+// Returns 0 on success, -1 on error.
+// Note: Resets to defaults if num_coords is 0.
+int nvgFontSetVariationAxes(NVGcontext* ctx, const float* coords, int num_coords);
+
+// Get the current design coordinates for variable font axes.
+// coords: Output array to receive axis values (must be pre-allocated)
+// num_coords: Number of coordinates to retrieve
+// Returns 0 on success, -1 on error.
+int nvgFontGetVariationAxes(NVGcontext* ctx, float* coords, int num_coords);
+
+// Get the number of named instances (predefined styles) in the current font.
+// Returns 0 if font has no named instances or on error.
+int nvgFontNamedInstanceCount(NVGcontext* ctx);
+
+// Set the current named instance (predefined style).
+// instance_index: 1-based instance index, or 0 to reset to default
+// Returns 0 on success, -1 on error.
+int nvgFontSetNamedInstance(NVGcontext* ctx, int instance_index);
+
+//
+// OpenType Features
+//
+
+// Common OpenType feature tags (4-character codes)
+#define NVG_FEATURE_LIGA 0x6C696761  // 'liga' - Standard ligatures
+#define NVG_FEATURE_DLIG 0x646C6967  // 'dlig' - Discretionary ligatures
+#define NVG_FEATURE_SMCP 0x736D6370  // 'smcp' - Small capitals
+#define NVG_FEATURE_C2SC 0x63327363  // 'c2sc' - Caps to small caps
+#define NVG_FEATURE_SWSH 0x73777368  // 'swsh' - Swash
+#define NVG_FEATURE_CALT 0x63616C74  // 'calt' - Contextual alternates
+#define NVG_FEATURE_CLIG 0x636C6967  // 'clig' - Contextual ligatures
+#define NVG_FEATURE_SALT 0x73616C74  // 'salt' - Stylistic alternates
+#define NVG_FEATURE_SS01 0x73733031  // 'ss01' - Stylistic set 1
+#define NVG_FEATURE_SS02 0x73733032  // 'ss02' - Stylistic set 2
+#define NVG_FEATURE_SS03 0x73733033  // 'ss03' - Stylistic set 3
+#define NVG_FEATURE_ZERO 0x7A65726F  // 'zero' - Slashed zero
+#define NVG_FEATURE_FRAC 0x66726163  // 'frac' - Fractions
+#define NVG_FEATURE_ORDN 0x6F72646E  // 'ordn' - Ordinals
+#define NVG_FEATURE_SUBS 0x73756273  // 'subs' - Subscript
+#define NVG_FEATURE_SUPS 0x73757073  // 'sups' - Superscript
+#define NVG_FEATURE_TNUM 0x746E756D  // 'tnum' - Tabular numbers
+#define NVG_FEATURE_ONUM 0x6F6E756D  // 'onum' - Oldstyle numbers
+
+// Enable or disable an OpenType feature by tag
+// tag: 4-character feature tag (e.g., NVG_FEATURE_LIGA)
+// enabled: 1 to enable, 0 to disable
+void nvgFontFeature(NVGcontext* ctx, unsigned int tag, int enabled);
+
+// Reset all OpenType features to default
+void nvgFontFeaturesReset(NVGcontext* ctx);
 
 //
 // Internal Render API

@@ -13,6 +13,7 @@
 #include FT_GLYPH_H
 #include FT_COLOR_H
 #include FT_TRUETYPE_TABLES_H
+#include FT_MULTIPLE_MASTERS_H
 
 #include <hb.h>
 #include <hb-ft.h>
@@ -92,6 +93,8 @@ typedef struct NVGFTState {
 	float blur;
 	int align;
 	NVGFTRenderMode render_mode;
+	int kerning_enabled;
+	int hinting;  // Font hinting mode (0=default, 1=none, 2=light, 3=full)
 } NVGFTState;
 
 // Main system
@@ -130,6 +133,11 @@ struct NVGFontSystem {
 	// Buffer pool for RGBA conversions (avoid malloc/free churn)
 	unsigned char* rgba_pool;
 	int rgba_pool_size;
+
+	// OpenType features
+	hb_feature_t* features;
+	int feature_count;
+	int feature_capacity;
 };
 
 // FTC face requester callback
@@ -143,6 +151,31 @@ static FT_Error nvgft__face_requester(FTC_FaceID face_id, FT_Library library,
 	} else {
 		return FT_New_Face(library, font->path, 0, aface);
 	}
+}
+
+// Helper function to get FreeType load flags based on hinting mode
+static FT_Int32 nvgft__get_load_flags(int hinting) {
+	FT_Int32 flags = FT_LOAD_DEFAULT;
+
+	switch (hinting) {
+		case 0:  // NVG_HINTING_DEFAULT
+			flags = FT_LOAD_DEFAULT;
+			break;
+		case 1:  // NVG_HINTING_NONE
+			flags = FT_LOAD_NO_HINTING;
+			break;
+		case 2:  // NVG_HINTING_LIGHT
+			flags = FT_LOAD_TARGET_LIGHT;
+			break;
+		case 3:  // NVG_HINTING_FULL
+			flags = FT_LOAD_TARGET_NORMAL;
+			break;
+		default:
+			flags = FT_LOAD_DEFAULT;
+			break;
+	}
+
+	return flags;
 }
 
 NVGFontSystem* nvgft_create(int atlasWidth, int atlasHeight) {
@@ -199,6 +232,13 @@ NVGFontSystem* nvgft_create(int atlasWidth, int atlasHeight) {
 	sys->states[0].blur = 0.0f;
 	sys->states[0].align = NVGFT_ALIGN_LEFT | NVGFT_ALIGN_BASELINE;
 	sys->states[0].render_mode = NVGFT_RENDER_NORMAL;
+	sys->states[0].kerning_enabled = 1;  // Enabled by default
+	sys->states[0].hinting = 0;  // Default hinting
+
+	// Initialize feature storage
+	sys->features = NULL;
+	sys->feature_count = 0;
+	sys->feature_capacity = 0;
 
 	return sys;
 }
@@ -233,6 +273,11 @@ void nvgft_destroy(NVGFontSystem* sys) {
 	// Free RGBA pool
 	if (sys->rgba_pool) {
 		free(sys->rgba_pool);
+	}
+
+	// Free OpenType features
+	if (sys->features) {
+		free(sys->features);
 	}
 
 	// Free glyph hash table
@@ -336,6 +381,14 @@ void nvgft_set_font(NVGFontSystem* sys, int font_id) {
 
 void nvgft_set_render_mode(NVGFontSystem* sys, NVGFTRenderMode mode) {
 	nvgft__getState(sys)->render_mode = mode;
+}
+
+void nvgft_set_kerning(NVGFontSystem* sys, int enabled) {
+	nvgft__getState(sys)->kerning_enabled = enabled;
+}
+
+void nvgft_set_hinting(NVGFontSystem* sys, int hinting) {
+	nvgft__getState(sys)->hinting = hinting;
 }
 
 void nvgft_set_texture_callback(NVGFontSystem* sys,
@@ -662,6 +715,11 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 	NVGFTState* state = nvgft__getState(sys);
 	int pixel_size = (int)(state->size + 0.5f);
 
+	static int dbg_size = 0;
+	if (dbg_size++ == 0) {
+		printf("[nvg_freetype] state->size=%.2f, pixel_size=%d\n", state->size, pixel_size);
+	}
+
 	// Check if glyph is already in atlas
 	NVGFTGlyph* glyph = nvgft__find_glyph(sys, codepoint, font->id, pixel_size);
 
@@ -748,6 +806,12 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 		FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)ft_glyph;
 		FT_Bitmap* bitmap = &bitmap_glyph->bitmap;
 
+		static int dbg_bitmap = 0;
+		if (dbg_bitmap++ == 0) {
+			printf("[nvg_freetype shaped_iter] First bitmap: width=%d rows=%d, pixel_size=%d, left=%d top=%d\n",
+				bitmap->width, bitmap->rows, pixel_size, bitmap_glyph->left, bitmap_glyph->top);
+		}
+
 		// Skip empty glyphs
 		if (bitmap->width == 0 || bitmap->rows == 0) {
 			// Add minimal glyph to cache
@@ -814,8 +878,8 @@ int nvgft_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQuad* qua
 	}
 
 glyph_ready:
-	// Apply kerning if available
-	if (iter->prev_glyph_index >= 0) {
+	// Apply kerning if available and enabled
+	if (iter->prev_glyph_index >= 0 && state->kerning_enabled) {
 		FT_Face face;
 		if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) == 0) {
 			if (FT_HAS_KERNING(face)) {
@@ -829,10 +893,20 @@ glyph_ready:
 
 	// Build output quad
 	if (glyph && glyph->width > 0 && glyph->height > 0) {
+		// Apply vertical alignment
+		NVGFTState* state = nvgft__getState(sys);
+		int align = state->align;
+		float baseline_y = iter->y;
+		if (align & NVGFT_ALIGN_TOP) {
+			baseline_y += state->size;
+		} else if (align & NVGFT_ALIGN_MIDDLE) {
+			baseline_y += state->size * 0.5f;
+		}
+
 		quad->x0 = iter->x + glyph->offset_x;
-		quad->y0 = iter->y + glyph->offset_y;
+		quad->y0 = baseline_y - glyph->offset_y;
 		quad->x1 = quad->x0 + glyph->width;
-		quad->y1 = quad->y0 - glyph->height;
+		quad->y1 = quad->y0 + glyph->height;
 		quad->s0 = glyph->u0;
 		quad->t0 = glyph->v0;
 		quad->s1 = glyph->u1;
@@ -880,9 +954,17 @@ float nvgft_text_bounds(NVGFontSystem* sys, float x, float y,
 	float minx = x, maxx = x;
 	float miny = y, maxy = y;
 	float advance_x = x;
-	int prev_glyph_index = -1;
+	FT_UInt prev_glyph_index = 0;
+	int is_first_glyph = 1;
 
-	// Get face for metrics
+	// Setup image type for FTC cache - must use RENDER to get bitmap
+	FTC_ImageTypeRec type;
+	type.face_id = font->face_id;
+	type.width = pixel_size;
+	type.height = pixel_size;
+	type.flags = FT_LOAD_RENDER;
+
+	// Get face for kerning
 	FT_Face face;
 	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
 		if (bounds) {
@@ -894,17 +976,7 @@ float nvgft_text_bounds(NVGFontSystem* sys, float x, float y,
 		return x;
 	}
 
-	// Set size
-	if (FT_Set_Pixel_Sizes(face, 0, pixel_size) != 0) {
-		if (bounds) {
-			bounds[0] = x;
-			bounds[1] = y;
-			bounds[2] = x;
-			bounds[3] = y;
-		}
-		return x;
-	}
-
+	static int dbg_format = 0;
 	const char* str = string;
 	while (str < end) {
 		uint32_t codepoint = nvgft__decode_utf8(&str);
@@ -914,30 +986,103 @@ float nvgft_text_bounds(NVGFontSystem* sys, float x, float y,
 		FT_UInt glyph_index = FTC_CMapCache_Lookup(sys->cmap_cache, font->face_id, -1, codepoint);
 		if (glyph_index == 0) continue;
 
-		// Load glyph for metrics
-		if (FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT) != 0) continue;
+		// Load glyph via cache
+		FT_Glyph ft_glyph;
+		if (FTC_ImageCache_Lookup(sys->image_cache, &type, glyph_index, &ft_glyph, NULL) != 0) {
+			if (dbg_format++ == 0) printf("[nvgft_text_bounds] FTC_ImageCache_Lookup failed\n");
+			continue;
+		}
 
-		// Apply kerning
-		if (prev_glyph_index >= 0 && FT_HAS_KERNING(face)) {
+		if (dbg_format++ == 0) printf("[nvgft_text_bounds] First glyph format: %c%c%c%c\n",
+			(ft_glyph->format >> 24) & 0xFF,
+			(ft_glyph->format >> 16) & 0xFF,
+			(ft_glyph->format >> 8) & 0xFF,
+			ft_glyph->format & 0xFF);
+
+		// Must be bitmap glyph for bounds calculation
+		if (ft_glyph->format != FT_GLYPH_FORMAT_BITMAP) {
+			advance_x += (ft_glyph->advance.x / 65536.0f) + state->spacing;
+			prev_glyph_index = glyph_index;
+			continue;
+		}
+
+		FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)ft_glyph;
+		FT_Bitmap* bitmap = &bitmap_glyph->bitmap;
+
+		// Apply kerning if enabled
+		if (prev_glyph_index != 0 && state->kerning_enabled && FT_HAS_KERNING(face)) {
 			FT_Vector kerning;
 			FT_Get_Kerning(face, prev_glyph_index, glyph_index, FT_KERNING_DEFAULT, &kerning);
 			advance_x += kerning.x / 64.0f;
 		}
 
-		// Calculate bounds
-		float x0 = advance_x + face->glyph->bitmap_left;
-		float y0 = y - face->glyph->bitmap_top;
-		float x1 = x0 + face->glyph->bitmap.width;
-		float y1 = y0 + face->glyph->bitmap.rows;
+		// Calculate X bounds only (Y bounds are set by nvgft_line_bounds in wrapper)
+		// Match the actual rendering position: advance_x + bearing
+		float x0 = advance_x + bitmap_glyph->left;
+		float x1 = x0 + bitmap->width;
 
 		if (x0 < minx) minx = x0;
 		if (x1 > maxx) maxx = x1;
-		if (y0 < miny) miny = y0;
-		if (y1 > maxy) maxy = y1;
 
-		advance_x += (face->glyph->advance.x / 64.0f) + state->spacing;
+		advance_x += (ft_glyph->advance.x / 65536.0f) + state->spacing;
 		prev_glyph_index = glyph_index;
 	}
+
+	if (bounds) {
+		bounds[0] = minx;
+		bounds[1] = miny;
+		bounds[2] = maxx;
+		bounds[3] = maxy;
+	}
+
+	return advance_x;
+}
+
+float nvgft_text_bounds_shaped(NVGFontSystem* sys, float x, float y,
+                                 const char* string, const char* end, float* bounds) {
+	NVGFTState* state = nvgft__getState(sys);
+	if (state->font_id < 0 || state->font_id >= sys->font_count) {
+		if (bounds) {
+			bounds[0] = x;
+			bounds[1] = y;
+			bounds[2] = x;
+			bounds[3] = y;
+		}
+		return x;
+	}
+
+	if (end == NULL) end = string + strlen(string);
+	if (string == end) {
+		if (bounds) {
+			bounds[0] = x;
+			bounds[1] = y;
+			bounds[2] = x;
+			bounds[3] = y;
+		}
+		return x;
+	}
+
+	// Initialize iterator with HarfBuzz shaping (auto direction, no language)
+	NVGFTTextIter iter;
+	nvgft_shaped_text_iter_init(sys, &iter, x, y, string, end, 0, NULL);
+
+	float minx = x, maxx = x;
+	float miny = y, maxy = y;
+	float advance_x = x;
+
+	// Iterate through shaped glyphs
+	NVGFTQuad quad;
+	while (nvgft_text_iter_next(sys, &iter, &quad)) {
+		if (quad.x0 < minx) minx = quad.x0;
+		if (quad.x1 > maxx) maxx = quad.x1;
+		if (quad.y0 < miny) miny = quad.y0;
+		if (quad.y1 > maxy) maxy = quad.y1;
+	}
+
+	// Get final advance from iterator (same as nvgText does)
+	advance_x = iter.x;
+
+	nvgft_text_iter_free(&iter);
 
 	if (bounds) {
 		bounds[0] = minx;
@@ -997,11 +1142,21 @@ void nvgft_vert_metrics(NVGFontSystem* sys, float* ascender, float* descender, f
 }
 
 void nvgft_line_bounds(NVGFontSystem* sys, float y, float* miny, float* maxy) {
+	NVGFTState* state = nvgft__getState(sys);
 	float ascender, descender, lineh;
 	nvgft_vert_metrics(sys, &ascender, &descender, &lineh);
 
-	if (miny) *miny = y - ascender;
-	if (maxy) *maxy = y - descender;
+	// Apply vertical alignment to convert y to baseline
+	int align = state->align;
+	float baseline_y = y;
+	if (align & NVGFT_ALIGN_TOP) {
+		baseline_y += state->size;
+	} else if (align & NVGFT_ALIGN_MIDDLE) {
+		baseline_y += state->size * 0.5f;
+	}
+
+	if (miny) *miny = baseline_y - ascender;
+	if (maxy) *maxy = baseline_y - descender;
 }
 
 // Atlas management
@@ -1197,8 +1352,8 @@ void nvgft_shaped_text_iter_init(NVGFontSystem* sys, NVGFTTextIter* iter,
 	// Add text
 	hb_buffer_add_utf8(sys->hb_buffer, visual_str, visual_str_len, 0, visual_str_len);
 
-	// Shape
-	hb_shape(hb_font, sys->hb_buffer, NULL, 0);
+	// Shape with features
+	hb_shape(hb_font, sys->hb_buffer, sys->features, sys->feature_count);
 
 	// Get shaped glyphs
 	unsigned int glyph_count;
@@ -1326,11 +1481,20 @@ int nvgft_shaped_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQu
 	float x = iter->shaped_x + sg->x_offset;
 	float y = iter->shaped_y + sg->y_offset;
 
+	// Apply vertical alignment
+	int align = state->align;
+	float baseline_y = y;
+	if (align & NVGFT_ALIGN_TOP) {
+		baseline_y += state->size;
+	} else if (align & NVGFT_ALIGN_MIDDLE) {
+		baseline_y += state->size * 0.5f;
+	}
+
 	if (glyph && glyph->width > 0 && glyph->height > 0) {
 		quad->x0 = x + glyph->offset_x;
-		quad->y0 = y + glyph->offset_y;
+		quad->y0 = baseline_y - glyph->offset_y;
 		quad->x1 = quad->x0 + glyph->width;
-		quad->y1 = quad->y0 - glyph->height;
+		quad->y1 = quad->y0 + glyph->height;
 		quad->s0 = glyph->u0;
 		quad->t0 = glyph->v0;
 		quad->s1 = glyph->u1;
@@ -1419,4 +1583,440 @@ unsigned char* nvgft_rasterize_glyph(NVGFontSystem* sys, int font_id, uint32_t c
 	}
 
 	return rgba;
+}
+
+// Glyph-level API implementations
+
+int nvgft_get_glyph_metrics(NVGFontSystem* sys, int font_id, uint32_t codepoint,
+                              NVGFTGlyphMetrics* metrics)
+{
+	if (!sys || !metrics) return -1;
+	if (font_id < 0 || font_id >= sys->font_count) return -1;
+
+	NVGFTFont* font = &sys->fonts[font_id];
+	NVGFTState* state = nvgft__getState(sys);
+	int pixel_size = (int)(state->size + 0.5f);
+
+	// Get FreeType face
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
+		return -1;
+	}
+
+	// Get glyph index from codepoint
+	FT_UInt glyph_index = FT_Get_Char_Index(face, codepoint);
+	if (glyph_index == 0) return -1;
+
+	// Set pixel size
+	if (FT_Set_Pixel_Sizes(face, 0, pixel_size) != 0) {
+		return -1;
+	}
+
+	// Load glyph with hinting
+	FT_Int32 load_flags = nvgft__get_load_flags(state->hinting);
+	if (FT_Load_Glyph(face, glyph_index, load_flags) != 0) {
+		return -1;
+	}
+
+	// Fill metrics
+	metrics->glyphIndex = glyph_index;
+	metrics->bearingX = face->glyph->metrics.horiBearingX / 64.0f;
+	metrics->bearingY = face->glyph->metrics.horiBearingY / 64.0f;
+	metrics->advanceX = face->glyph->metrics.horiAdvance / 64.0f;
+	metrics->advanceY = face->glyph->metrics.vertAdvance / 64.0f;
+	metrics->width = face->glyph->metrics.width / 64.0f;
+	metrics->height = face->glyph->metrics.height / 64.0f;
+
+	return 0;
+}
+
+float nvgft_get_kerning(NVGFontSystem* sys, int font_id,
+                         uint32_t left_codepoint, uint32_t right_codepoint)
+{
+	if (!sys) return 0.0f;
+	if (font_id < 0 || font_id >= sys->font_count) return 0.0f;
+
+	NVGFTFont* font = &sys->fonts[font_id];
+
+	// Get FreeType face
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
+		return 0.0f;
+	}
+
+	// Check if font has kerning
+	if (!FT_HAS_KERNING(face)) {
+		return 0.0f;
+	}
+
+	// Get glyph indices
+	FT_UInt left_glyph = FT_Get_Char_Index(face, left_codepoint);
+	FT_UInt right_glyph = FT_Get_Char_Index(face, right_codepoint);
+
+	if (left_glyph == 0 || right_glyph == 0) {
+		return 0.0f;
+	}
+
+	// Get kerning vector
+	FT_Vector kerning;
+	if (FT_Get_Kerning(face, left_glyph, right_glyph, FT_KERNING_DEFAULT, &kerning) != 0) {
+		return 0.0f;
+	}
+
+	return kerning.x / 64.0f;
+}
+
+int nvgft_render_glyph(NVGFontSystem* sys, int font_id, uint32_t codepoint,
+                        float x, float y, NVGFTQuad* quad)
+{
+	if (!sys || !quad) return -1;
+	if (font_id < 0 || font_id >= sys->font_count) return -1;
+
+	NVGFTFont* font = &sys->fonts[font_id];
+
+	// Get FreeType face
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
+		return -1;
+	}
+
+	// Get glyph index
+	FT_UInt glyph_index = FT_Get_Char_Index(face, codepoint);
+	if (glyph_index == 0) return -1;
+
+	// Use render_glyph_index for the actual work
+	return nvgft_render_glyph_index(sys, font_id, glyph_index, x, y, quad);
+}
+
+int nvgft_render_glyph_index(NVGFontSystem* sys, int font_id, int glyph_index,
+                               float x, float y, NVGFTQuad* quad)
+{
+	if (!sys || !quad) return -1;
+	if (font_id < 0 || font_id >= sys->font_count) return -1;
+
+	NVGFTFont* font = &sys->fonts[font_id];
+	NVGFTState* state = nvgft__getState(sys);
+	int pixel_size = (int)(state->size + 0.5f);
+
+	// Check if glyph is already in cache
+	NVGFTGlyph* glyph = nvgft__find_glyph(sys, glyph_index, font->id, pixel_size);
+
+	if (!glyph) {
+		// Need to render glyph
+		FT_Face face;
+		if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) {
+			return -1;
+		}
+
+		// Set pixel size
+		if (FT_Set_Pixel_Sizes(face, 0, pixel_size) != 0) {
+			return -1;
+		}
+
+		// Load glyph with hinting
+		FT_Int32 load_flags = nvgft__get_load_flags(state->hinting);
+		if (FT_Load_Glyph(face, glyph_index, load_flags) != 0) {
+			return -1;
+		}
+
+		// Render glyph
+		FT_Render_Mode render_mode;
+		switch (state->render_mode) {
+			case NVGFT_RENDER_MONO: render_mode = FT_RENDER_MODE_MONO; break;
+			case NVGFT_RENDER_LCD: render_mode = FT_RENDER_MODE_LCD; break;
+			case NVGFT_RENDER_LCD_V: render_mode = FT_RENDER_MODE_LCD_V; break;
+			default: render_mode = FT_RENDER_MODE_NORMAL; break;
+		}
+
+		if (FT_Render_Glyph(face->glyph, render_mode) != 0) {
+			return -1;
+		}
+
+		FT_Bitmap* bitmap = &face->glyph->bitmap;
+
+		// Handle empty glyphs
+		if (bitmap->width == 0 || bitmap->rows == 0) {
+			glyph = nvgft__add_glyph(sys, glyph_index, font->id, pixel_size);
+			if (glyph) {
+				glyph->width = 0;
+				glyph->height = 0;
+			}
+		} else {
+			// Pack glyph in atlas
+			short atlas_x, atlas_y;
+			if (!nvgft__pack_glyph(sys, bitmap->width, bitmap->rows, &atlas_x, &atlas_y)) {
+				return -1;
+			}
+
+			glyph = nvgft__add_glyph(sys, glyph_index, font->id, pixel_size);
+			if (!glyph) {
+				return -1;
+			}
+
+			glyph->x = atlas_x;
+			glyph->y = atlas_y;
+			glyph->width = (short)bitmap->width;
+			glyph->height = (short)bitmap->rows;
+			glyph->offset_x = face->glyph->bitmap_left;
+			glyph->offset_y = face->glyph->bitmap_top;
+			glyph->advance_x = (short)(face->glyph->advance.x >> 6);
+
+			glyph->u0 = (float)atlas_x / (float)sys->atlas_width;
+			glyph->v0 = (float)atlas_y / (float)sys->atlas_height;
+			glyph->u1 = (float)(atlas_x + bitmap->width) / (float)sys->atlas_width;
+			glyph->v1 = (float)(atlas_y + bitmap->rows) / (float)sys->atlas_height;
+
+			// Upload to texture
+			if (sys->texture_callback) {
+				sys->texture_callback(sys->texture_uptr,
+					atlas_x, atlas_y,
+					bitmap->width, bitmap->rows,
+					bitmap->buffer);
+			}
+		}
+	}
+
+	// Build quad from glyph
+	if (!glyph || glyph->width == 0 || glyph->height == 0) {
+		quad->x0 = quad->y0 = quad->x1 = quad->y1 = 0;
+		quad->s0 = quad->t0 = quad->s1 = quad->t1 = 0;
+		return 0;
+	}
+
+	// Apply glyph alignment
+	int align = state->align;
+	float rx = x;
+	float ry = y;
+
+	// Horizontal alignment is typically handled by caller
+	// Vertical alignment
+	if (align & NVGFT_ALIGN_TOP) {
+		ry += state->size;
+	} else if (align & NVGFT_ALIGN_MIDDLE) {
+		ry += state->size * 0.5f;
+	} else if (align & NVGFT_ALIGN_BOTTOM) {
+		ry += 0;
+	} else {
+		// Baseline (default)
+		ry += 0;
+	}
+
+	// Position glyph
+	quad->x0 = rx + glyph->offset_x;
+	quad->y0 = ry - glyph->offset_y;
+	quad->x1 = quad->x0 + glyph->width;
+	quad->y1 = quad->y0 + glyph->height;
+
+	quad->s0 = glyph->u0;
+	quad->t0 = glyph->v0;
+	quad->s1 = glyph->u1;
+	quad->t1 = glyph->v1;
+
+	return 0;
+}
+
+// Font information queries
+const char* nvgft_get_family_name(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return NULL;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return NULL;
+	return face->family_name;
+}
+
+const char* nvgft_get_style_name(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return NULL;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return NULL;
+	return face->style_name;
+}
+
+int nvgft_get_glyph_count(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return -1;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return -1;
+	return (int)face->num_glyphs;
+}
+
+int nvgft_is_scalable(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return 0;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return 0;
+	return FT_IS_SCALABLE(face) ? 1 : 0;
+}
+
+int nvgft_is_fixed_width(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return 0;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return 0;
+	return FT_IS_FIXED_WIDTH(face) ? 1 : 0;
+}
+
+// Variable font support
+int nvgft_is_variable(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return 0;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return 0;
+
+	FT_MM_Var* mmvar = NULL;
+	if (FT_Get_MM_Var(face, &mmvar) != 0) return 0;
+	int is_var = (mmvar->num_axis > 0) ? 1 : 0;
+	FT_Done_MM_Var(sys->library, mmvar);
+	return is_var;
+}
+
+int nvgft_get_var_axis_count(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return 0;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return 0;
+
+	FT_MM_Var* mmvar = NULL;
+	if (FT_Get_MM_Var(face, &mmvar) != 0) return 0;
+	int count = (int)mmvar->num_axis;
+	FT_Done_MM_Var(sys->library, mmvar);
+	return count;
+}
+
+int nvgft_get_var_axis(NVGFontSystem* sys, int font_id, int axis_index, NVGFTVarAxis* axis) {
+	if (!sys || !axis || font_id < 0 || font_id >= sys->font_count) return -1;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return -1;
+
+	FT_MM_Var* mmvar = NULL;
+	if (FT_Get_MM_Var(face, &mmvar) != 0) return -1;
+
+	if (axis_index < 0 || axis_index >= (int)mmvar->num_axis) {
+		FT_Done_MM_Var(sys->library, mmvar);
+		return -1;
+	}
+
+	FT_Var_Axis* ft_axis = &mmvar->axis[axis_index];
+
+	// Copy name (truncate if too long)
+	if (ft_axis->name) {
+		strncpy(axis->name, ft_axis->name, 63);
+		axis->name[63] = '\0';
+	} else {
+		axis->name[0] = '\0';
+	}
+
+	// Convert FT_Fixed (16.16) to float
+	axis->minimum = (float)ft_axis->minimum / 65536.0f;
+	axis->def = (float)ft_axis->def / 65536.0f;
+	axis->maximum = (float)ft_axis->maximum / 65536.0f;
+	axis->tag = ft_axis->tag;
+
+	FT_Done_MM_Var(sys->library, mmvar);
+	return 0;
+}
+
+int nvgft_set_var_design_coords(NVGFontSystem* sys, int font_id, const float* coords, int num_coords) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return -1;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return -1;
+
+	// Reset to defaults if num_coords is 0
+	if (num_coords == 0 || !coords) {
+		if (FT_Set_Var_Design_Coordinates(face, 0, NULL) != 0) return -1;
+		return 0;
+	}
+
+	// Convert float coords to FT_Fixed (16.16)
+	FT_Fixed* ft_coords = (FT_Fixed*)malloc(num_coords * sizeof(FT_Fixed));
+	if (!ft_coords) return -1;
+
+	for (int i = 0; i < num_coords; i++) {
+		ft_coords[i] = (FT_Fixed)(coords[i] * 65536.0f);
+	}
+
+	int result = FT_Set_Var_Design_Coordinates(face, num_coords, ft_coords);
+	free(ft_coords);
+
+	return (result == 0) ? 0 : -1;
+}
+
+int nvgft_get_var_design_coords(NVGFontSystem* sys, int font_id, float* coords, int num_coords) {
+	if (!sys || !coords || font_id < 0 || font_id >= sys->font_count) return -1;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return -1;
+
+	FT_Fixed* ft_coords = (FT_Fixed*)malloc(num_coords * sizeof(FT_Fixed));
+	if (!ft_coords) return -1;
+
+	if (FT_Get_Var_Design_Coordinates(face, num_coords, ft_coords) != 0) {
+		free(ft_coords);
+		return -1;
+	}
+
+	// Convert FT_Fixed (16.16) to float
+	for (int i = 0; i < num_coords; i++) {
+		coords[i] = (float)ft_coords[i] / 65536.0f;
+	}
+
+	free(ft_coords);
+	return 0;
+}
+
+int nvgft_get_named_instance_count(NVGFontSystem* sys, int font_id) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return 0;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return 0;
+
+	FT_MM_Var* mmvar = NULL;
+	if (FT_Get_MM_Var(face, &mmvar) != 0) return 0;
+	int count = (int)mmvar->num_namedstyles;
+	FT_Done_MM_Var(sys->library, mmvar);
+	return count;
+}
+
+int nvgft_set_named_instance(NVGFontSystem* sys, int font_id, int instance_index) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) return -1;
+	NVGFTFont* font = &sys->fonts[font_id];
+	FT_Face face;
+	if (FTC_Manager_LookupFace(sys->cache_manager, font->face_id, &face) != 0) return -1;
+
+	if (FT_Set_Named_Instance(face, instance_index) != 0) return -1;
+	return 0;
+}
+
+void nvgft_set_feature(NVGFontSystem* sys, unsigned int tag, int enabled) {
+	if (!sys) return;
+
+	// Search for existing feature
+	for (int i = 0; i < sys->feature_count; i++) {
+		if (sys->features[i].tag == tag) {
+			sys->features[i].value = enabled ? 1 : 0;
+			return;
+		}
+	}
+
+	// Add new feature
+	if (sys->feature_count >= sys->feature_capacity) {
+		int new_capacity = sys->feature_capacity == 0 ? 8 : sys->feature_capacity * 2;
+		hb_feature_t* new_features = (hb_feature_t*)realloc(sys->features, new_capacity * sizeof(hb_feature_t));
+		if (!new_features) return;
+		sys->features = new_features;
+		sys->feature_capacity = new_capacity;
+	}
+
+	sys->features[sys->feature_count].tag = tag;
+	sys->features[sys->feature_count].value = enabled ? 1 : 0;
+	sys->features[sys->feature_count].start = HB_FEATURE_GLOBAL_START;
+	sys->features[sys->feature_count].end = HB_FEATURE_GLOBAL_END;
+	sys->feature_count++;
+}
+
+void nvgft_reset_features(NVGFontSystem* sys) {
+	if (!sys) return;
+	sys->feature_count = 0;
 }
