@@ -41,6 +41,7 @@ typedef struct VKNVGcomputeContext {
 
 	VkCommandPool commandPool;
 	VkCommandBuffer commandBuffer;
+	VkFence computeFence;           // Fence for compute synchronization
 
 	VKNVGcomputePipeline pipelines[VKNVG_COMPUTE_PIPELINE_COUNT];
 

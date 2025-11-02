@@ -36,11 +36,23 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 		return 0;
 	}
 
+	// Create fence for upload synchronization
+	VkFenceCreateInfo fenceInfo = {0};
+	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;  // Start signaled so first use works
+
+	if (vkCreateFence(vk->device, &fenceInfo, NULL, &vk->uploadFence) != VK_SUCCESS) {
+		fprintf(stderr, "NanoVG Vulkan: Failed to create upload fence\n");
+		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
+		return 0;
+	}
+
 	// Initialize vertex data
 	vk->vertexCapacity = NVGVK_INITIAL_VERTEX_COUNT;
 	vk->vertices = (float*)malloc(vk->vertexCapacity * sizeof(NVGvertex));
 	if (!vk->vertices) {
 		fprintf(stderr, "NanoVG Vulkan: Failed to allocate vertex buffer\n");
+		vkDestroyFence(vk->device, vk->uploadFence, NULL);
 		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
 		return 0;
 	}
@@ -50,6 +62,7 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 	if (!nvgvk_buffer_create(vk, &vk->vertexBuffer, vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)) {
 		fprintf(stderr, "NanoVG Vulkan: Failed to create vertex buffer\n");
 		free(vk->vertices);
+		vkDestroyFence(vk->device, vk->uploadFence, NULL);
 		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
 		return 0;
 	}
@@ -60,6 +73,7 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 		fprintf(stderr, "NanoVG Vulkan: Failed to create uniform buffer\n");
 		nvgvk_buffer_destroy(vk, &vk->vertexBuffer);
 		free(vk->vertices);
+		vkDestroyFence(vk->device, vk->uploadFence, NULL);
 		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
 		return 0;
 	}
@@ -70,6 +84,7 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 		nvgvk_buffer_destroy(vk, &vk->uniformBuffer);
 		nvgvk_buffer_destroy(vk, &vk->vertexBuffer);
 		free(vk->vertices);
+		vkDestroyFence(vk->device, vk->uploadFence, NULL);
 		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
 		return 0;
 	}
@@ -131,6 +146,12 @@ void nvgvk_delete(void* userPtr)
 	if (vk->vertices) {
 		free(vk->vertices);
 		vk->vertices = NULL;
+	}
+
+	// Destroy fence
+	if (vk->uploadFence) {
+		vkDestroyFence(vk->device, vk->uploadFence, NULL);
+		vk->uploadFence = VK_NULL_HANDLE;
 	}
 
 	// Free command buffer

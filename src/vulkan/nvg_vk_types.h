@@ -138,6 +138,7 @@ struct NVGVkContext {
 
 	// Owned resources
 	VkCommandBuffer commandBuffer;
+	VkFence uploadFence;  // Fence for texture upload synchronization
 
 	// Render pass state (not owned, just tracked)
 	VkRenderPass activeRenderPass;

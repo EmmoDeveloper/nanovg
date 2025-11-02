@@ -173,8 +173,21 @@ int vknvg__initComputeContext(VKNVGcomputeContext* ctx,
 		return 0;
 	}
 
+	// Create fence for synchronization
+	VkFenceCreateInfo fenceInfo = {0};
+	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;  // Start signaled
+
+	if (vkCreateFence(device, &fenceInfo, NULL, &ctx->computeFence) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create compute fence\n");
+		vkFreeCommandBuffers(device, ctx->commandPool, 1, &ctx->commandBuffer);
+		vkDestroyCommandPool(device, ctx->commandPool, NULL);
+		return 0;
+	}
+
 	// Create pipelines
 	if (!vknvg__createDefragPipeline(ctx)) {
+		vkDestroyFence(device, ctx->computeFence, NULL);
 		vkFreeCommandBuffers(device, ctx->commandPool, 1, &ctx->commandBuffer);
 		vkDestroyCommandPool(device, ctx->commandPool, NULL);
 		return 0;
@@ -211,6 +224,9 @@ void vknvg__destroyComputeContext(VKNVGcomputeContext* ctx)
 		}
 	}
 
+	if (ctx->computeFence) {
+		vkDestroyFence(ctx->device, ctx->computeFence, NULL);
+	}
 	if (ctx->commandBuffer) {
 		vkFreeCommandBuffers(ctx->device, ctx->commandPool, 1, &ctx->commandBuffer);
 	}
@@ -255,12 +271,18 @@ void vknvg__dispatchDefragCompute(VKNVGcomputeContext* ctx,
 	// End command buffer
 	vkEndCommandBuffer(ctx->commandBuffer);
 
-	// Submit
+	// Submit with fence for synchronization
 	VkSubmitInfo submitInfo = {0};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &ctx->commandBuffer;
 
-	vkQueueSubmit(ctx->computeQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	vkQueueWaitIdle(ctx->computeQueue);  // Simple synchronization for now
+	// Wait for previous compute to complete, then reset fence
+	vkWaitForFences(ctx->device, 1, &ctx->computeFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(ctx->device, 1, &ctx->computeFence);
+
+	vkQueueSubmit(ctx->computeQueue, 1, &submitInfo, ctx->computeFence);
+
+	// Wait for fence (ensures compute completes)
+	vkWaitForFences(ctx->device, 1, &ctx->computeFence, VK_TRUE, UINT64_MAX);
 }

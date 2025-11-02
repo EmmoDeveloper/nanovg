@@ -704,19 +704,30 @@ static VkResult vknvg__resizeAtlasImmediate(VKNVGvirtualAtlas* atlas, uint32_t a
 	vkEndCommandBuffer(cmdBuffer);
 
 	if (result == VK_SUCCESS) {
-		// Submit and wait
-		VkSubmitInfo submitInfo = {0};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &cmdBuffer;
+		// Create fence for synchronization
+		VkFence resizeFence;
+		VkFenceCreateInfo fenceInfo = {0};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		result = vkCreateFence(atlas->device, &fenceInfo, NULL, &resizeFence);
 
-		// Get graphics queue (assuming queue index 0)
-		VkQueue graphicsQueue;
-		vkGetDeviceQueue(atlas->device, 0, 0, &graphicsQueue);
-
-		result = vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
 		if (result == VK_SUCCESS) {
-			vkQueueWaitIdle(graphicsQueue);
+			// Submit with fence
+			VkSubmitInfo submitInfo = {0};
+			submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submitInfo.commandBufferCount = 1;
+			submitInfo.pCommandBuffers = &cmdBuffer;
+
+			// Get graphics queue (assuming queue index 0)
+			VkQueue graphicsQueue;
+			vkGetDeviceQueue(atlas->device, 0, 0, &graphicsQueue);
+
+			result = vkQueueSubmit(graphicsQueue, 1, &submitInfo, resizeFence);
+			if (result == VK_SUCCESS) {
+				// Wait for fence instead of queue
+				vkWaitForFences(atlas->device, 1, &resizeFence, VK_TRUE, UINT64_MAX);
+			}
+
+			vkDestroyFence(atlas->device, resizeFence, NULL);
 		}
 	}
 

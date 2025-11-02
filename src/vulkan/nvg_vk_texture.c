@@ -376,13 +376,20 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 		vkCmdEndRenderPass(vk->commandBuffer);
 		vkEndCommandBuffer(vk->commandBuffer);
 
-		// Submit and wait
+		// Submit with fence for synchronization
 		VkSubmitInfo submitInfo = {0};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &vk->commandBuffer;
-		vkQueueSubmit(vk->queue, 1, &submitInfo, VK_NULL_HANDLE);
-		vkQueueWaitIdle(vk->queue);
+
+		// Wait for previous upload to complete, then reset fence
+		vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(vk->device, 1, &vk->uploadFence);
+
+		vkQueueSubmit(vk->queue, 1, &submitInfo, vk->uploadFence);
+
+		// Wait for fence (non-blocking for GPU, but we need to wait here for correctness)
+		vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
 
 		vk->inRenderPass = 0;
 	}
@@ -456,14 +463,20 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	// Mark texture as initialized
 	tex->flags |= 0x8000;
 
-	// Submit and wait
+	// Submit with fence for synchronization
 	VkSubmitInfo submitInfo = {0};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &uploadCmd;
 
-	vkQueueSubmit(vk->queue, 1, &submitInfo, VK_NULL_HANDLE);
-	vkQueueWaitIdle(vk->queue);
+	// Wait for previous upload to complete, then reset fence
+	vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(vk->device, 1, &vk->uploadFence);
+
+	vkQueueSubmit(vk->queue, 1, &submitInfo, vk->uploadFence);
+
+	// Wait for fence (ensures upload completes before cleanup)
+	vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
 
 	// Cleanup
 	vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &uploadCmd);
