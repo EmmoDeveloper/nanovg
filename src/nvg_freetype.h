@@ -84,6 +84,7 @@ void nvgft_set_font(NVGFontSystem* sys, int font_id);
 void nvgft_set_render_mode(NVGFontSystem* sys, NVGFTRenderMode mode);
 void nvgft_set_kerning(NVGFontSystem* sys, int enabled);
 void nvgft_set_hinting(NVGFontSystem* sys, int hinting);
+void nvgft_set_font_msdf(NVGFontSystem* sys, int font_id, int msdf_mode);
 
 // Text iteration (simple, no shaping)
 void nvgft_text_iter_init(NVGFontSystem* sys, NVGFTTextIter* iter,

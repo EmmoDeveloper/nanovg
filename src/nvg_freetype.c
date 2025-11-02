@@ -1,4 +1,5 @@
 #include "nvg_freetype.h"
+#include "vknvg_msdf.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -58,6 +59,7 @@ typedef struct NVGFTFont {
 	int free_data;
 	int id;
 	int fallback;  // Fallback font ID (-1 = none)
+	int msdf_mode;  // MSDF rendering mode: 0=off, 1=SDF, 2=MSDF
 	FTC_FaceID face_id;  // Pointer to this struct (used by FTC)
 	FT_Face hb_face;  // Fresh FT_Face for HarfBuzz (not cached)
 	hb_font_t* hb_font;  // HarfBuzz font (created on demand)
@@ -389,6 +391,12 @@ void nvgft_set_kerning(NVGFontSystem* sys, int enabled) {
 
 void nvgft_set_hinting(NVGFontSystem* sys, int hinting) {
 	nvgft__getState(sys)->hinting = hinting;
+}
+
+void nvgft_set_font_msdf(NVGFontSystem* sys, int font_id, int msdf_mode) {
+	if (font_id >= 0 && font_id < sys->font_count) {
+		sys->fonts[font_id].msdf_mode = msdf_mode;
+	}
 }
 
 void nvgft_set_texture_callback(NVGFontSystem* sys,
@@ -1713,26 +1721,65 @@ int nvgft_render_glyph_index(NVGFontSystem* sys, int font_id, int glyph_index,
 			return -1;
 		}
 
-		// Load glyph with hinting
-		FT_Int32 load_flags = nvgft__get_load_flags(state->hinting);
+		// Load glyph with hinting (or without for MSDF)
+		FT_Int32 load_flags = (font->msdf_mode > 0) ? FT_LOAD_NO_BITMAP : nvgft__get_load_flags(state->hinting);
 		if (FT_Load_Glyph(face, glyph_index, load_flags) != 0) {
 			return -1;
 		}
 
-		// Render glyph
-		FT_Render_Mode render_mode;
-		switch (state->render_mode) {
-			case NVGFT_RENDER_MONO: render_mode = FT_RENDER_MODE_MONO; break;
-			case NVGFT_RENDER_LCD: render_mode = FT_RENDER_MODE_LCD; break;
-			case NVGFT_RENDER_LCD_V: render_mode = FT_RENDER_MODE_LCD_V; break;
-			default: render_mode = FT_RENDER_MODE_NORMAL; break;
-		}
+		FT_Bitmap* bitmap = NULL;
+		unsigned char* msdf_buffer = NULL;
 
-		if (FT_Render_Glyph(face->glyph, render_mode) != 0) {
-			return -1;
-		}
+		// Check if MSDF mode is enabled for this font
+		if (font->msdf_mode > 0) {
+			// Generate MSDF/SDF from outline
+			int msdf_size = pixel_size * 2;  // MSDF needs higher resolution
+			int msdf_padding = pixel_size / 4;
 
-		FT_Bitmap* bitmap = &face->glyph->bitmap;
+			VKNVGmsdfParams params;
+			params.width = msdf_size + msdf_padding * 2;
+			params.height = msdf_size + msdf_padding * 2;
+			params.stride = params.width * (font->msdf_mode == 2 ? 3 : 1);  // MSDF=3 channels, SDF=1
+			params.range = pixel_size / 8.0f;
+			params.scale = 1.0f;
+			params.offsetX = msdf_padding;
+			params.offsetY = msdf_padding;
+
+			// Allocate buffer
+			msdf_buffer = (unsigned char*)malloc(params.width * params.height * (font->msdf_mode == 2 ? 3 : 1));
+			if (msdf_buffer) {
+				if (font->msdf_mode == 2) {
+					vknvg__generateMSDF(face->glyph, msdf_buffer, &params);
+				} else {
+					vknvg__generateSDF(face->glyph, msdf_buffer, &params);
+				}
+
+				// Create temporary bitmap structure
+				static FT_Bitmap msdf_bitmap;
+				msdf_bitmap.width = params.width;
+				msdf_bitmap.rows = params.height;
+				msdf_bitmap.pitch = params.stride;
+				msdf_bitmap.buffer = msdf_buffer;
+				msdf_bitmap.pixel_mode = FT_PIXEL_MODE_GRAY;
+				bitmap = &msdf_bitmap;
+			}
+		} else {
+			// Standard bitmap rendering
+			FT_Render_Mode render_mode;
+			switch (state->render_mode) {
+				case NVGFT_RENDER_MONO: render_mode = FT_RENDER_MODE_MONO; break;
+				case NVGFT_RENDER_LCD: render_mode = FT_RENDER_MODE_LCD; break;
+				case NVGFT_RENDER_LCD_V: render_mode = FT_RENDER_MODE_LCD_V; break;
+				default: render_mode = FT_RENDER_MODE_NORMAL; break;
+			}
+
+			if (FT_Render_Glyph(face->glyph, render_mode) != 0) {
+				if (msdf_buffer) free(msdf_buffer);
+				return -1;
+			}
+
+			bitmap = &face->glyph->bitmap;
+		}
 
 		// Handle empty glyphs
 		if (bitmap->width == 0 || bitmap->rows == 0) {
@@ -1745,11 +1792,13 @@ int nvgft_render_glyph_index(NVGFontSystem* sys, int font_id, int glyph_index,
 			// Pack glyph in atlas
 			short atlas_x, atlas_y;
 			if (!nvgft__pack_glyph(sys, bitmap->width, bitmap->rows, &atlas_x, &atlas_y)) {
+				if (msdf_buffer) free(msdf_buffer);
 				return -1;
 			}
 
 			glyph = nvgft__add_glyph(sys, glyph_index, font->id, pixel_size);
 			if (!glyph) {
+				if (msdf_buffer) free(msdf_buffer);
 				return -1;
 			}
 
@@ -1773,6 +1822,11 @@ int nvgft_render_glyph_index(NVGFontSystem* sys, int font_id, int glyph_index,
 					bitmap->width, bitmap->rows,
 					bitmap->buffer);
 			}
+		}
+
+		// Cleanup MSDF buffer if allocated
+		if (msdf_buffer) {
+			free(msdf_buffer);
 		}
 	}
 

@@ -2369,9 +2369,7 @@ void nvgResetFallbackFonts(NVGcontext* ctx, const char* baseFont)
 
 void nvgSetFontMSDF(NVGcontext* ctx, int font, int msdfMode)
 {
-	(void)ctx; (void)font; (void)msdfMode;
-	// MSDF rendering mode not yet supported in nvg_freetype
-	// TODO: Implement MSDF render mode support
+	nvgft_set_font_msdf(ctx->fs, font, msdfMode);
 }
 
 // State setting
