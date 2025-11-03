@@ -1649,3 +1649,37 @@ VkResult vknvg__enableComputeDefragmentation(VKNVGvirtualAtlas* atlas,
 
 	return VK_SUCCESS;
 }
+
+// Enable GPU MSDF generation
+VkResult vknvg__enableGPUMSDF(VKNVGvirtualAtlas* atlas,
+                               VkQueue computeQueue,
+                               uint32_t computeQueueFamily)
+{
+	if (!atlas) return VK_ERROR_INITIALIZATION_FAILED;
+
+	// If compute context already exists (e.g., from defrag), reuse it
+	if (atlas->computeContext) {
+		printf("GPU MSDF generation enabled (reusing existing compute context)\n");
+		return VK_SUCCESS;
+	}
+
+	// Allocate compute context
+	atlas->computeContext = (VKNVGcomputeContext*)malloc(sizeof(VKNVGcomputeContext));
+	if (!atlas->computeContext) {
+		return VK_ERROR_OUT_OF_HOST_MEMORY;
+	}
+
+	// Initialize compute context
+	if (!vknvg__initComputeContext(atlas->computeContext,
+	                                atlas->device,
+	                                computeQueue,
+	                                computeQueueFamily)) {
+		free(atlas->computeContext);
+		atlas->computeContext = NULL;
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	printf("GPU MSDF generation enabled (compute context created)\n");
+
+	return VK_SUCCESS;
+}

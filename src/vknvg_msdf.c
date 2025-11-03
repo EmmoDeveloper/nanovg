@@ -287,9 +287,9 @@ static void assignEdgeColors(OutlineData* data) {
 
 void vknvg__generateMSDF(FT_GlyphSlot glyph, unsigned char* output, const VKNVGmsdfParams* params) {
 	if (!glyph || !output || !params || glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
-		for (int i = 0; i < params->width * params->height * 4; i += 4) {
+		// MSDF is RGB (3 bytes per pixel), not RGBA
+		for (int i = 0; i < params->width * params->height * 3; i += 3) {
 			output[i] = output[i+1] = output[i+2] = 128;
-			output[i+3] = 255;
 		}
 		return;
 	}

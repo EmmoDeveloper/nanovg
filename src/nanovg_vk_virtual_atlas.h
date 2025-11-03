@@ -324,6 +324,13 @@ VkResult vknvg__enableComputeDefragmentation(VKNVGvirtualAtlas* atlas,
                                               VkQueue computeQueue,
                                               uint32_t computeQueueFamily);
 
+// Enable GPU MSDF generation (creates compute context if not already created)
+// Call after virtual atlas creation to enable GPU-based MSDF generation
+// Returns VK_SUCCESS on success, error code otherwise
+VkResult vknvg__enableGPUMSDF(VKNVGvirtualAtlas* atlas,
+                               VkQueue computeQueue,
+                               uint32_t computeQueueFamily);
+
 // Set callback to be notified when glyphs finish loading
 // Callback is fired from background thread when glyph is rasterized and ready
 void vknvg__setGlyphReadyCallback(VKNVGvirtualAtlas* atlas,

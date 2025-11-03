@@ -116,6 +116,18 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 		// Not a fatal error - continue without async uploads
 	}
 
+	// Enable GPU MSDF generation (graphics queue can do compute operations)
+	result = vknvg__enableGPUMSDF((VKNVGvirtualAtlas*)vk->virtualAtlas,
+	                               vk->queue,  // Use graphics queue for compute
+	                               0);          // Queue family 0 (graphics)
+
+	if (result == VK_SUCCESS) {
+		printf("NanoVG Vulkan: GPU MSDF generation enabled (using graphics queue)\n");
+	} else {
+		printf("NanoVG Vulkan: Warning - Failed to enable GPU MSDF (error %d)\n", result);
+		// Not a fatal error - will fall back to CPU rasterization
+	}
+
 	return 1;
 }
 

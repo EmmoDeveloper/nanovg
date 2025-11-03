@@ -29,7 +29,9 @@ float median(float r, float g, float b) {
 
 float screenPxRange(vec2 texCoord) {
 	// Calculate the distance range in screen pixels
-	vec2 unitRange = vec2(32.0) / vec2(textureSize(texSampler, 0));  // Match large range
+	// MSDF_PIXEL_RANGE from nvg_freetype.c must match this value
+	const float MSDF_PIXEL_RANGE = 16.0;
+	vec2 unitRange = vec2(MSDF_PIXEL_RANGE) / vec2(textureSize(texSampler, 0));
 	vec2 screenTexSize = vec2(1.0) / fwidth(texCoord);
 	return max(0.5 * dot(unitRange, screenTexSize), 1.0);
 }

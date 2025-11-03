@@ -2532,7 +2532,7 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 
 	nvgft_shaped_text_iter_init(ctx->fs, &iter, x*scale, y*scale, string, end, 0, NULL);
 	static int glyph_dbg = 0;
-	while (nvgft_text_iter_next(ctx->fs, &iter, &q)) {
+	while (nvgft_shaped_text_iter_next(ctx->fs, &iter, &q)) {
 		if (glyph_dbg++ == 0) {
 			printf("[nvgText] First glyph quad: x0=%.1f y0=%.1f x1=%.1f y1=%.1f, scale=%.2f invscale=%.2f\n",
 				q.x0, q.y0, q.x1, q.y1, scale, invscale);

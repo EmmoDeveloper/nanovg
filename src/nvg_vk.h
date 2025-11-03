@@ -69,6 +69,14 @@ void nvgVkBeginRenderPass(NVGcontext* ctx, const VkRenderPassBeginInfo* renderPa
 // Call this before vkCmdEndRenderPass() if you manage render passes manually.
 void nvgVkEndRenderPass(NVGcontext* ctx);
 
+// Glyph ready callback type for virtual atlas
+// Called from background thread when a glyph finishes rasterizing
+typedef void (*NVGVkGlyphReadyCallback)(void* userdata, uint32_t fontID, uint32_t codepoint, uint32_t size);
+
+// Set callback to be notified when MSDF glyphs finish loading
+// Callback is fired from background thread when glyph is rasterized and ready for rendering
+void nvgVkSetGlyphReadyCallback(NVGcontext* ctx, NVGVkGlyphReadyCallback callback, void* userdata);
+
 #ifdef __cplusplus
 }
 #endif

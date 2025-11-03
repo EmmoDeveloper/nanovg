@@ -273,8 +273,11 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 		int texId = call->image - 1;
 		// Check if texture is MSDF type (type 3 = NVG_TEXTURE_MSDF)
 		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES && vk->textures[texId].type == 3) {
+			printf("[MSDF] Using MSDF pipeline for texture %d (type=%d)\n", call->image, vk->textures[texId].type);
 			pipelineType = NVGVK_PIPELINE_TEXT_MSDF;
 		} else {
+			printf("[MSDF] Using IMG pipeline for texture %d (type=%d)\n", call->image,
+			       (texId >= 0 && texId < NVGVK_MAX_TEXTURES) ? vk->textures[texId].type : -1);
 			pipelineType = NVGVK_PIPELINE_IMG;
 		}
 	}
