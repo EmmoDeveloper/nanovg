@@ -53,8 +53,11 @@ static uint8_t* vknvg__rasterizeGlyphCompute(VKNVGvirtualAtlas* atlas,
 	// 5. Read back result
 
 	if (atlas->rasterizeGlyph) {
-		return atlas->rasterizeGlyph(atlas->fontContext, key,
-		                             width, height, bearingX, bearingY, advance);
+		uint8_t bpp = 1;  // Will be filled by callback
+		uint8_t* result = atlas->rasterizeGlyph(atlas->fontContext, key,
+		                                         width, height, bearingX, bearingY, advance, &bpp);
+		// Note: bytesPerPixel from compute fallback is ignored - uses default of 1
+		return result;
 	}
 
 	return NULL;
@@ -64,13 +67,16 @@ static uint8_t* vknvg__rasterizeGlyphCompute(VKNVGvirtualAtlas* atlas,
 static void* vknvg__loaderThreadFunc(void* arg)
 {
 	VKNVGvirtualAtlas* atlas = (VKNVGvirtualAtlas*)arg;
+	printf("[VA Loader] Background thread started\n");
 
 	while (atlas->loaderThreadRunning) {
 		pthread_mutex_lock(&atlas->loadQueueMutex);
 
 		// Wait for work
 		while (atlas->loadQueueCount == 0 && atlas->loaderThreadRunning) {
+			printf("[VA Loader] Waiting for work...\n");
 			pthread_cond_wait(&atlas->loadQueueCond, &atlas->loadQueueMutex);
+			printf("[VA Loader] Woke up! Count=%u\n", atlas->loadQueueCount);
 		}
 
 		if (!atlas->loaderThreadRunning) {
@@ -83,47 +89,76 @@ static void* vknvg__loaderThreadFunc(void* arg)
 		atlas->loadQueueHead = (atlas->loadQueueHead + 1) % VKNVG_LOAD_QUEUE_SIZE;
 		atlas->loadQueueCount--;
 
+		printf("[VA Loader] Processing glyph: font=%u codepoint=%u size=%u\n",
+		       req.key.fontID, req.key.codepoint, req.key.size >> 16);
+
 		pthread_mutex_unlock(&atlas->loadQueueMutex);
 
-		// Rasterize glyph
+		// Extract outline or rasterize glyph
 		uint16_t width, height, advance;
 		int16_t bearingX, bearingY;
+		uint8_t bytesPerPixel = 1;  // Default to grayscale
+		req.outline = NULL;
 
-		if (atlas->useComputeRaster && atlas->computeRaster) {
-			// Use GPU compute shader rasterization
-			req.pixelData = vknvg__rasterizeGlyphCompute(atlas, req.key,
-			                                              &width, &height,
-			                                              &bearingX, &bearingY, &advance);
-		} else if (atlas->rasterizeGlyph) {
-			// Use CPU rasterization callback
-			req.pixelData = atlas->rasterizeGlyph(atlas->fontContext, req.key,
-			                                       &width, &height,
-			                                       &bearingX, &bearingY, &advance);
-		} else {
-			// Fallback: Create placeholder gradient for testing
-			width = 32;
-			height = 32;
-			req.pixelData = (uint8_t*)malloc(width * height);
-			if (req.pixelData) {
-				for (int y = 0; y < height; y++) {
-					for (int x = 0; x < width; x++) {
-						req.pixelData[y * width + x] = (uint8_t)((x + y) * 2);
-					}
-				}
+		printf("[VA Loader] useComputeRaster=%d computeRaster=%p rasterizeGlyph=%p extractOutline=%p\n",
+		       atlas->useComputeRaster, (void*)atlas->computeRaster,
+		       (void*)atlas->rasterizeGlyph, (void*)atlas->extractOutline);
+
+		// Try outline extraction first (for GPU MSDF)
+		if (atlas->extractOutline) {
+			req.outline = atlas->extractOutline(atlas->fontContext, req.key);
+			if (req.outline) {
+				printf("[VA Loader] Extracted outline: contours=%u unitsPerEM=%u\n",
+				       req.outline->contourCount, req.outline->unitsPerEM);
+				width = req.outline->width;
+				height = req.outline->height;
+				bearingX = req.outline->bearingX;
+				bearingY = req.outline->bearingY;
+				advance = req.outline->advance;
+				bytesPerPixel = 3;  // MSDF is RGB
 			}
-			bearingX = 0;
-			bearingY = height;
-			advance = width;
 		}
 
-		if (req.pixelData) {
-			// Update entry
+		// Fall back to rasterization if no outline
+		if (!req.outline) {
+			if (atlas->useComputeRaster && atlas->computeRaster) {
+				// Use GPU compute shader rasterization
+				req.pixelData = vknvg__rasterizeGlyphCompute(atlas, req.key,
+				                                              &width, &height,
+				                                              &bearingX, &bearingY, &advance);
+			} else if (atlas->rasterizeGlyph) {
+				// Use CPU rasterization callback
+				req.pixelData = atlas->rasterizeGlyph(atlas->fontContext, req.key,
+				                                       &width, &height,
+				                                       &bearingX, &bearingY, &advance, &bytesPerPixel);
+			} else {
+				// Fallback: Create placeholder gradient for testing
+				width = 32;
+				height = 32;
+				req.pixelData = (uint8_t*)malloc(width * height);
+				if (req.pixelData) {
+					for (int y = 0; y < height; y++) {
+						for (int x = 0; x < width; x++) {
+							req.pixelData[y * width + x] = (uint8_t)((x + y) * 2);
+						}
+					}
+				}
+				bearingX = 0;
+				bearingY = height;
+				advance = width;
+			}
+		}
+
+		if (req.pixelData || req.outline) {
+			// Update entry (thread-safe)
+			pthread_mutex_lock(&atlas->cacheMutex);
 			req.entry->width = width;
 			req.entry->height = height;
 			req.entry->bearingX = bearingX;
 			req.entry->bearingY = bearingY;
 			req.entry->advance = advance;
 			req.entry->state = VKNVG_GLYPH_READY;
+			pthread_mutex_unlock(&atlas->cacheMutex);
 
 			// Add to upload queue
 			pthread_mutex_lock(&atlas->uploadQueueMutex);
@@ -135,9 +170,20 @@ static void* vknvg__loaderThreadFunc(void* arg)
 				upload->width = width;
 				upload->height = height;
 				upload->pixelData = req.pixelData;
+				upload->outline = req.outline;
+				upload->bytesPerPixel = bytesPerPixel;
+				upload->useGPUMSDF = (req.outline != NULL) ? 1 : 0;
 				upload->entry = req.entry;
 			}
 			pthread_mutex_unlock(&atlas->uploadQueueMutex);
+
+			// Fire callback if set
+			if (atlas->glyphReadyCallback) {
+				atlas->glyphReadyCallback(atlas->callbackUserdata,
+				                           req.key.fontID,
+				                           req.key.codepoint,
+				                           req.key.size);
+			}
 		}
 	}
 
@@ -171,10 +217,11 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	// Phase 3: Page system removed - no longer initialized
 
 	// Create physical atlas texture
+	// RGBA format - RGB channels for MSDF, A unused (RGB8 has alignment issues)
 	VkImageCreateInfo imageInfo = {0};
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageInfo.format = VK_FORMAT_R8_UNORM;
+	imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
 	imageInfo.extent.width = VKNVG_ATLAS_PHYSICAL_SIZE;
 	imageInfo.extent.height = VKNVG_ATLAS_PHYSICAL_SIZE;
 	imageInfo.extent.depth = 1;
@@ -384,6 +431,7 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 	}
 
 	// Initialize mutexes and condition variable
+	pthread_mutex_init(&atlas->cacheMutex, NULL);
 	pthread_mutex_init(&atlas->loadQueueMutex, NULL);
 	pthread_cond_init(&atlas->loadQueueCond, NULL);
 	pthread_mutex_init(&atlas->uploadQueueMutex, NULL);
@@ -395,6 +443,7 @@ VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
 		pthread_mutex_destroy(&atlas->uploadQueueMutex);
 		pthread_cond_destroy(&atlas->loadQueueCond);
 		pthread_mutex_destroy(&atlas->loadQueueMutex);
+		pthread_mutex_destroy(&atlas->cacheMutex);
 		vkUnmapMemory(device, atlas->stagingMemory);
 		vkFreeMemory(device, atlas->stagingMemory, NULL);
 		vkDestroyBuffer(device, atlas->stagingBuffer, NULL);
@@ -448,6 +497,7 @@ void vknvg__destroyVirtualAtlas(VKNVGvirtualAtlas* atlas)
 	pthread_mutex_destroy(&atlas->uploadQueueMutex);
 	pthread_cond_destroy(&atlas->loadQueueCond);
 	pthread_mutex_destroy(&atlas->loadQueueMutex);
+	pthread_mutex_destroy(&atlas->cacheMutex);
 
 	// Free load queue
 	free(atlas->loadQueue);
@@ -504,11 +554,14 @@ void vknvg__destroyVirtualAtlas(VKNVGvirtualAtlas* atlas)
 	printf("Virtual atlas destroyed\n");
 }
 
-// Lookup glyph in cache
+// Lookup glyph in cache (thread-safe)
 VKNVGglyphCacheEntry* vknvg__lookupGlyph(VKNVGvirtualAtlas* atlas, VKNVGglyphKey key)
 {
+	pthread_mutex_lock(&atlas->cacheMutex);
+
 	uint32_t hash = vknvg__hashGlyphKey(key);
 	uint32_t index = hash % atlas->glyphCacheSize;
+	VKNVGglyphCacheEntry* result = NULL;
 
 	// Linear probing
 	for (uint32_t i = 0; i < atlas->glyphCacheSize; i++) {
@@ -516,15 +569,17 @@ VKNVGglyphCacheEntry* vknvg__lookupGlyph(VKNVGvirtualAtlas* atlas, VKNVGglyphKey
 		VKNVGglyphCacheEntry* entry = &atlas->glyphCache[probe];
 
 		if (entry->state == VKNVG_GLYPH_EMPTY) {
-			return NULL;	// Not found
+			break;	// Not found
 		}
 
 		if (vknvg__glyphKeyEqual(entry->key, key)) {
-			return entry;
+			result = entry;
+			break;
 		}
 	}
 
-	return NULL;	// Cache full or not found
+	pthread_mutex_unlock(&atlas->cacheMutex);
+	return result;
 }
 
 // LRU list management
@@ -796,19 +851,24 @@ VKNVGglyphCacheEntry* vknvg__requestGlyph(VKNVGvirtualAtlas* atlas, VKNVGglyphKe
 {
 	if (!atlas) return NULL;
 
-	// Check cache first
+	// Check cache first (vknvg__lookupGlyph handles its own locking)
 	VKNVGglyphCacheEntry* entry = vknvg__lookupGlyph(atlas, key);
 	if (entry && entry->state != VKNVG_GLYPH_EMPTY) {
 		// Already exists in cache (LOADING, READY, or UPLOADED)
+		// Update access tracking (thread-safe)
+		pthread_mutex_lock(&atlas->cacheMutex);
 		atlas->cacheHits++;
 		entry->lastAccessFrame = atlas->currentFrame;
 		vknvg__lruMoveToHead(atlas, entry);
+		pthread_mutex_unlock(&atlas->cacheMutex);
 		return entry;
 	}
 
 	atlas->cacheMisses++;
 
-	// Find empty slot in cache
+	// Find empty slot in cache (need lock for allocation)
+	pthread_mutex_lock(&atlas->cacheMutex);
+
 	uint32_t hash = vknvg__hashGlyphKey(key);
 	uint32_t index = hash % atlas->glyphCacheSize;
 
@@ -823,6 +883,7 @@ VKNVGglyphCacheEntry* vknvg__requestGlyph(VKNVGvirtualAtlas* atlas, VKNVGglyphKe
 			uint16_t atlasX, atlasY;
 			if (!vknvg__allocateSpace(atlas, VKNVG_ATLAS_PAGE_SIZE, VKNVG_ATLAS_PAGE_SIZE,
 			                           &atlasIndex, &atlasX, &atlasY)) {
+				pthread_mutex_unlock(&atlas->cacheMutex);
 				return NULL;	// Atlas full
 			}
 
@@ -835,8 +896,12 @@ VKNVGglyphCacheEntry* vknvg__requestGlyph(VKNVGvirtualAtlas* atlas, VKNVGglyphKe
 			entry->state = VKNVG_GLYPH_LOADING;
 			entry->loadFrame = atlas->currentFrame;
 			entry->lastAccessFrame = atlas->currentFrame;
+			atlas->glyphCount++;
+			vknvg__lruMoveToHead(atlas, entry);
 
-			// Add to load queue
+			pthread_mutex_unlock(&atlas->cacheMutex);
+
+			// Add to load queue (separate lock)
 			pthread_mutex_lock(&atlas->loadQueueMutex);
 			if (atlas->loadQueueCount < VKNVG_LOAD_QUEUE_SIZE) {
 				VKNVGglyphLoadRequest* req = &atlas->loadQueue[atlas->loadQueueTail];
@@ -848,16 +913,18 @@ VKNVGglyphCacheEntry* vknvg__requestGlyph(VKNVGvirtualAtlas* atlas, VKNVGglyphKe
 				atlas->loadQueueTail = (atlas->loadQueueTail + 1) % VKNVG_LOAD_QUEUE_SIZE;
 				atlas->loadQueueCount++;
 
+				printf("[VA] Added glyph to load queue: font=%u codepoint=%u size=%u (queue=%u)\n",
+				       key.fontID, key.codepoint, key.size >> 16, atlas->loadQueueCount);
+
 				pthread_cond_signal(&atlas->loadQueueCond);
 			}
 			pthread_mutex_unlock(&atlas->loadQueueMutex);
 
-			atlas->glyphCount++;
-			vknvg__lruMoveToHead(atlas, entry);
 			return entry;	// Return entry in LOADING state
 		}
 	}
 
+	pthread_mutex_unlock(&atlas->cacheMutex);
 	return NULL;	// Cache full
 }
 
@@ -999,6 +1066,150 @@ static VkDescriptorSet vknvg__createDefragDescriptorSet(VKNVGvirtualAtlas* atlas
 	return descriptorSet;
 }
 
+// Generate MSDF on GPU using compute shader
+static VkResult vknvg__generateMSDFCompute(VKNVGvirtualAtlas* atlas,
+                                            VKNVGglyphOutline* outline,
+                                            VkImage targetImage,
+                                            uint32_t atlasX, uint32_t atlasY,
+                                            uint32_t width, uint32_t height)
+{
+	if (!atlas->computeContext || !outline) {
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	// Create buffer for outline data
+	VkBufferCreateInfo bufferInfo = {0};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = sizeof(VKNVGglyphOutline);
+	bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VkBuffer outlineBuffer;
+	if (vkCreateBuffer(atlas->device, &bufferInfo, NULL, &outlineBuffer) != VK_SUCCESS) {
+		fprintf(stderr, "[VA MSDF] Failed to create outline buffer\n");
+		return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+	}
+
+	// Allocate and bind memory
+	VkMemoryRequirements memReq;
+	vkGetBufferMemoryRequirements(atlas->device, outlineBuffer, &memReq);
+
+	VkMemoryAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memReq.size;
+
+	// Find HOST_VISIBLE memory type
+	VkPhysicalDeviceMemoryProperties memProps;
+	vkGetPhysicalDeviceMemoryProperties(atlas->physicalDevice, &memProps);
+	uint32_t memTypeIndex = UINT32_MAX;
+	for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
+		if ((memReq.memoryTypeBits & (1 << i)) &&
+		    (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+			memTypeIndex = i;
+			break;
+		}
+	}
+	if (memTypeIndex == UINT32_MAX) {
+		vkDestroyBuffer(atlas->device, outlineBuffer, NULL);
+		return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+	}
+	allocInfo.memoryTypeIndex = memTypeIndex;
+
+	VkDeviceMemory outlineMemory;
+	if (vkAllocateMemory(atlas->device, &allocInfo, NULL, &outlineMemory) != VK_SUCCESS) {
+		vkDestroyBuffer(atlas->device, outlineBuffer, NULL);
+		return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+	}
+
+	vkBindBufferMemory(atlas->device, outlineBuffer, outlineMemory, 0);
+
+	// Copy outline data to buffer
+	void* mapped;
+	vkMapMemory(atlas->device, outlineMemory, 0, sizeof(VKNVGglyphOutline), 0, &mapped);
+	memcpy(mapped, outline, sizeof(VKNVGglyphOutline));
+	vkUnmapMemory(atlas->device, outlineMemory);
+
+	// Create descriptor set for MSDF pipeline
+	VkDescriptorSetAllocateInfo descAllocInfo = {0};
+	descAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descAllocInfo.descriptorPool = atlas->computeContext->pipelines[VKNVG_COMPUTE_MSDF_GENERATE].descriptorPool;
+	descAllocInfo.descriptorSetCount = 1;
+	descAllocInfo.pSetLayouts = &atlas->computeContext->pipelines[VKNVG_COMPUTE_MSDF_GENERATE].descriptorSetLayout;
+
+	VkDescriptorSet descriptorSet;
+	if (vkAllocateDescriptorSets(atlas->device, &descAllocInfo, &descriptorSet) != VK_SUCCESS) {
+		vkFreeMemory(atlas->device, outlineMemory, NULL);
+		vkDestroyBuffer(atlas->device, outlineBuffer, NULL);
+		return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+	}
+
+	// Create image view for target region (entire image for now)
+	VkImageViewCreateInfo viewInfo = {0};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = targetImage;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+
+	VkImageView imageView;
+	if (vkCreateImageView(atlas->device, &viewInfo, NULL, &imageView) != VK_SUCCESS) {
+		vkFreeMemory(atlas->device, outlineMemory, NULL);
+		vkDestroyBuffer(atlas->device, outlineBuffer, NULL);
+		return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+	}
+
+	// Update descriptor set
+	VkDescriptorBufferInfo bufferDescInfo = {0};
+	bufferDescInfo.buffer = outlineBuffer;
+	bufferDescInfo.offset = 0;
+	bufferDescInfo.range = sizeof(VKNVGglyphOutline);
+
+	VkDescriptorImageInfo imageDescInfo = {0};
+	imageDescInfo.imageView = imageView;
+	imageDescInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+	VkWriteDescriptorSet writes[2] = {0};
+	writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[0].dstSet = descriptorSet;
+	writes[0].dstBinding = 0;
+	writes[0].dstArrayElement = 0;
+	writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	writes[0].descriptorCount = 1;
+	writes[0].pBufferInfo = &bufferDescInfo;
+
+	writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[1].dstSet = descriptorSet;
+	writes[1].dstBinding = 1;
+	writes[1].dstArrayElement = 0;
+	writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	writes[1].descriptorCount = 1;
+	writes[1].pImageInfo = &imageDescInfo;
+
+	vkUpdateDescriptorSets(atlas->device, 2, writes, 0, NULL);
+
+	// Setup push constants
+	VKNVGmsdfPushConstants pushConstants;
+	pushConstants.outputWidth = width;
+	pushConstants.outputHeight = height;
+	pushConstants.pxRange = 4.0f;  // Typical MSDF range
+	pushConstants.padding = 0.0f;
+
+	// Dispatch compute shader
+	vknvg__dispatchMSDFCompute(atlas->computeContext, descriptorSet, &pushConstants, width, height);
+
+	// Cleanup
+	vkDestroyImageView(atlas->device, imageView, NULL);
+	vkFreeMemory(atlas->device, outlineMemory, NULL);
+	vkDestroyBuffer(atlas->device, outlineBuffer, NULL);
+
+	printf("[VA MSDF] Generated %ux%u MSDF at (%u,%u)\n", width, height, atlasX, atlasY);
+	return VK_SUCCESS;
+}
+
 void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 {
 	if (!atlas || !cmd) return;
@@ -1092,13 +1303,70 @@ void vknvg__processUploads(VKNVGvirtualAtlas* atlas, VkCommandBuffer cmd)
 	for (uint32_t i = 0; i < atlas->uploadQueueCount; i++) {
 		VKNVGglyphUploadRequest* upload = &atlas->uploadQueue[i];
 
-		// Copy pixel data to staging buffer
-		size_t dataSize = upload->width * upload->height;
+		// Phase 3 GPU MSDF: Check if this is an outline-based upload
+		if (upload->useGPUMSDF && upload->outline && atlas->computeContext) {
+			// GPU MSDF generation path
+			printf("[VA Upload] GPU MSDF for glyph %ux%u\n", upload->width, upload->height);
+
+			// Get target atlas
+			VKNVGatlasInstance* targetAtlas = &atlas->atlasManager->atlases[upload->atlasIndex];
+
+			// Generate MSDF using compute shader
+			VkResult result = vknvg__generateMSDFCompute(atlas, upload->outline,
+			                                              targetAtlas->image,
+			                                              upload->atlasX, upload->atlasY,
+			                                              upload->width, upload->height);
+
+			if (result == VK_SUCCESS) {
+				upload->entry->state = VKNVG_GLYPH_UPLOADED;
+				atlas->uploads++;
+			} else {
+				fprintf(stderr, "[VA Upload] MSDF generation failed\n");
+			}
+
+			free(upload->outline);
+			continue;
+		}
+
+		// Fallback: CPU rasterized pixel upload path
+		if (!upload->pixelData) {
+			printf("[VA Upload] WARNING: No pixel data and no outline for glyph\n");
+			upload->entry->state = VKNVG_GLYPH_UPLOADED;
+			continue;
+		}
+
+		// Copy pixel data to staging buffer, converting to RGBA format
+		// Atlas is RGBA, but source can be GRAY (1), RGB (3), or RGBA (4)
+		size_t pixelCount = upload->width * upload->height;
+		size_t dataSize = pixelCount * 4;  // Atlas is always RGBA
 		if (stagingOffset + dataSize > atlas->stagingSize) {
 			break;	// Staging buffer full
 		}
 
-		memcpy((uint8_t*)atlas->stagingMapped + stagingOffset, upload->pixelData, dataSize);
+		// Convert source format to RGBA
+		uint8_t* dst = (uint8_t*)atlas->stagingMapped + stagingOffset;
+		uint8_t* src = upload->pixelData;
+
+		if (upload->bytesPerPixel == 1) {
+			// GRAY → RGBA: replicate gray to RGB, alpha=255
+			for (size_t p = 0; p < pixelCount; p++) {
+				dst[p*4 + 0] = src[p];
+				dst[p*4 + 1] = src[p];
+				dst[p*4 + 2] = src[p];
+				dst[p*4 + 3] = 255;
+			}
+		} else if (upload->bytesPerPixel == 3) {
+			// RGB → RGBA: copy RGB, alpha=255
+			for (size_t p = 0; p < pixelCount; p++) {
+				dst[p*4 + 0] = src[p*3 + 0];
+				dst[p*4 + 1] = src[p*3 + 1];
+				dst[p*4 + 2] = src[p*3 + 2];
+				dst[p*4 + 3] = 255;
+			}
+		} else {
+			// RGBA → RGBA: direct copy
+			memcpy(dst, src, dataSize);
+		}
 
 		// Copy from staging to atlas
 		VkBufferImageCopy region = {0};
@@ -1286,11 +1554,24 @@ void vknvg__getAtlasStats(VKNVGvirtualAtlas* atlas,
 // Set font context and rasterization callback
 void vknvg__setAtlasFontContext(VKNVGvirtualAtlas* atlas,
                                  void* fontContext,
-                                 VKNVGglyphRasterizeFunc rasterizeCallback)
+                                 VKNVGglyphRasterizeFunc rasterizeCallback,
+                                 VKNVGglyphExtractOutlineFunc extractOutlineCallback)
 {
 	if (atlas) {
 		atlas->fontContext = fontContext;
 		atlas->rasterizeGlyph = rasterizeCallback;
+		atlas->extractOutline = extractOutlineCallback;
+	}
+}
+
+// Set glyph ready callback
+void vknvg__setGlyphReadyCallback(VKNVGvirtualAtlas* atlas,
+                                   VKNVGglyphReadyCallback callback,
+                                   void* userdata)
+{
+	if (atlas) {
+		atlas->glyphReadyCallback = callback;
+		atlas->callbackUserdata = userdata;
 	}
 }
 

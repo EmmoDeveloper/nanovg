@@ -118,11 +118,20 @@ typedef void (*NVGFTTextureUpdateFunc)(void* uptr, int x, int y, int w, int h, c
 void nvgft_set_texture_callback(NVGFontSystem* sys, NVGFTTextureUpdateFunc callback, void* uptr);
 
 // Glyph rasterization (for virtual atlas integration)
-// Returns RGBA pixel data (caller must free with free())
+// Returns pixel data in format specified by bytesPerPixel (caller must free with free())
+// bytesPerPixel output: 1=GRAY, 3=RGB (MSDF), 4=RGBA
 // Returns NULL on failure
 unsigned char* nvgft_rasterize_glyph(NVGFontSystem* sys, int font_id, uint32_t codepoint,
                                        int pixel_size, int* width, int* height,
-                                       int* bearing_x, int* bearing_y, int* advance_x);
+                                       int* bearing_x, int* bearing_y, int* advance_x,
+                                       int* bytesPerPixel);
+
+// Glyph outline extraction (for GPU MSDF generation)
+// Forward declaration for outline structure
+struct VKNVGglyphOutline;
+// Returns outline data (caller must free with free()), NULL on failure
+struct VKNVGglyphOutline* nvgft_extract_glyph_outline(NVGFontSystem* sys, int font_id,
+                                                         uint32_t codepoint, int pixel_size);
 
 // Glyph-level API extensions
 typedef struct NVGFTGlyphMetrics {
@@ -175,6 +184,39 @@ int nvgft_set_named_instance(NVGFontSystem* sys, int font_id, int instance_index
 // OpenType features
 void nvgft_set_feature(NVGFontSystem* sys, unsigned int tag, int enabled);
 void nvgft_reset_features(NVGFontSystem* sys);
+
+// Pixel format definitions
+typedef enum NVGFTPixelFormat {
+	NVGFT_PIXEL_GRAY = 1,   // 1 channel: grayscale (SDF, bitmap fonts)
+	NVGFT_PIXEL_RGB = 3,    // 3 channels: RGB (MSDF)
+	NVGFT_PIXEL_RGBA = 4    // 4 channels: RGBA (color emoji, general images)
+} NVGFTPixelFormat;
+
+// Get bytes per pixel for a format
+static inline int nvgft_bytes_per_pixel(NVGFTPixelFormat format) {
+	return (int)format;
+}
+
+// Get channel count for a format
+static inline int nvgft_channel_count(NVGFTPixelFormat format) {
+	return (int)format;
+}
+
+// Virtual atlas integration callbacks
+typedef struct NVGFTVirtualAtlasGlyph {
+	float s0, t0, s1, t1;  // Texture coordinates in atlas
+	int atlasIndex;        // Which texture to use
+	int width, height;     // Glyph dimensions in pixels
+	int bearingX, bearingY;
+	int advance;
+} NVGFTVirtualAtlasGlyph;
+
+// Query virtual atlas for a glyph (returns 0 if found, -1 if not found)
+typedef int (*NVGFTVirtualAtlasQueryFunc)(void* atlasContext, int font_id, uint32_t codepoint,
+                                           int pixel_size, NVGFTVirtualAtlasGlyph* glyph);
+
+// Set virtual atlas callbacks
+void nvgft_set_virtual_atlas(NVGFontSystem* sys, NVGFTVirtualAtlasQueryFunc queryFunc, void* atlasContext);
 
 #ifdef __cplusplus
 }

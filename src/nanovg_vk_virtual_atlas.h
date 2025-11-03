@@ -53,6 +53,9 @@ typedef struct VKNVGatlasPage {
 	uint32_t lastAccessFrame;
 } VKNVGatlasPage;
 
+// Glyph ready callback
+typedef void (*VKNVGglyphReadyCallback)(void* userdata, uint32_t fontID, uint32_t codepoint, uint32_t size);
+
 // Glyph identifier (font + codepoint + size)
 typedef struct VKNVGglyphKey {
 	uint32_t fontID;
@@ -96,11 +99,37 @@ enum VKNVGglyphState {
 	VKNVG_GLYPH_UPLOADED,		// Uploaded to GPU, ready to render
 };
 
+// Glyph outline data (for GPU compute MSDF generation)
+#define VKNVG_MAX_CONTOURS 32
+#define VKNVG_MAX_POINTS_PER_CONTOUR 128
+
+typedef struct VKNVGoutlinePoint {
+	float x, y;			// Normalized coordinates (0-1 range)
+	uint8_t onCurve;	// 1 if on-curve point, 0 if control point
+	uint8_t padding[3];
+} VKNVGoutlinePoint;
+
+typedef struct VKNVGoutlineContour {
+	VKNVGoutlinePoint points[VKNVG_MAX_POINTS_PER_CONTOUR];
+	uint16_t pointCount;
+	uint16_t padding;
+} VKNVGoutlineContour;
+
+typedef struct VKNVGglyphOutline {
+	VKNVGoutlineContour contours[VKNVG_MAX_CONTOURS];
+	uint16_t contourCount;
+	uint16_t unitsPerEM;	// Font units per EM (for scaling)
+	int16_t bearingX, bearingY;
+	uint16_t advance;
+	uint16_t width, height;	// Bounding box dimensions
+} VKNVGglyphOutline;
+
 // Glyph load request (for background thread)
 struct VKNVGglyphLoadRequest {
 	VKNVGglyphKey key;
 	VKNVGglyphCacheEntry* entry;	// Pointer to cache entry to fill
 	uint8_t* pixelData;				// Rasterized pixel data (allocated by loader)
+	VKNVGglyphOutline* outline;		// Outline data for GPU MSDF (allocated by loader)
 	uint32_t timestamp;				// Request timestamp for prioritization
 };
 
@@ -109,7 +138,11 @@ typedef struct VKNVGglyphUploadRequest {
 	uint32_t atlasIndex;			// Phase 3 Advanced: Which atlas to upload to
 	uint16_t atlasX, atlasY;
 	uint16_t width, height;
-	uint8_t* pixelData;
+	uint8_t* pixelData;				// Bitmap data (CPU rasterized)
+	VKNVGglyphOutline* outline;		// Outline data (for GPU MSDF)
+	uint8_t bytesPerPixel;			// Source pixel format: 1=GRAY, 3=RGB, 4=RGBA
+	uint8_t useGPUMSDF;				// 1 if using GPU compute for MSDF, 0 if bitmap
+	uint8_t padding[2];
 	VKNVGglyphCacheEntry* entry;	// To update state after upload
 } VKNVGglyphUploadRequest;
 
@@ -149,6 +182,9 @@ struct VKNVGvirtualAtlas {
 	VKNVGglyphCacheEntry* lruHead;
 	VKNVGglyphCacheEntry* lruTail;
 
+	// Cache synchronization (protects glyphCache, glyphCount, LRU list)
+	pthread_mutex_t cacheMutex;
+
 	// Background loading
 	pthread_t loaderThread;
 	pthread_mutex_t loadQueueMutex;
@@ -182,7 +218,11 @@ struct VKNVGvirtualAtlas {
 	uint8_t* (*rasterizeGlyph)(void* fontContext, VKNVGglyphKey key,
 	                           uint16_t* width, uint16_t* height,
 	                           int16_t* bearingX, int16_t* bearingY,
-	                           uint16_t* advance);
+	                           uint16_t* advance, uint8_t* bytesPerPixel);
+
+	// Glyph outline extraction callback (for GPU MSDF)
+	// Returns outline data (caller must free), NULL if not MSDF or error
+	VKNVGglyphOutline* (*extractOutline)(void* fontContext, VKNVGglyphKey key);
 
 	// Optional GPU compute rasterization
 	VKNVGcomputeRaster* computeRaster;		// NULL if using CPU rasterization
@@ -195,6 +235,10 @@ struct VKNVGvirtualAtlas {
 	VkBool32 useAsyncUpload;				// Enable async uploads
 	VkQueue transferQueue;					// Transfer queue for async uploads
 	uint32_t transferQueueFamily;			// Transfer queue family index
+
+	// Glyph ready callback
+	VKNVGglyphReadyCallback glyphReadyCallback;	// Called when glyph finishes loading
+	void* callbackUserdata;						// User data for callback
 
 	// Phase 1: Legacy page system (will be removed in Phase 3)
 	VKNVGatlasPage pages[VKNVG_ATLAS_MAX_PAGES];	// Page allocation array
@@ -213,7 +257,10 @@ struct VKNVGvirtualAtlas {
 typedef uint8_t* (*VKNVGglyphRasterizeFunc)(void* fontContext, VKNVGglyphKey key,
                                              uint16_t* width, uint16_t* height,
                                              int16_t* bearingX, int16_t* bearingY,
-                                             uint16_t* advance);
+                                             uint16_t* advance, uint8_t* bytesPerPixel);
+
+// Glyph outline extraction callback type (for GPU MSDF)
+typedef VKNVGglyphOutline* (*VKNVGglyphExtractOutlineFunc)(void* fontContext, VKNVGglyphKey key);
 
 // Create virtual atlas
 VKNVGvirtualAtlas* vknvg__createVirtualAtlas(VkDevice device,
@@ -243,10 +290,11 @@ void vknvg__getAtlasStats(VKNVGvirtualAtlas* atlas,
                           uint32_t* cacheHits, uint32_t* cacheMisses,
                           uint32_t* evictions, uint32_t* uploads);
 
-// Set font context and rasterization callback (call after font initialization)
+// Set font context and rasterization callbacks (call after font initialization)
 void vknvg__setAtlasFontContext(VKNVGvirtualAtlas* atlas,
                                  void* fontContext,
-                                 VKNVGglyphRasterizeFunc rasterizeCallback);
+                                 VKNVGglyphRasterizeFunc rasterizeCallback,
+                                 VKNVGglyphExtractOutlineFunc extractOutlineCallback);
 
 // Add glyph directly with pre-rasterized data (bypasses background loading)
 // Returns cache entry if successful, NULL if atlas is full
@@ -275,6 +323,12 @@ VkSemaphore vknvg__getUploadSemaphore(VKNVGvirtualAtlas* atlas);
 VkResult vknvg__enableComputeDefragmentation(VKNVGvirtualAtlas* atlas,
                                               VkQueue computeQueue,
                                               uint32_t computeQueueFamily);
+
+// Set callback to be notified when glyphs finish loading
+// Callback is fired from background thread when glyph is rasterized and ready
+void vknvg__setGlyphReadyCallback(VKNVGvirtualAtlas* atlas,
+                                   VKNVGglyphReadyCallback callback,
+                                   void* userdata);
 
 // Internal functions
 

@@ -7,6 +7,7 @@
 
 // Include compiled shader SPIR-V
 #include "vulkan/atlas_defrag_comp.h"
+#include "vulkan/msdf_generate_comp.h"
 
 // Create shader module from SPIR-V
 VkShaderModule vknvg__createComputeShaderModule(VkDevice device,
@@ -137,6 +138,119 @@ int vknvg__createDefragPipeline(VKNVGcomputeContext* ctx)
 	return 1;
 }
 
+// Create MSDF generation compute pipeline
+int vknvg__createMSDFPipeline(VKNVGcomputeContext* ctx)
+{
+	VKNVGcomputePipeline* pipeline = &ctx->pipelines[VKNVG_COMPUTE_MSDF_GENERATE];
+
+	// Create shader module
+	pipeline->shaderModule = vknvg__createComputeShaderModule(
+		ctx->device,
+		(const uint32_t*)shaders_msdf_generate_comp_spv,
+		shaders_msdf_generate_comp_spv_len
+	);
+	if (pipeline->shaderModule == VK_NULL_HANDLE) {
+		fprintf(stderr, "Failed to create MSDF compute shader module\n");
+		return 0;
+	}
+
+	// Descriptor set layout (1 storage buffer + 1 storage image)
+	VkDescriptorSetLayoutBinding bindings[2] = {0};
+
+	// Binding 0: Outline buffer (readonly)
+	bindings[0].binding = 0;
+	bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	bindings[0].descriptorCount = 1;
+	bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	// Binding 1: Output MSDF image (writeonly)
+	bindings[1].binding = 1;
+	bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	bindings[1].descriptorCount = 1;
+	bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 2;
+	layoutInfo.pBindings = bindings;
+
+	if (vkCreateDescriptorSetLayout(ctx->device, &layoutInfo, NULL,
+	                                  &pipeline->descriptorSetLayout) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create MSDF descriptor set layout\n");
+		vkDestroyShaderModule(ctx->device, pipeline->shaderModule, NULL);
+		return 0;
+	}
+
+	// Push constant range
+	VkPushConstantRange pushConstantRange = {0};
+	pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+	pushConstantRange.offset = 0;
+	pushConstantRange.size = sizeof(VKNVGmsdfPushConstants);
+
+	// Pipeline layout
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &pipeline->descriptorSetLayout;
+	pipelineLayoutInfo.pushConstantRangeCount = 1;
+	pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
+	if (vkCreatePipelineLayout(ctx->device, &pipelineLayoutInfo, NULL,
+	                             &pipeline->layout) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create MSDF pipeline layout\n");
+		vkDestroyDescriptorSetLayout(ctx->device, pipeline->descriptorSetLayout, NULL);
+		vkDestroyShaderModule(ctx->device, pipeline->shaderModule, NULL);
+		return 0;
+	}
+
+	// Compute shader stage
+	VkPipelineShaderStageCreateInfo shaderStageInfo = {0};
+	shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	shaderStageInfo.module = pipeline->shaderModule;
+	shaderStageInfo.pName = "main";
+
+	// Compute pipeline
+	VkComputePipelineCreateInfo pipelineInfo = {0};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	pipelineInfo.stage = shaderStageInfo;
+	pipelineInfo.layout = pipeline->layout;
+
+	if (vkCreateComputePipelines(ctx->device, VK_NULL_HANDLE, 1, &pipelineInfo,
+	                               NULL, &pipeline->pipeline) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create MSDF compute pipeline\n");
+		vkDestroyPipelineLayout(ctx->device, pipeline->layout, NULL);
+		vkDestroyDescriptorSetLayout(ctx->device, pipeline->descriptorSetLayout, NULL);
+		vkDestroyShaderModule(ctx->device, pipeline->shaderModule, NULL);
+		return 0;
+	}
+
+	// Create descriptor pool (1 storage buffer + 1 storage image)
+	VkDescriptorPoolSize poolSizes[2] = {0};
+	poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	poolSizes[0].descriptorCount = 1;
+	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	poolSizes[1].descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo = {0};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 2;
+	poolInfo.pPoolSizes = poolSizes;
+	poolInfo.maxSets = 1;
+
+	if (vkCreateDescriptorPool(ctx->device, &poolInfo, NULL,
+	                             &pipeline->descriptorPool) != VK_SUCCESS) {
+		fprintf(stderr, "Failed to create MSDF descriptor pool\n");
+		vkDestroyPipeline(ctx->device, pipeline->pipeline, NULL);
+		vkDestroyPipelineLayout(ctx->device, pipeline->layout, NULL);
+		vkDestroyDescriptorSetLayout(ctx->device, pipeline->descriptorSetLayout, NULL);
+		vkDestroyShaderModule(ctx->device, pipeline->shaderModule, NULL);
+		return 0;
+	}
+
+	return 1;
+}
+
 // Initialize compute context
 int vknvg__initComputeContext(VKNVGcomputeContext* ctx,
                                VkDevice device,
@@ -187,6 +301,20 @@ int vknvg__initComputeContext(VKNVGcomputeContext* ctx,
 
 	// Create pipelines
 	if (!vknvg__createDefragPipeline(ctx)) {
+		vkDestroyFence(device, ctx->computeFence, NULL);
+		vkFreeCommandBuffers(device, ctx->commandPool, 1, &ctx->commandBuffer);
+		vkDestroyCommandPool(device, ctx->commandPool, NULL);
+		return 0;
+	}
+
+	if (!vknvg__createMSDFPipeline(ctx)) {
+		// Clean up defrag pipeline
+		VKNVGcomputePipeline* defragPipeline = &ctx->pipelines[VKNVG_COMPUTE_ATLAS_DEFRAG];
+		vkDestroyDescriptorPool(device, defragPipeline->descriptorPool, NULL);
+		vkDestroyPipeline(device, defragPipeline->pipeline, NULL);
+		vkDestroyPipelineLayout(device, defragPipeline->layout, NULL);
+		vkDestroyDescriptorSetLayout(device, defragPipeline->descriptorSetLayout, NULL);
+		vkDestroyShaderModule(device, defragPipeline->shaderModule, NULL);
 		vkDestroyFence(device, ctx->computeFence, NULL);
 		vkFreeCommandBuffers(device, ctx->commandPool, 1, &ctx->commandBuffer);
 		vkDestroyCommandPool(device, ctx->commandPool, NULL);
@@ -266,6 +394,58 @@ void vknvg__dispatchDefragCompute(VKNVGcomputeContext* ctx,
 	// Dispatch compute (8x8 local size, so divide by 8 and round up)
 	uint32_t groupsX = (pushConstants->extentWidth + 7) / 8;
 	uint32_t groupsY = (pushConstants->extentHeight + 7) / 8;
+	vkCmdDispatch(ctx->commandBuffer, groupsX, groupsY, 1);
+
+	// End command buffer
+	vkEndCommandBuffer(ctx->commandBuffer);
+
+	// Submit with fence for synchronization
+	VkSubmitInfo submitInfo = {0};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &ctx->commandBuffer;
+
+	// Wait for previous compute to complete, then reset fence
+	vkWaitForFences(ctx->device, 1, &ctx->computeFence, VK_TRUE, UINT64_MAX);
+	vkResetFences(ctx->device, 1, &ctx->computeFence);
+
+	vkQueueSubmit(ctx->computeQueue, 1, &submitInfo, ctx->computeFence);
+
+	// Wait for fence (ensures compute completes)
+	vkWaitForFences(ctx->device, 1, &ctx->computeFence, VK_TRUE, UINT64_MAX);
+}
+
+// Dispatch MSDF generation compute shader
+void vknvg__dispatchMSDFCompute(VKNVGcomputeContext* ctx,
+                                 VkDescriptorSet descriptorSet,
+                                 const VKNVGmsdfPushConstants* pushConstants,
+                                 uint32_t width,
+                                 uint32_t height)
+{
+	VKNVGcomputePipeline* pipeline = &ctx->pipelines[VKNVG_COMPUTE_MSDF_GENERATE];
+
+	// Begin command buffer
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(ctx->commandBuffer, &beginInfo);
+
+	// Bind pipeline
+	vkCmdBindPipeline(ctx->commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->pipeline);
+
+	// Bind descriptor set (outline buffer + output image)
+	vkCmdBindDescriptorSets(ctx->commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+	                        pipeline->layout, 0, 1, &descriptorSet, 0, NULL);
+
+	// Push constants
+	vkCmdPushConstants(ctx->commandBuffer, pipeline->layout,
+	                   VK_SHADER_STAGE_COMPUTE_BIT, 0,
+	                   sizeof(VKNVGmsdfPushConstants), pushConstants);
+
+	// Dispatch compute (8x8 local size, so divide by 8 and round up)
+	uint32_t groupsX = (width + 7) / 8;
+	uint32_t groupsY = (height + 7) / 8;
 	vkCmdDispatch(ctx->commandBuffer, groupsX, groupsY, 1);
 
 	// End command buffer

@@ -1,9 +1,11 @@
 #include "nvg_freetype.h"
 #include "vknvg_msdf.h"
+#include "nanovg_vk_virtual_atlas.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <pthread.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -103,9 +105,11 @@ typedef struct NVGFTState {
 struct NVGFontSystem {
 	// FreeType & FTC
 	FT_Library library;
+	FT_Library bg_library;  // Separate FT_Library for background thread (MSDF)
 	FTC_Manager cache_manager;
 	FTC_CMapCache cmap_cache;
 	FTC_ImageCache image_cache;
+	pthread_mutex_t ftcMutex;  // Protects FreeType cache access (not thread-safe)
 
 	// Fonts
 	NVGFTFont fonts[NVGFT_MAX_FONTS];
@@ -140,6 +144,10 @@ struct NVGFontSystem {
 	hb_feature_t* features;
 	int feature_count;
 	int feature_capacity;
+
+	// Virtual atlas callbacks
+	NVGFTVirtualAtlasQueryFunc virtual_atlas_query;
+	void* virtual_atlas_context;
 };
 
 // FTC face requester callback
@@ -184,8 +192,15 @@ NVGFontSystem* nvgft_create(int atlasWidth, int atlasHeight) {
 	NVGFontSystem* sys = (NVGFontSystem*)calloc(1, sizeof(NVGFontSystem));
 	if (!sys) return NULL;
 
-	// Init FreeType
+	// Init FreeType (main library for cache)
 	if (FT_Init_FreeType(&sys->library)) {
+		free(sys);
+		return NULL;
+	}
+
+	// Init FreeType (background library for MSDF)
+	if (FT_Init_FreeType(&sys->bg_library)) {
+		FT_Done_FreeType(sys->library);
 		free(sys);
 		return NULL;
 	}
@@ -215,6 +230,9 @@ NVGFontSystem* nvgft_create(int atlasWidth, int atlasHeight) {
 
 	sys->atlas_width = atlasWidth;
 	sys->atlas_height = atlasHeight;
+
+	// Initialize FreeType cache mutex (for thread safety)
+	pthread_mutex_init(&sys->ftcMutex, NULL);
 
 	// Initialize HarfBuzz buffer
 	sys->hb_buffer = hb_buffer_create();
@@ -272,6 +290,9 @@ void nvgft_destroy(NVGFontSystem* sys) {
 		hb_buffer_destroy(sys->hb_buffer);
 	}
 
+	// Destroy FreeType cache mutex
+	pthread_mutex_destroy(&sys->ftcMutex);
+
 	// Free RGBA pool
 	if (sys->rgba_pool) {
 		free(sys->rgba_pool);
@@ -294,18 +315,40 @@ void nvgft_destroy(NVGFontSystem* sys) {
 
 	FTC_Manager_Done(sys->cache_manager);
 	FT_Done_FreeType(sys->library);
+	FT_Done_FreeType(sys->bg_library);
 	free(sys);
 }
 
 int nvgft_add_font(NVGFontSystem* sys, const char* name, const char* path) {
 	if (sys->font_count >= NVGFT_MAX_FONTS) return -1;
 
+	// Load font file into memory for thread-safe access
+	FILE* fp = fopen(path, "rb");
+	if (!fp) return -1;
+
+	fseek(fp, 0, SEEK_END);
+	long size = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+
+	unsigned char* data = (unsigned char*)malloc(size);
+	if (!data) {
+		fclose(fp);
+		return -1;
+	}
+
+	if (fread(data, 1, size, fp) != (size_t)size) {
+		free(data);
+		fclose(fp);
+		return -1;
+	}
+	fclose(fp);
+
 	NVGFTFont* font = &sys->fonts[sys->font_count];
 	strncpy(font->name, name, sizeof(font->name) - 1);
 	strncpy(font->path, path, sizeof(font->path) - 1);
-	font->data = NULL;
-	font->data_size = 0;
-	font->free_data = 0;
+	font->data = data;
+	font->data_size = (int)size;
+	font->free_data = 1;  // We allocated it, so we should free it
 	font->id = sys->font_count;
 	font->fallback = -1;
 	font->face_id = (FTC_FaceID)font;
@@ -403,6 +446,12 @@ void nvgft_set_texture_callback(NVGFontSystem* sys,
                                   NVGFTTextureUpdateFunc callback, void* uptr) {
 	sys->texture_callback = callback;
 	sys->texture_uptr = uptr;
+}
+
+void nvgft_set_virtual_atlas(NVGFontSystem* sys, NVGFTVirtualAtlasQueryFunc queryFunc, void* atlasContext) {
+	if (!sys) return;
+	sys->virtual_atlas_query = queryFunc;
+	sys->virtual_atlas_context = atlasContext;
 }
 
 // Get pooled RGBA buffer (grows as needed)
@@ -1408,6 +1457,57 @@ int nvgft_shaped_text_iter_next(NVGFontSystem* sys, NVGFTTextIter* iter, NVGFTQu
 	NVGFTFont* font = &sys->fonts[state->font_id];
 	int pixel_size = (int)(state->size + 0.5f);
 
+	// Check virtual atlas first for MSDF fonts
+	if (font->msdf_mode > 0 && sys->virtual_atlas_query) {
+		// Extract codepoint from text at cluster position
+		const char* char_pos = iter->str + sg->cluster;
+		uint32_t codepoint = nvgft__decode_utf8(&char_pos);
+
+		NVGFTVirtualAtlasGlyph va_glyph;
+		int query_result = sys->virtual_atlas_query(sys->virtual_atlas_context, font->id, codepoint,
+		                                              pixel_size, &va_glyph);
+
+		if (query_result == 0) {
+			// Found in virtual atlas - use it
+			float x = iter->shaped_x + sg->x_offset;
+			float y = iter->shaped_y + sg->y_offset;
+
+			int align = state->align;
+			float baseline_y = y;
+			if (align & NVGFT_ALIGN_TOP) {
+				baseline_y += state->size;
+			} else if (align & NVGFT_ALIGN_MIDDLE) {
+				baseline_y += state->size * 0.5f;
+			}
+
+			if (va_glyph.width > 0 && va_glyph.height > 0) {
+				quad->x0 = x + va_glyph.bearingX;
+				quad->y0 = baseline_y - va_glyph.bearingY;
+				quad->x1 = quad->x0 + va_glyph.width;
+				quad->y1 = quad->y0 + va_glyph.height;
+				quad->s0 = va_glyph.s0;
+				quad->t0 = va_glyph.t0;
+				quad->s1 = va_glyph.s1;
+				quad->t1 = va_glyph.t1;
+			} else {
+				quad->x0 = quad->y0 = quad->x1 = quad->y1 = 0;
+				quad->s0 = quad->t0 = quad->s1 = quad->t1 = 0;
+			}
+
+			iter->shaped_x += sg->x_advance;
+			iter->shaped_y += sg->y_advance;
+			return 1;
+		} else {
+			// Not ready yet - render empty quad (skip for this frame)
+			// Still advance position so text layout is consistent
+			quad->x0 = quad->y0 = quad->x1 = quad->y1 = 0;
+			quad->s0 = quad->t0 = quad->s1 = quad->t1 = 0;
+			iter->shaped_x += sg->x_advance;
+			iter->shaped_y += sg->y_advance;
+			return 1;
+		}
+	}
+
 	// Check cache using glyph_index as lookup key
 	NVGFTGlyph* glyph = nvgft__find_glyph(sys, sg->glyph_index, font->id, pixel_size);
 
@@ -1533,64 +1633,219 @@ void nvgft_text_iter_free(NVGFTTextIter* iter) {
 // Returns RGBA pixel data (caller must free())
 unsigned char* nvgft_rasterize_glyph(NVGFontSystem* sys, int font_id, uint32_t codepoint,
                                        int pixel_size, int* width, int* height,
-                                       int* bearing_x, int* bearing_y, int* advance_x)
+                                       int* bearing_x, int* bearing_y, int* advance_x,
+                                       int* bytesPerPixel)
 {
-	if (!sys || font_id < 0 || font_id >= sys->font_count) return NULL;
+	printf("[nvgft_rasterize_glyph] Called: font_id=%d codepoint=%u pixel_size=%d\n", font_id, codepoint, pixel_size);
 
-	NVGFTFont* font = &sys->fonts[font_id];
-
-	// Get glyph index from codepoint
-	FT_UInt glyph_index = FTC_CMapCache_Lookup(sys->cmap_cache, (FTC_FaceID)font,
-	                                            -1, codepoint);
-	if (glyph_index == 0) return NULL;  // Glyph not found
-
-	// Setup FTC image type for rasterization
-	FTC_ImageTypeRec type;
-	type.face_id = (FTC_FaceID)font;
-	type.width = 0;
-	type.height = pixel_size;
-	type.flags = FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL;
-
-	// Get glyph from FTC image cache
-	FT_Glyph ft_glyph;
-	if (FTC_ImageCache_Lookup(sys->image_cache, &type, glyph_index, &ft_glyph, NULL) != 0) {
-		return NULL;  // Failed to load glyph
-	}
-
-	// Convert to bitmap glyph
-	if (ft_glyph->format != FT_GLYPH_FORMAT_BITMAP) {
-		return NULL;  // Not a bitmap glyph
-	}
-
-	FT_BitmapGlyph bitmap_glyph = (FT_BitmapGlyph)ft_glyph;
-	FT_Bitmap* bitmap = &bitmap_glyph->bitmap;
-
-	// Return glyph metrics
-	if (width) *width = bitmap->width;
-	if (height) *height = bitmap->rows;
-	if (bearing_x) *bearing_x = bitmap_glyph->left;
-	if (bearing_y) *bearing_y = bitmap_glyph->top;
-	if (advance_x) *advance_x = (int)(ft_glyph->advance.x >> 16);
-
-	// Handle empty glyphs
-	if (bitmap->width == 0 || bitmap->rows == 0) {
+	if (!sys || font_id < 0 || font_id >= sys->font_count) {
+		printf("[nvgft_rasterize_glyph] FAIL: Invalid parameters (sys=%p font_id=%d font_count=%d)\n",
+		       (void*)sys, font_id, sys ? sys->font_count : -1);
 		return NULL;
 	}
 
-	// Allocate RGBA buffer
-	int pixel_count = bitmap->width * bitmap->rows;
-	unsigned char* rgba = (unsigned char*)malloc(pixel_count * 4);
-	if (!rgba) return NULL;
+	NVGFTFont* font = &sys->fonts[font_id];
+	printf("[nvgft_rasterize_glyph] Font msdf_mode=%d, cmap_cache=%p, font=%p\n",
+	       font->msdf_mode, (void*)sys->cmap_cache, (void*)font);
 
-	// Convert grayscale to RGBA (white with alpha)
-	for (int i = 0; i < pixel_count; i++) {
-		rgba[i*4 + 0] = 255;  // R
-		rgba[i*4 + 1] = 255;  // G
-		rgba[i*4 + 2] = 255;  // B
-		rgba[i*4 + 3] = bitmap->buffer[i];  // A (grayscale value)
+	FT_Face face;
+	FT_UInt glyph_index;
+	FT_Error err;
+
+	// For MSDF in background thread, bypass cache and use separate FT_Library
+	// This avoids FreeType cache thread-safety issues
+	if (font->msdf_mode > 0) {
+		printf("[nvgft_rasterize_glyph] MSDF mode: creating temporary face (using bg_library)\n");
+		printf("[nvgft_rasterize_glyph] font->data=%p, font->data_size=%d, font->path=%s\n",
+		       (void*)font->data, font->data_size, font->path ? font->path : "(null)");
+
+		// Use background library (no locking needed - font data is in memory)
+		// Create temporary face directly from memory
+		if (!font->data) {
+			printf("[nvgft_rasterize_glyph] FAIL: Font data not loaded into memory\n");
+			return NULL;
+		}
+
+		printf("[nvgft_rasterize_glyph] Calling FT_New_Memory_Face...\n");
+		err = FT_New_Memory_Face(sys->bg_library, font->data, font->data_size, 0, &face);
+		printf("[nvgft_rasterize_glyph] FT_New_Memory_Face returned: %d\n", err);
+
+		if (err != 0) {
+			printf("[nvgft_rasterize_glyph] FAIL: FT_New_Memory_Face error %d\n", err);
+			return NULL;
+		}
+
+		// Set pixel size directly
+		err = FT_Set_Pixel_Sizes(face, 0, pixel_size);
+		if (err != 0) {
+			printf("[nvgft_rasterize_glyph] FAIL: FT_Set_Pixel_Sizes error %d\n", err);
+			FT_Done_Face(face);
+			return NULL;
+		}
+
+		// Get glyph index
+		glyph_index = FT_Get_Char_Index(face, codepoint);
+		if (glyph_index == 0) {
+			printf("[nvgft_rasterize_glyph] FAIL: Glyph index is 0\n");
+			FT_Done_Face(face);
+			return NULL;
+		}
+
+		printf("[nvgft_rasterize_glyph] MSDF: Created temp face, glyph_index=%u\n", glyph_index);
+	} else {
+		// Regular rendering uses cache
+		pthread_mutex_lock(&sys->ftcMutex);
+
+		// Get glyph index
+		printf("[nvgft_rasterize_glyph] About to call FTC_CMapCache_Lookup...\n");
+		glyph_index = FTC_CMapCache_Lookup(sys->cmap_cache, (FTC_FaceID)font,
+		                                    -1, codepoint);
+		printf("[nvgft_rasterize_glyph] Glyph index=%u\n", glyph_index);
+		if (glyph_index == 0) {
+			printf("[nvgft_rasterize_glyph] FAIL: Glyph index is 0\n");
+			pthread_mutex_unlock(&sys->ftcMutex);
+			return NULL;
+		}
+
+		// Set up size using FreeType cache API
+		FTC_ScalerRec scaler;
+		scaler.face_id = (FTC_FaceID)font;
+		scaler.width = pixel_size;
+		scaler.height = pixel_size;
+		scaler.pixel = 1;  // Use pixel sizes, not points
+		scaler.x_res = 0;
+		scaler.y_res = 0;
+
+		// Get face with correct size
+		FT_Size ft_size;
+		err = FTC_Manager_LookupSize(sys->cache_manager, &scaler, &ft_size);
+		printf("[nvgft_rasterize_glyph] FTC_Manager_LookupSize result=%d\n", err);
+		if (err != 0) {
+			printf("[nvgft_rasterize_glyph] FAIL: FTC_Manager_LookupSize error\n");
+			pthread_mutex_unlock(&sys->ftcMutex);
+			return NULL;
+		}
+
+		face = ft_size->face;
+		printf("[nvgft_rasterize_glyph] Got face with size=%d\n", face->size->metrics.y_ppem);
 	}
 
-	return rgba;
+	// Load glyph (outline for MSDF, bitmap for regular)
+	FT_Int32 load_flags = (font->msdf_mode > 0) ? FT_LOAD_NO_BITMAP : FT_LOAD_RENDER;
+	printf("[nvgft_rasterize_glyph] Load flags=0x%x (MSDF=%d)\n", load_flags, font->msdf_mode > 0);
+
+	// For non-MSDF (cache path), mutex is already locked
+	// For MSDF, need to lock here as FreeType has global state
+	int need_unlock = 0;
+	if (font->msdf_mode > 0) {
+		printf("[nvgft_rasterize_glyph] Locking mutex for FT_Load_Glyph...\n");
+		pthread_mutex_lock(&sys->ftcMutex);
+		need_unlock = 1;
+	}
+
+	err = FT_Load_Glyph(face, glyph_index, load_flags);
+
+	if (need_unlock) {
+		printf("[nvgft_rasterize_glyph] Unlocking mutex after FT_Load_Glyph...\n");
+		pthread_mutex_unlock(&sys->ftcMutex);
+	}
+
+	printf("[nvgft_rasterize_glyph] FT_Load_Glyph result=%d\n", err);
+	if (err != 0) {
+		printf("[nvgft_rasterize_glyph] FAIL: FT_Load_Glyph error\n");
+		if (!need_unlock) {
+			pthread_mutex_unlock(&sys->ftcMutex);
+		}
+		return NULL;
+	}
+
+	unsigned char* pixel_data = NULL;
+	FT_Bitmap* bitmap = NULL;
+
+	if (font->msdf_mode > 0) {
+		printf("[nvgft_rasterize_glyph] Entering MSDF path (mode=%d)\n", font->msdf_mode);
+		// MSDF/SDF generation
+		const int MSDF_RESOLUTION_MULTIPLIER = 4;
+		const int MSDF_EDGE_PADDING = 8;
+		const float MSDF_PIXEL_RANGE = 16.0f;
+
+		NVGFTPixelFormat pixel_format = (font->msdf_mode == 2) ? NVGFT_PIXEL_RGB : NVGFT_PIXEL_GRAY;
+		int bpp = nvgft_bytes_per_pixel(pixel_format);
+
+		int content_size = pixel_size * MSDF_RESOLUTION_MULTIPLIER;
+		int tex_width = content_size + (MSDF_EDGE_PADDING * 2);
+		int tex_height = content_size + (MSDF_EDGE_PADDING * 2);
+
+		printf("[nvgft_rasterize_glyph] MSDF params: tex_size=%dx%d bpp=%d\n", tex_width, tex_height, bpp);
+
+		VKNVGmsdfParams params;
+		params.width = tex_width;
+		params.height = tex_height;
+		params.stride = tex_width * bpp;
+		params.range = MSDF_PIXEL_RANGE;
+		params.scale = 1.0f;
+		params.offsetX = MSDF_EDGE_PADDING;
+		params.offsetY = MSDF_EDGE_PADDING;
+
+		pixel_data = (unsigned char*)malloc(tex_width * tex_height * bpp);
+		printf("[nvgft_rasterize_glyph] Malloc result: pixel_data=%p (size=%d)\n",
+		       (void*)pixel_data, tex_width * tex_height * bpp);
+		if (pixel_data) {
+			printf("[nvgft_rasterize_glyph] Glyph format=%d (OUTLINE=%d), glyph=%p\n",
+			       face->glyph->format, FT_GLYPH_FORMAT_OUTLINE, (void*)face->glyph);
+			if (font->msdf_mode == 2) {
+				printf("[nvgft_rasterize_glyph] Calling vknvg__generateMSDF...\n");
+				vknvg__generateMSDF(face->glyph, pixel_data, &params);
+				printf("[nvgft_rasterize_glyph] vknvg__generateMSDF returned\n");
+			} else {
+				printf("[nvgft_rasterize_glyph] Calling vknvg__generateSDF...\n");
+				vknvg__generateSDF(face->glyph, pixel_data, &params);
+				printf("[nvgft_rasterize_glyph] vknvg__generateSDF returned\n");
+			}
+
+			if (width) *width = tex_width;
+			if (height) *height = tex_height;
+			if (bearing_x) *bearing_x = face->glyph->bitmap_left - MSDF_EDGE_PADDING;
+			if (bearing_y) *bearing_y = face->glyph->bitmap_top + MSDF_EDGE_PADDING;
+			if (advance_x) *advance_x = (int)(face->glyph->advance.x >> 6);
+			if (bytesPerPixel) *bytesPerPixel = bpp;
+			printf("[nvgft_rasterize_glyph] SUCCESS: w=%d h=%d bpp=%d\n", tex_width, tex_height, bpp);
+		} else {
+			printf("[nvgft_rasterize_glyph] FAIL: malloc returned NULL\n");
+		}
+	} else {
+		// Regular bitmap rasterization
+		bitmap = &face->glyph->bitmap;
+
+		if (bitmap->width == 0 || bitmap->rows == 0) {
+			pthread_mutex_unlock(&sys->ftcMutex);
+			return NULL;
+		}
+
+		// Return as grayscale (1 byte per pixel)
+		int pixel_count = bitmap->width * bitmap->rows;
+		pixel_data = (unsigned char*)malloc(pixel_count);
+		if (pixel_data) {
+			memcpy(pixel_data, bitmap->buffer, pixel_count);
+
+			if (width) *width = bitmap->width;
+			if (height) *height = bitmap->rows;
+			if (bearing_x) *bearing_x = face->glyph->bitmap_left;
+			if (bearing_y) *bearing_y = face->glyph->bitmap_top;
+			if (advance_x) *advance_x = (int)(face->glyph->advance.x >> 6);
+			if (bytesPerPixel) *bytesPerPixel = 1;  // Grayscale
+		}
+
+		// Unlock FreeType cache (only locked for non-MSDF path)
+		pthread_mutex_unlock(&sys->ftcMutex);
+	}
+
+	// For MSDF mode, clean up temporary face
+	if (font->msdf_mode > 0) {
+		FT_Done_Face(face);
+	}
+
+	return pixel_data;
 }
 
 // Glyph-level API implementations
@@ -1732,21 +1987,33 @@ int nvgft_render_glyph_index(NVGFontSystem* sys, int font_id, int glyph_index,
 
 		// Check if MSDF mode is enabled for this font
 		if (font->msdf_mode > 0) {
-			// Generate MSDF/SDF from outline
-			int msdf_size = pixel_size * 2;  // MSDF needs higher resolution
-			int msdf_padding = pixel_size / 4;
+			// MSDF/SDF generation parameters
+			// These values must match the shader's expectations (text_msdf_simple.frag)
+			const int MSDF_RESOLUTION_MULTIPLIER = 4;  // 4x base size for quality
+			const int MSDF_EDGE_PADDING = 8;            // Padding around glyph for edge gradients
+			const float MSDF_PIXEL_RANGE = 16.0f;       // Distance field range in texture pixels
 
+			// Determine pixel format based on mode
+			NVGFTPixelFormat pixel_format = (font->msdf_mode == 2) ? NVGFT_PIXEL_RGB : NVGFT_PIXEL_GRAY;
+			int bytes_per_pixel = nvgft_bytes_per_pixel(pixel_format);
+
+			// Calculate texture dimensions
+			int content_size = pixel_size * MSDF_RESOLUTION_MULTIPLIER;
+			int texture_width = content_size + (MSDF_EDGE_PADDING * 2);
+			int texture_height = content_size + (MSDF_EDGE_PADDING * 2);
+
+			// Setup generation parameters
 			VKNVGmsdfParams params;
-			params.width = msdf_size + msdf_padding * 2;
-			params.height = msdf_size + msdf_padding * 2;
-			params.stride = params.width * (font->msdf_mode == 2 ? 3 : 1);  // MSDF=3 channels, SDF=1
-			params.range = pixel_size / 8.0f;
+			params.width = texture_width;
+			params.height = texture_height;
+			params.stride = texture_width * bytes_per_pixel;
+			params.range = MSDF_PIXEL_RANGE;
 			params.scale = 1.0f;
-			params.offsetX = msdf_padding;
-			params.offsetY = msdf_padding;
+			params.offsetX = MSDF_EDGE_PADDING;
+			params.offsetY = MSDF_EDGE_PADDING;
 
 			// Allocate buffer
-			msdf_buffer = (unsigned char*)malloc(params.width * params.height * (font->msdf_mode == 2 ? 3 : 1));
+			msdf_buffer = (unsigned char*)malloc(texture_width * texture_height * bytes_per_pixel);
 			if (msdf_buffer) {
 				if (font->msdf_mode == 2) {
 					vknvg__generateMSDF(face->glyph, msdf_buffer, &params);
@@ -2073,4 +2340,107 @@ void nvgft_set_feature(NVGFontSystem* sys, unsigned int tag, int enabled) {
 void nvgft_reset_features(NVGFontSystem* sys) {
 	if (!sys) return;
 	sys->feature_count = 0;
+}
+
+// GPU MSDF: Extract glyph outline for compute shader generation
+VKNVGglyphOutline* nvgft_extract_glyph_outline(NVGFontSystem* sys, int font_id,
+                                                  uint32_t codepoint, int pixel_size)
+{
+	if (!sys || font_id < 0 || font_id >= sys->font_count) {
+		return NULL;
+	}
+
+	NVGFTFont* font = &sys->fonts[font_id];
+
+	// Use background library for thread-safe extraction
+	FT_Face face;
+	FT_Error err;
+
+	// Create temporary face from memory
+	if (!font->data) {
+		return NULL;
+	}
+
+	err = FT_New_Memory_Face(sys->bg_library, font->data, font->data_size, 0, &face);
+	if (err != 0) {
+		return NULL;
+	}
+
+	// Set pixel size
+	err = FT_Set_Pixel_Sizes(face, 0, pixel_size);
+	if (err != 0) {
+		FT_Done_Face(face);
+		return NULL;
+	}
+
+	// Get glyph index
+	FT_UInt glyph_index = FT_Get_Char_Index(face, codepoint);
+	if (glyph_index == 0) {
+		FT_Done_Face(face);
+		return NULL;
+	}
+
+	// Load glyph with outline data (no rasterization)
+	err = FT_Load_Glyph(face, glyph_index, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING);
+	if (err != 0) {
+		FT_Done_Face(face);
+		return NULL;
+	}
+
+	// Check if outline is available
+	if (face->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
+		FT_Done_Face(face);
+		return NULL;
+	}
+
+	// Allocate outline structure
+	VKNVGglyphOutline* outline = (VKNVGglyphOutline*)calloc(1, sizeof(VKNVGglyphOutline));
+	if (!outline) {
+		FT_Done_Face(face);
+		return NULL;
+	}
+
+	// Extract metrics
+	outline->unitsPerEM = face->units_per_EM;
+	outline->bearingX = face->glyph->metrics.horiBearingX >> 6;
+	outline->bearingY = face->glyph->metrics.horiBearingY >> 6;
+	outline->advance = face->glyph->advance.x >> 6;
+	outline->width = (face->glyph->metrics.width >> 6);
+	outline->height = (face->glyph->metrics.height >> 6);
+
+	// Extract outline contours
+	FT_Outline* ft_outline = &face->glyph->outline;
+	outline->contourCount = 0;
+
+	if (ft_outline->n_contours > 0 && ft_outline->n_contours <= VKNVG_MAX_CONTOURS) {
+		int point_index = 0;
+		float scale = 1.0f / face->units_per_EM;
+
+		for (int c = 0; c < ft_outline->n_contours && outline->contourCount < VKNVG_MAX_CONTOURS; c++) {
+			int contour_end = ft_outline->contours[c];
+			VKNVGoutlineContour* contour = &outline->contours[outline->contourCount];
+			contour->pointCount = 0;
+
+			// Extract points for this contour
+			while (point_index <= contour_end && contour->pointCount < VKNVG_MAX_POINTS_PER_CONTOUR) {
+				FT_Vector* pt = &ft_outline->points[point_index];
+				char tag = ft_outline->tags[point_index];
+
+				VKNVGoutlinePoint* out_pt = &contour->points[contour->pointCount];
+				out_pt->x = pt->x * scale;
+				out_pt->y = pt->y * scale;
+				out_pt->onCurve = (tag & FT_CURVE_TAG_ON) ? 1 : 0;
+
+				contour->pointCount++;
+				point_index++;
+			}
+
+			if (contour->pointCount > 0) {
+				outline->contourCount++;
+			}
+		}
+	}
+
+	FT_Done_Face(face);
+	return outline;
 }

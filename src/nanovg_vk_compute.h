@@ -10,6 +10,7 @@
 // Compute pipeline types
 typedef enum VKNVGcomputePipelineType {
 	VKNVG_COMPUTE_ATLAS_DEFRAG = 0,
+	VKNVG_COMPUTE_MSDF_GENERATE,
 	VKNVG_COMPUTE_PIPELINE_COUNT
 } VKNVGcomputePipelineType;
 
@@ -23,6 +24,14 @@ typedef struct VKNVGdefragPushConstants {
 	uint32_t extentHeight;
 	uint32_t padding[2];  // Align to 32 bytes
 } VKNVGdefragPushConstants;
+
+// Push constants for MSDF generation
+typedef struct VKNVGmsdfPushConstants {
+	uint32_t outputWidth;   // Output texture width
+	uint32_t outputHeight;  // Output texture height
+	float pxRange;          // Pixel range for SDF (typically 4.0)
+	float padding;
+} VKNVGmsdfPushConstants;
 
 // Compute pipeline
 typedef struct VKNVGcomputePipeline {
@@ -53,6 +62,7 @@ VkShaderModule vknvg__createComputeShaderModule(VkDevice device,
                                                  const uint32_t* code,
                                                  size_t codeSize);
 int vknvg__createDefragPipeline(VKNVGcomputeContext* ctx);
+int vknvg__createMSDFPipeline(VKNVGcomputeContext* ctx);
 int vknvg__initComputeContext(VKNVGcomputeContext* ctx,
                                VkDevice device,
                                VkQueue queue,
@@ -61,5 +71,10 @@ void vknvg__destroyComputeContext(VKNVGcomputeContext* ctx);
 void vknvg__dispatchDefragCompute(VKNVGcomputeContext* ctx,
                                    VkDescriptorSet descriptorSet,
                                    const VKNVGdefragPushConstants* pushConstants);
+void vknvg__dispatchMSDFCompute(VKNVGcomputeContext* ctx,
+                                 VkDescriptorSet descriptorSet,
+                                 const VKNVGmsdfPushConstants* pushConstants,
+                                 uint32_t width,
+                                 uint32_t height);
 
 #endif // NANOVG_VK_COMPUTE_H

@@ -34,7 +34,7 @@ NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
                $(BUILD_DIR)/nanovg_vk_virtual_atlas.o $(BUILD_DIR)/nvg_freetype.o \
                $(BUILD_DIR)/nanovg_vk_atlas_packing.o $(BUILD_DIR)/nanovg_vk_multi_atlas.o \
                $(BUILD_DIR)/nanovg_vk_atlas_defrag.o $(BUILD_DIR)/nanovg_vk_compute.o \
-               $(BUILD_DIR)/nanovg_vk_async_upload.o
+               $(BUILD_DIR)/nanovg_vk_async_upload.o $(BUILD_DIR)/vknvg_msdf.o
 
 $(BUILD_DIR)/nvg_vk_context.o: src/vulkan/nvg_vk_context.c src/vulkan/nvg_vk_context.h src/vulkan/nvg_vk_types.h | $(BUILD_DIR)
 	@echo "Compiling nvg_vk_context.c..."
