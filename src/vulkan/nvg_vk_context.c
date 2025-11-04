@@ -224,6 +224,13 @@ void nvgvk_flush(void* userPtr)
 	VkDeviceSize offset = 0;
 	vkCmdBindVertexBuffers(vk->commandBuffer, 0, 1, &vk->vertexBuffer.buffer, &offset);
 
+	// Bind color space UBO (set = 1) if available
+	// This is bound once per frame and shared across all draw calls
+	if (vk->colorSpaceDescriptorSet != VK_NULL_HANDLE && vk->pipelines[0].layout != VK_NULL_HANDLE) {
+		vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                        vk->pipelines[0].layout, 1, 1, &vk->colorSpaceDescriptorSet, 0, NULL);
+	}
+
 	// Process all render calls
 	for (int i = 0; i < vk->callCount; i++) {
 		NVGVkCall* call = &vk->calls[i];

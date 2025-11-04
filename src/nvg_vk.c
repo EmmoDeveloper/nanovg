@@ -22,6 +22,7 @@
 #include "vulkan/nvg_vk_pipeline.h"
 #include "vulkan/nvg_vk_render.h"
 #include "vulkan/nvg_vk_types.h"
+#include "vulkan/nvg_vk_color_space_ubo.h"
 #include "nanovg_vk_virtual_atlas.h"
 #include "nvg_freetype.h"
 #include <stdlib.h>
@@ -37,6 +38,7 @@ typedef struct NVGVkBackend {
 	uint32_t framebufferWidth;
 	uint32_t framebufferHeight;
 	int pipelinesCreated;
+	int colorSpaceUBOCreated;
 } NVGVkBackend;
 
 // Forward declarations of callback functions
@@ -290,6 +292,16 @@ static void nvgvk__renderFlush(void* uptr)
 			return;
 		}
 		backend->pipelinesCreated = 1;
+	}
+
+	// Create color space UBO after pipelines (reuses descriptor pool)
+	if (!backend->colorSpaceUBOCreated && backend->pipelinesCreated) {
+		if (!nvgvk_init_color_space_ubo(&backend->vk)) {
+			fprintf(stderr, "NanoVG Vulkan: Failed to initialize color space UBO\n");
+			// Not fatal - rendering will work but without color space conversion
+		} else {
+			backend->colorSpaceUBOCreated = 1;
+		}
 	}
 
 	nvgvk_flush(&backend->vk);
