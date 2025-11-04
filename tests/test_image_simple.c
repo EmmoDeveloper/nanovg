@@ -78,6 +78,9 @@ int main(void)
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
 
+	// Notify NanoVG that render pass has started
+	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
+
 	// Draw with NanoVG
 	printf("Drawing test patterns...\n");
 	nvgBeginFrame(vg, 400, 400, 1.0f);
@@ -124,7 +127,7 @@ int main(void)
 	vkDestroySemaphore(winCtx->device, imageAvailableSemaphore, NULL);
 
 	// Save screenshot
-	if (window_save_screenshot(winCtx, imageIndex, "image_simple_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/image_simple_test.ppm")) {
 		printf("✓ Screenshot saved\n\n");
 	}
 

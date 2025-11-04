@@ -139,6 +139,10 @@ int main(void)
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(nvgCtx.commandBuffer, 0, 1, &scissor);
 
+	// Notify NanoVG that render pass has started
+	nvgvk_begin_render_pass(&nvgCtx, renderPassInfo.renderPass, renderPassInfo.framebuffer,
+	                        renderPassInfo.renderArea, clearValues, 2, viewport, scissor);
+
 	// Flush will perform the rendering
 	nvgvk_flush(&nvgCtx);
 

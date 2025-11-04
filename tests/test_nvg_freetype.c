@@ -76,6 +76,9 @@ int main(void)
 	VkRect2D scissor = {0};
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
+
+	// Notify NanoVG that render pass has started
+	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
 	printf("   ✓ Render pass begun\n\n");
 
 	// Load font

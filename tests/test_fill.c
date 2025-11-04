@@ -334,6 +334,10 @@ int main(void)
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(nvgCtx.commandBuffer, 0, 1, &scissor);
 
+	// Notify NanoVG that render pass has started
+	nvgvk_begin_render_pass(&nvgCtx, renderPassInfo.renderPass, renderPassInfo.framebuffer,
+	                        renderPassInfo.renderArea, clearValues, 2, viewport, scissor);
+
 	nvgvk_flush(&nvgCtx);
 
 	vkCmdEndRenderPass(nvgCtx.commandBuffer);
@@ -357,7 +361,7 @@ int main(void)
 
 	// Save screenshot
 	printf("8. Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "fill_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/fill_test.ppm")) {
 		printf("   ✓ Screenshot saved to fill_test.ppm\n\n");
 	}
 

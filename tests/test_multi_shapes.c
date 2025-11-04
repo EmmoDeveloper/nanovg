@@ -60,6 +60,9 @@ int main(void)
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
 
+	// Notify NanoVG that render pass has started
+	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
+
 	// Draw with NanoVG
 	printf("Drawing multiple shapes...\n");
 	nvgBeginFrame(vg, 800, 600, 1.0f);
@@ -116,7 +119,7 @@ int main(void)
 
 	// Save screenshot
 	printf("Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "multi_shapes_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/multi_shapes_test.ppm")) {
 		printf("✓ Screenshot saved to multi_shapes_test.ppm\n\n");
 	}
 

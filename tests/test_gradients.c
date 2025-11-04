@@ -60,6 +60,9 @@ int main(void)
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
 
+	// Notify NanoVG that render pass has started
+	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
+
 	// Draw with NanoVG
 	printf("Drawing gradient types...\n");
 	nvgBeginFrame(vg, 900, 700, 1.0f);
@@ -170,8 +173,8 @@ int main(void)
 
 	// Save screenshot
 	printf("Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "gradients_test.ppm")) {
-		printf("✓ Screenshot saved to gradients_test.ppm\n\n");
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/gradients_test.ppm")) {
+		printf("✓ Screenshot saved to build/test/screendumps/gradients_test.ppm\n\n");
 	}
 
 	nvgDeleteVk(vg);

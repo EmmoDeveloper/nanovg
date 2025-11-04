@@ -82,6 +82,9 @@ int main(void)
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
 
+	// Notify NanoVG that render pass has started
+	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
+
 	// === Canvas API Test ===
 	nvgBeginFrame(vg, 800, 600, 1.0f);
 
@@ -170,7 +173,7 @@ int main(void)
 	vkDestroySemaphore(winCtx->device, imageAvailableSemaphore, NULL);
 
 	// Save screenshot
-	if (window_save_screenshot(winCtx, imageIndex, "canvas_api_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/canvas_api_test.ppm")) {
 		printf("✓ Screenshot saved to canvas_api_test.ppm\n");
 	}
 

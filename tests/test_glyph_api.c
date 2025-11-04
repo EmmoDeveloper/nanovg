@@ -98,6 +98,9 @@ int main(void)
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
 
+	// Notify NanoVG that render pass has started
+	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
+
 	// NanoVG rendering
 	nvgBeginFrame(vg, 800, 600, 1.0f);
 

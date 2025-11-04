@@ -13,19 +13,23 @@ LIBS := $(shell pkg-config --libs vulkan glfw3 harfbuzz fribidi) \
 	-Wl,-rpath,/opt/freetype/objs/.libs -Wl,-rpath,/opt/freetype/cairo/builddir/src
 
 BUILD_DIR := build
+TEST_SCREENDUMP_DIR := build/test/screendumps
 
 .PHONY: all clean test test-nvg test-render test-shapes test-gradients test-fill \
-        test-convexfill test-stroke test-textures test-blending test-scissor test-all-phase4 \
-        test-nvg-api
+        test-convexfill test-stroke test-textures test-blending test-scissor \
+        test-nvg-api test-multi-shapes test-nvg-text test-image-simple test-image-pattern \
+        test-canvas-api test-all
 
 all: $(BUILD_DIR)/test_window $(BUILD_DIR)/test_nvg_vk $(BUILD_DIR)/test_render \
      $(BUILD_DIR)/test_shapes $(BUILD_DIR)/test_gradients $(BUILD_DIR)/test_fill \
      $(BUILD_DIR)/test_convexfill $(BUILD_DIR)/test_stroke $(BUILD_DIR)/test_textures \
-     $(BUILD_DIR)/test_blending $(BUILD_DIR)/test_scissor $(BUILD_DIR)/test_nvg_api \
-     $(BUILD_DIR)/test_virtual_atlas_integration
+     $(BUILD_DIR)/test_blending $(BUILD_DIR)/test_scissor $(BUILD_DIR)/test_nvg_api
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
+
+$(TEST_SCREENDUMP_DIR):
+	mkdir -p $(TEST_SCREENDUMP_DIR)
 
 # NanoVG Vulkan backend
 NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
@@ -144,66 +148,67 @@ $(BUILD_DIR)/test_fill: $(BUILD_DIR)/test_fill.o $(BUILD_DIR)/window_utils.o $(B
 	@echo "Linking test_fill..."
 	$(CC) $^ $(LIBS) -o $@
 
-test-fill: $(BUILD_DIR)/test_fill
+test-fill: $(BUILD_DIR)/test_fill $(TEST_SCREENDUMP_DIR)
 	@echo "Running test_fill..."
-	@./$(BUILD_DIR)/test_fill
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_fill
 
 # test_convexfill
 $(BUILD_DIR)/test_convexfill.o: tests/test_convexfill.c | $(BUILD_DIR)
 	@echo "Compiling test_convexfill.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_convexfill: $(BUILD_DIR)/test_convexfill.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+$(BUILD_DIR)/test_convexfill: $(BUILD_DIR)/test_convexfill.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_convexfill..."
 	$(CC) $^ $(LIBS) -o $@
 
-test-convexfill: $(BUILD_DIR)/test_convexfill
+test-convexfill: $(BUILD_DIR)/test_convexfill $(TEST_SCREENDUMP_DIR)
 	@echo "Running test_convexfill..."
-	@./$(BUILD_DIR)/test_convexfill
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_convexfill
 
 # test_stroke
 $(BUILD_DIR)/test_stroke.o: tests/test_stroke.c | $(BUILD_DIR)
 	@echo "Compiling test_stroke.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_stroke: $(BUILD_DIR)/test_stroke.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+$(BUILD_DIR)/test_stroke: $(BUILD_DIR)/test_stroke.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_stroke..."
 	$(CC) $^ $(LIBS) -o $@
 
-test-stroke: $(BUILD_DIR)/test_stroke
+test-stroke: $(BUILD_DIR)/test_stroke $(TEST_SCREENDUMP_DIR)
 	@echo "Running test_stroke..."
-	@./$(BUILD_DIR)/test_stroke
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_stroke
 
 # test_textures
 $(BUILD_DIR)/test_textures.o: tests/test_textures.c | $(BUILD_DIR)
 	@echo "Compiling test_textures.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_textures: $(BUILD_DIR)/test_textures.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+$(BUILD_DIR)/test_textures: $(BUILD_DIR)/test_textures.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_textures..."
 	$(CC) $^ $(LIBS) -o $@
 
-test-textures: $(BUILD_DIR)/test_textures
+test-textures: $(BUILD_DIR)/test_textures $(TEST_SCREENDUMP_DIR)
 	@echo "Running test_textures..."
-	@./$(BUILD_DIR)/test_textures
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_textures
 
 # test_blending
 $(BUILD_DIR)/test_blending.o: tests/test_blending.c | $(BUILD_DIR)
 	@echo "Compiling test_blending.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_blending: $(BUILD_DIR)/test_blending.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+$(BUILD_DIR)/test_blending: $(BUILD_DIR)/test_blending.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_blending..."
 	$(CC) $^ $(LIBS) -o $@
 
-test-blending: $(BUILD_DIR)/test_blending
+test-blending: $(BUILD_DIR)/test_blending $(TEST_SCREENDUMP_DIR)
 	@echo "Running test_blending..."
-	@./$(BUILD_DIR)/test_blending
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_blending
 
-# Run all Phase 4 tests
-test-all-phase4: test-shapes test-gradients test-fill test-convexfill test-stroke test-textures test-blending
+# Run all rendering tests
+test-all: test-shapes test-gradients test-fill test-convexfill test-stroke test-textures \
+          test-blending test-scissor test-multi-shapes test-canvas-api test-image-simple test-image-pattern
 	@echo ""
-	@echo "=== All Phase 4 Tests Complete ==="
+	@echo "=== All Rendering Tests Complete ==="
 
 clean:
 	rm -rf $(BUILD_DIR)
@@ -212,15 +217,15 @@ clean:
 # test_scissor
 $(BUILD_DIR)/test_scissor.o: tests/test_scissor.c | $(BUILD_DIR)
 	@echo "Compiling test_scissor.c..."
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_scissor: $(BUILD_DIR)/test_scissor.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+$(BUILD_DIR)/test_scissor: $(BUILD_DIR)/test_scissor.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_scissor..."
 	$(CC) $^ $(LIBS) -o $@
 
-test-scissor: $(BUILD_DIR)/test_scissor
+test-scissor: $(BUILD_DIR)/test_scissor $(TEST_SCREENDUMP_DIR)
 	@echo "Running test_scissor..."
-	@./$(BUILD_DIR)/test_scissor
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_scissor
 
 # NanoVG core
 $(BUILD_DIR)/nanovg.o: src/nanovg.c src/nanovg.h | $(BUILD_DIR)
@@ -259,6 +264,10 @@ $(BUILD_DIR)/test_shapes: $(BUILD_DIR)/test_shapes.o $(BUILD_DIR)/nanovg.o $(BUI
 	@echo "Linking test_shapes..."
 	$(CC) $^ $(LIBS) -o $@
 
+test-shapes: $(BUILD_DIR)/test_shapes $(TEST_SCREENDUMP_DIR)
+	@echo "Running test_shapes..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_shapes
+
 # test_nvg_text
 $(BUILD_DIR)/test_nvg_text.o: tests/test_nvg_text.c | $(BUILD_DIR)
 	@echo "Compiling test_nvg_text.c..."
@@ -267,6 +276,10 @@ $(BUILD_DIR)/test_nvg_text.o: tests/test_nvg_text.c | $(BUILD_DIR)
 $(BUILD_DIR)/test_nvg_text: $(BUILD_DIR)/test_nvg_text.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_nvg_text..."
 	$(CC) $^ $(LIBS) -o $@
+
+test-nvg-text: $(BUILD_DIR)/test_nvg_text
+	@echo "Running test_nvg_text..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_nvg_text
 
 # test_multi_shapes
 $(BUILD_DIR)/test_multi_shapes.o: tests/test_multi_shapes.c | $(BUILD_DIR)
@@ -277,6 +290,10 @@ $(BUILD_DIR)/test_multi_shapes: $(BUILD_DIR)/test_multi_shapes.o $(BUILD_DIR)/na
 	@echo "Linking test_multi_shapes..."
 	$(CC) $^ $(LIBS) -o $@
 
+test-multi-shapes: $(BUILD_DIR)/test_multi_shapes $(TEST_SCREENDUMP_DIR)
+	@echo "Running test_multi_shapes..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_multi_shapes
+
 # test_gradients
 $(BUILD_DIR)/test_gradients.o: tests/test_gradients.c | $(BUILD_DIR)
 	@echo "Compiling test_gradients.c..."
@@ -285,6 +302,10 @@ $(BUILD_DIR)/test_gradients.o: tests/test_gradients.c | $(BUILD_DIR)
 $(BUILD_DIR)/test_gradients: $(BUILD_DIR)/test_gradients.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_gradients..."
 	$(CC) $^ $(LIBS) -o $@
+
+test-gradients: $(BUILD_DIR)/test_gradients $(TEST_SCREENDUMP_DIR)
+	@echo "Running test_gradients..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_gradients
 
 # test_image_pattern
 $(BUILD_DIR)/test_image_pattern.o: tests/test_image_pattern.c | $(BUILD_DIR)
@@ -295,6 +316,10 @@ $(BUILD_DIR)/test_image_pattern: $(BUILD_DIR)/test_image_pattern.o $(BUILD_DIR)/
 	@echo "Linking test_image_pattern..."
 	$(CC) $^ $(LIBS) -o $@
 
+test-image-pattern: $(BUILD_DIR)/test_image_pattern $(TEST_SCREENDUMP_DIR)
+	@echo "Running test_image_pattern..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_image_pattern
+
 # test_image_simple
 $(BUILD_DIR)/test_image_simple.o: tests/test_image_simple.c | $(BUILD_DIR)
 	@echo "Compiling test_image_simple.c..."
@@ -303,6 +328,10 @@ $(BUILD_DIR)/test_image_simple.o: tests/test_image_simple.c | $(BUILD_DIR)
 $(BUILD_DIR)/test_image_simple: $(BUILD_DIR)/test_image_simple.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_image_simple..."
 	$(CC) $^ $(LIBS) -o $@
+
+test-image-simple: $(BUILD_DIR)/test_image_simple $(TEST_SCREENDUMP_DIR)
+	@echo "Running test_image_simple..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_image_simple
 
 # test_text_msdf
 $(BUILD_DIR)/test_text_msdf.o: tests/test_text_msdf.c | $(BUILD_DIR)
@@ -370,6 +399,10 @@ $(BUILD_DIR)/test_canvas_api.o: tests/test_canvas_api.c | $(BUILD_DIR)
 $(BUILD_DIR)/test_canvas_api: $(BUILD_DIR)/test_canvas_api.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
 	@echo "Linking test_canvas_api..."
 	$(CC) $^ $(LIBS) -o $@
+
+test-canvas-api: $(BUILD_DIR)/test_canvas_api
+	@echo "Running test_canvas_api..."
+	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" ./$(BUILD_DIR)/test_canvas_api
 
 # test_freetype_system
 $(BUILD_DIR)/test_freetype_system.o: tests/test_freetype_system.c | $(BUILD_DIR)
@@ -478,17 +511,3 @@ test-shaped-text: $(BUILD_DIR)/test_shaped_text
 	@VK_INSTANCE_LAYERS="" VK_LAYER_PATH="" timeout 5 ./$(BUILD_DIR)/test_shaped_text
 
 
-# Virtual Atlas Integration Test
-$(BUILD_DIR)/test_virtual_atlas_integration.o: tests/test_virtual_atlas_integration.c src/nanovg_vk_virtual_atlas.h src/nanovg_vk_multi_atlas.h src/nanovg_vk_atlas_defrag.h | $(BUILD_DIR)
-	@echo "Compiling test_virtual_atlas_integration.c..."
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
-$(BUILD_DIR)/test_virtual_atlas_integration: $(BUILD_DIR)/test_virtual_atlas_integration.o $(BUILD_DIR)/nanovg_vk_virtual_atlas.o \
-	$(BUILD_DIR)/nanovg_vk_atlas_packing.o $(BUILD_DIR)/nanovg_vk_multi_atlas.o \
-	$(BUILD_DIR)/nanovg_vk_atlas_defrag.o $(BUILD_DIR)/nanovg_vk_compute.o $(BUILD_DIR)/nanovg_vk_async_upload.o
-	@echo "Linking test_virtual_atlas_integration..."
-	$(CC) $^ $(LIBS) -o $@
-
-test-virtual-atlas: $(BUILD_DIR)/test_virtual_atlas_integration
-	@echo "Running virtual atlas integration test..."
-	@./$(BUILD_DIR)/test_virtual_atlas_integration

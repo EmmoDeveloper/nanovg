@@ -76,6 +76,9 @@ int main(void)
 	VkRect2D scissor = {0};
 	scissor.extent = winCtx->swapchainExtent;
 	vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
+
+	// Notify NanoVG that render pass has started
+	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
 	printf("   ✓ Render pass begun\n\n");
 
 	// Begin NanoVG frame and draw
@@ -112,8 +115,8 @@ int main(void)
 
 	// Save screenshot
 	printf("7. Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "shapes_test.ppm")) {
-		printf("   ✓ Screenshot saved to shapes_test.ppm\n\n");
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/shapes_test.ppm")) {
+		printf("   ✓ Screenshot saved to build/test/screendumps/shapes_test.ppm\n\n");
 	}
 
 	// Cleanup
