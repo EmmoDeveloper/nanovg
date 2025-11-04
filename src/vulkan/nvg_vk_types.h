@@ -2,6 +2,7 @@
 #define NVG_VK_TYPES_H
 
 #include <vulkan/vulkan.h>
+#include "nvg_vk_color_space_math.h"
 
 // Include NanoVG for NVGvertex definition
 #ifndef NANOVG_H
@@ -128,6 +129,17 @@ typedef struct NVGVkFragUniforms {
 	int type;
 } NVGVkFragUniforms;
 
+// Color space conversion uniform buffer (shared across all draws)
+typedef struct NVGVkColorSpaceUniforms {
+	NVGVkMat3 gamutMatrix;		// 36 bytes (3x3 float matrix)
+	int srcTransferID;		// 4 bytes
+	int dstTransferID;		// 4 bytes
+	float hdrScale;			// 4 bytes
+	int useGamutMapping;		// 4 bytes
+	int useToneMapping;		// 4 bytes
+	int _padding[2];		// 8 bytes (align to 64 bytes)
+} NVGVkColorSpaceUniforms;		// Total: 64 bytes
+
 // Main Vulkan context
 struct NVGVkContext {
 	// Vulkan handles (not owned)
@@ -193,6 +205,13 @@ struct NVGVkContext {
 
 	// Virtual atlas (forward declared in nanovg_vk_virtual_atlas.h)
 	void* virtualAtlas;  // VKNVGvirtualAtlas*
+
+	// Color space management
+	void* colorSpace;			// NVGVkColorSpace*
+	NVGVkBuffer colorSpaceUBO;		// UBO for color space conversion
+	VkDescriptorSet colorSpaceDescriptorSet;  // Descriptor set for color space UBO
+	VkDescriptorSetLayout colorSpaceDescriptorLayout;  // Layout for color space descriptor
+	int colorSpaceChanged;			// Flag: rebuild conversion path
 };
 
 #endif // NVG_VK_TYPES_H
