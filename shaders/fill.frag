@@ -1,4 +1,5 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 
 // Fragment input
 layout(location = 0) in vec2 inTexCoord;
@@ -26,6 +27,9 @@ layout(set = 0, binding = 0) uniform FragmentUniforms {
 
 // Texture sampler
 layout(set = 0, binding = 1) uniform sampler2D tex;
+
+// Color space conversion support
+#include "color_space_ubo.glsl"
 
 // Signed distance to rounded rectangle (optimized)
 float sdroundrect(vec2 pt, vec2 ext, float rad) {
@@ -91,5 +95,6 @@ void main() {
 		result = vec4(1.0, 0.0, 1.0, 1.0);
 	}
 
-	outColor = result;
+	// Apply color space conversion (sRGB → target color space)
+	outColor = applyColorSpace(result);
 }
