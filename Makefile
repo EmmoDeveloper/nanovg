@@ -39,7 +39,8 @@ NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
                $(BUILD_DIR)/nanovg_vk_atlas_packing.o $(BUILD_DIR)/nanovg_vk_multi_atlas.o \
                $(BUILD_DIR)/nanovg_vk_atlas_defrag.o $(BUILD_DIR)/nanovg_vk_compute.o \
                $(BUILD_DIR)/nanovg_vk_async_upload.o $(BUILD_DIR)/vknvg_msdf.o \
-               $(BUILD_DIR)/nvg_vk_hdr_metadata.o $(BUILD_DIR)/nvg_vk_color_space_ubo.o
+               $(BUILD_DIR)/nvg_vk_hdr_metadata.o $(BUILD_DIR)/nvg_vk_color_space_ubo.o \
+               $(BUILD_DIR)/nvg_vk_color_space.o $(BUILD_DIR)/nvg_vk_color_space_math.o
 
 $(BUILD_DIR)/nvg_vk_context.o: src/vulkan/nvg_vk_context.c src/vulkan/nvg_vk_context.h src/vulkan/nvg_vk_types.h | $(BUILD_DIR)
 	@echo "Compiling nvg_vk_context.c..."
@@ -99,6 +100,14 @@ $(BUILD_DIR)/nvg_vk_color_space_ubo.o: src/vulkan/nvg_vk_color_space_ubo.c src/v
 	@echo "Compiling nvg_vk_color_space_ubo.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
+$(BUILD_DIR)/nvg_vk_color_space.o: src/vulkan/nvg_vk_color_space.c src/vulkan/nvg_vk_color_space.h src/vulkan/nvg_vk_color_space_math.h | $(BUILD_DIR)
+	@echo "Compiling nvg_vk_color_space.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/nvg_vk_color_space_math.o: src/vulkan/nvg_vk_color_space_math.c src/vulkan/nvg_vk_color_space_math.h | $(BUILD_DIR)
+	@echo "Compiling nvg_vk_color_space_math.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
 $(BUILD_DIR)/vk_shader.o: src/vulkan/vk_shader.c src/vulkan/vk_shader.h | $(BUILD_DIR)
 	@echo "Compiling vk_shader.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
@@ -111,7 +120,7 @@ $(BUILD_DIR)/test_window.o: tests/test_window.c tests/window_utils.h src/vulkan/
 	@echo "Compiling test_window.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_window: $(BUILD_DIR)/test_window.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o
+$(BUILD_DIR)/test_window: $(BUILD_DIR)/test_window.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(BUILD_DIR)/nvg_vk_hdr_metadata.o
 	@echo "Linking test_window..."
 	$(CC) $^ $(LIBS) -o $@
 	@echo "Build complete!"
@@ -263,6 +272,19 @@ $(BUILD_DIR)/test_nvg_api: $(BUILD_DIR)/test_nvg_api.o $(BUILD_DIR)/nanovg.o $(B
 test-nvg-api: $(BUILD_DIR)/test_nvg_api
 	@echo "Running test_nvg_api..."
 	@./$(BUILD_DIR)/test_nvg_api
+
+# test_color_space_api
+$(BUILD_DIR)/test_color_space_api.o: tests/test_color_space_api.c | $(BUILD_DIR)
+	@echo "Compiling test_color_space_api.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/test_color_space_api: $(BUILD_DIR)/test_color_space_api.o $(BUILD_DIR)/nanovg.o $(BUILD_DIR)/nvg_vk.o $(BUILD_DIR)/vknvg_msdf.o $(BUILD_DIR)/window_utils.o $(BUILD_DIR)/vk_shader.o $(NVG_VK_OBJS)
+	@echo "Linking test_color_space_api..."
+	$(CC) $^ $(LIBS) -o $@
+
+test-color-space-api: $(BUILD_DIR)/test_color_space_api
+	@echo "Running test_color_space_api..."
+	@./$(BUILD_DIR)/test_color_space_api
 
 # test_shapes
 $(BUILD_DIR)/test_shapes.o: tests/test_shapes.c | $(BUILD_DIR)

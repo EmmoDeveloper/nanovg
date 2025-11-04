@@ -3,8 +3,12 @@
 
 #include "nvg_vk_types.h"
 
-// Initialize color space UBO descriptor and buffer
-// Called during context creation
+// Initialize color space descriptor layout (must be called before pipelines)
+// Called during context creation, before pipeline creation
+int nvgvk_init_color_space_layout(NVGVkContext* vk);
+
+// Initialize color space UBO buffer and descriptor set (after pipelines exist)
+// Called after pipeline creation to reuse descriptor pool
 int nvgvk_init_color_space_ubo(NVGVkContext* vk);
 
 // Destroy color space UBO resources

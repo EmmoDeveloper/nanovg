@@ -23,6 +23,7 @@
 #include "vulkan/nvg_vk_render.h"
 #include "vulkan/nvg_vk_types.h"
 #include "vulkan/nvg_vk_color_space_ubo.h"
+#include "vulkan/nvg_vk_color_space.h"
 #include "nanovg_vk_virtual_atlas.h"
 #include "nvg_freetype.h"
 #include <stdlib.h>
@@ -611,6 +612,45 @@ void nvgVkSetGlyphReadyCallback(NVGcontext* ctx, NVGVkGlyphReadyCallback callbac
 	vknvg__setGlyphReadyCallback((VKNVGvirtualAtlas*)backend->vk.virtualAtlas,
 	                              (VKNVGglyphReadyCallback)callback,
 	                              userdata);
+}
+
+void nvgVkSetHDRScale(NVGcontext* ctx, float scale)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
+	if (!backend) return;
+
+	// If color space not set up yet, the settings will take effect when it is
+	if (backend->vk.colorSpace) {
+		nvgvk_set_hdr_scale((NVGVkColorSpace*)backend->vk.colorSpace, scale);
+		backend->vk.colorSpaceChanged = 1;
+		nvgvk_update_color_space_ubo(&backend->vk);
+	}
+}
+
+void nvgVkSetGamutMapping(NVGcontext* ctx, int enabled)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
+	if (!backend) return;
+
+	// If color space not set up yet, the settings will take effect when it is
+	if (backend->vk.colorSpace) {
+		nvgvk_set_gamut_mapping((NVGVkColorSpace*)backend->vk.colorSpace, enabled);
+		backend->vk.colorSpaceChanged = 1;
+		nvgvk_update_color_space_ubo(&backend->vk);
+	}
+}
+
+void nvgVkSetToneMapping(NVGcontext* ctx, int enabled)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
+	if (!backend) return;
+
+	// If color space not set up yet, the settings will take effect when it is
+	if (backend->vk.colorSpace) {
+		nvgvk_set_tone_mapping((NVGVkColorSpace*)backend->vk.colorSpace, enabled);
+		backend->vk.colorSpaceChanged = 1;
+		nvgvk_update_color_space_ubo(&backend->vk);
+	}
 }
 
 static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)

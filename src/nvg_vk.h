@@ -77,6 +77,21 @@ typedef void (*NVGVkGlyphReadyCallback)(void* userdata, uint32_t fontID, uint32_
 // Callback is fired from background thread when glyph is rasterized and ready for rendering
 void nvgVkSetGlyphReadyCallback(NVGcontext* ctx, NVGVkGlyphReadyCallback callback, void* userdata);
 
+// Color space and HDR control functions
+
+// Set HDR luminance scaling factor
+// scale: Luminance multiplier (1.0 = no scaling, >1.0 for HDR displays)
+//        Use 0.0 to reset to default based on color space
+void nvgVkSetHDRScale(NVGcontext* ctx, float scale);
+
+// Enable/disable soft gamut mapping
+// enabled: 0 = hard clip out-of-gamut colors, 1 = soft map (preserves hue)
+void nvgVkSetGamutMapping(NVGcontext* ctx, int enabled);
+
+// Enable/disable tone mapping for HDR content
+// enabled: 0 = linear scale, 1 = apply tone mapping (ACES, Reinhard, etc.)
+void nvgVkSetToneMapping(NVGcontext* ctx, int enabled);
+
 #ifdef __cplusplus
 }
 #endif

@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
-// Initialize color space UBO descriptor layout and buffer
-int nvgvk_init_color_space_ubo(NVGVkContext* vk)
+// Initialize color space descriptor layout (must be called before pipelines)
+int nvgvk_init_color_space_layout(NVGVkContext* vk)
 {
 	// Create descriptor set layout for color space UBO (set = 1, binding = 0)
 	VkDescriptorSetLayoutBinding binding = {0};
@@ -24,13 +24,24 @@ int nvgvk_init_color_space_ubo(NVGVkContext* vk)
 		return 0;
 	}
 
+	return 1;
+}
+
+// Initialize color space UBO buffer and descriptor set (after pipelines)
+int nvgvk_init_color_space_ubo(NVGVkContext* vk)
+{
+	// Descriptor layout should already be created by nvgvk_init_color_space_layout
+	if (!vk->colorSpaceDescriptorLayout) {
+		fprintf(stderr, "NanoVG Vulkan: Color space descriptor layout not initialized\n");
+		return 0;
+	}
+
 	// Create uniform buffer for color space parameters (64 bytes)
 	VkDeviceSize bufferSize = sizeof(NVGVkColorSpaceUniforms);
 	if (!nvgvk_buffer_create(vk, &vk->colorSpaceUBO, bufferSize,
 	                          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
 	                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
 		fprintf(stderr, "NanoVG Vulkan: Failed to create color space UBO\n");
-		vkDestroyDescriptorSetLayout(vk->device, vk->colorSpaceDescriptorLayout, NULL);
 		return 0;
 	}
 
@@ -38,7 +49,6 @@ int nvgvk_init_color_space_ubo(NVGVkContext* vk)
 	if (vkMapMemory(vk->device, vk->colorSpaceUBO.memory, 0, bufferSize, 0, &vk->colorSpaceUBO.mapped) != VK_SUCCESS) {
 		fprintf(stderr, "NanoVG Vulkan: Failed to map color space UBO\n");
 		nvgvk_buffer_destroy(vk, &vk->colorSpaceUBO);
-		vkDestroyDescriptorSetLayout(vk->device, vk->colorSpaceDescriptorLayout, NULL);
 		return 0;
 	}
 
@@ -53,7 +63,6 @@ int nvgvk_init_color_space_ubo(NVGVkContext* vk)
 		fprintf(stderr, "NanoVG Vulkan: Failed to allocate color space descriptor set\n");
 		vkUnmapMemory(vk->device, vk->colorSpaceUBO.memory);
 		nvgvk_buffer_destroy(vk, &vk->colorSpaceUBO);
-		vkDestroyDescriptorSetLayout(vk->device, vk->colorSpaceDescriptorLayout, NULL);
 		return 0;
 	}
 

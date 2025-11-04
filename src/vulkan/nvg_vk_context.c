@@ -2,6 +2,7 @@
 #include "nvg_vk_buffer.h"
 #include "nvg_vk_render.h"
 #include "nvg_vk_texture.h"
+#include "nvg_vk_color_space_ubo.h"
 #include "../nanovg.h"
 #include "../nanovg_vk_virtual_atlas.h"
 #include <stdlib.h>
@@ -81,6 +82,18 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 	// Initialize texture descriptor system
 	if (!nvgvk__init_texture_descriptors(vk)) {
 		fprintf(stderr, "NanoVG Vulkan: Failed to initialize texture descriptors\n");
+		nvgvk_buffer_destroy(vk, &vk->uniformBuffer);
+		nvgvk_buffer_destroy(vk, &vk->vertexBuffer);
+		free(vk->vertices);
+		vkDestroyFence(vk->device, vk->uploadFence, NULL);
+		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
+		return 0;
+	}
+
+	// Initialize color space descriptor layout (needed before pipeline creation)
+	if (!nvgvk_init_color_space_layout(vk)) {
+		fprintf(stderr, "NanoVG Vulkan: Failed to initialize color space layout\n");
+		nvgvk__destroy_texture_descriptors(vk);
 		nvgvk_buffer_destroy(vk, &vk->uniformBuffer);
 		nvgvk_buffer_destroy(vk, &vk->vertexBuffer);
 		free(vk->vertices);

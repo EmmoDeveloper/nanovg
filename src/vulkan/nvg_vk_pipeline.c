@@ -238,15 +238,16 @@ int nvgvk_create_pipelines(NVGVkContext* vk, VkRenderPass renderPass)
 	}
 
 	// Create descriptor pool
+	// Need space for: NVGVK_PIPELINE_COUNT pipeline descriptor sets + 1 color space UBO descriptor set
 	VkDescriptorPoolSize poolSizes[2] = {0};
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSizes[0].descriptorCount = NVGVK_PIPELINE_COUNT;
+	poolSizes[0].descriptorCount = NVGVK_PIPELINE_COUNT + 1;  // +1 for color space UBO
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	poolSizes[1].descriptorCount = NVGVK_PIPELINE_COUNT;
 
 	VkDescriptorPoolCreateInfo poolInfo = {0};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.maxSets = NVGVK_PIPELINE_COUNT;
+	poolInfo.maxSets = NVGVK_PIPELINE_COUNT + 1;  // +1 for color space UBO descriptor set
 	poolInfo.poolSizeCount = 2;
 	poolInfo.pPoolSizes = poolSizes;
 
