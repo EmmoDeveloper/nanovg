@@ -43,10 +43,16 @@ static int nvgvk__create_pipeline_layout(NVGVkContext* vk, NVGVkPipeline* pipeli
 	pushConstant.offset = 0;
 	pushConstant.size = sizeof(NVGVkFragUniforms);
 
+	// Descriptor sets: [0] = textures/uniforms, [1] = color space UBO
+	VkDescriptorSetLayout setLayouts[2] = {
+		pipeline->descriptorSetLayout,
+		vk->colorSpaceDescriptorLayout
+	};
+
 	VkPipelineLayoutCreateInfo layoutInfo = {0};
 	layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	layoutInfo.setLayoutCount = 1;
-	layoutInfo.pSetLayouts = &pipeline->descriptorSetLayout;
+	layoutInfo.setLayoutCount = 2;
+	layoutInfo.pSetLayouts = setLayouts;
 	layoutInfo.pushConstantRangeCount = 1;
 	layoutInfo.pPushConstantRanges = &pushConstant;
 

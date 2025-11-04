@@ -143,14 +143,6 @@ void nvgvk_color_space_print_info(const NVGVkColorSpace* cs);
 // List all available color spaces for a surface
 int nvgvk_color_space_print_available(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
 
-// Color space conversion path
-typedef struct NVGVkColorConversionPath {
-	NVGVkMat3 gamutMatrix;		// Primaries conversion matrix
-	int srcTransferID;		// Source transfer function ID
-	int dstTransferID;		// Destination transfer function ID
-	float hdrScale;			// Luminance scaling factor (src_nits / dst_nits)
-} NVGVkColorConversionPath;
-
 // Build conversion path from source to destination color space
 // This can be used to set up shader uniforms for color space conversion
 // Build conversion path between source and destination color spaces
