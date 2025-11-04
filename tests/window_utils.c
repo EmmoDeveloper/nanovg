@@ -1,4 +1,5 @@
 #include "window_utils.h"
+#include "vulkan/nvg_vk_hdr_metadata.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,17 +50,72 @@ static void createSwapchain(WindowVulkanContext* ctx)
 	VkSurfaceFormatKHR* formats = malloc(sizeof(VkSurfaceFormatKHR) * formatCount);
 	vkGetPhysicalDeviceSurfaceFormatsKHR(ctx->physicalDevice, ctx->surface, &formatCount, formats);
 
+	// Priority-based HDR/wide-gamut color space selection
+	// Priority: HDR10 ST.2084 > HDR10 HLG > Display P3 > Extended sRGB > sRGB
 	VkSurfaceFormatKHR surfaceFormat = formats[0];
-	for (uint32_t i = 0; i < formatCount; i++) {
-		if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM &&
-			formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+	int foundPreferred = 0;
+
+	// Try HDR10 ST.2084 (PQ) first
+	for (uint32_t i = 0; i < formatCount && !foundPreferred; i++) {
+		if (formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
+			formats[i].colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) {
 			surfaceFormat = formats[i];
-			break;
+			foundPreferred = 1;
+			printf("Selected HDR10 ST.2084 (PQ) color space\n");
 		}
 	}
+
+	// Try HDR10 HLG
+	for (uint32_t i = 0; i < formatCount && !foundPreferred; i++) {
+		if (formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
+			formats[i].colorSpace == VK_COLOR_SPACE_HDR10_HLG_EXT) {
+			surfaceFormat = formats[i];
+			foundPreferred = 1;
+			printf("Selected HDR10 HLG color space\n");
+		}
+	}
+
+	// Try Display P3
+	for (uint32_t i = 0; i < formatCount && !foundPreferred; i++) {
+		if ((formats[i].format == VK_FORMAT_B8G8R8A8_UNORM ||
+		     formats[i].format == VK_FORMAT_R8G8B8A8_UNORM) &&
+			formats[i].colorSpace == VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT) {
+			surfaceFormat = formats[i];
+			foundPreferred = 1;
+			printf("Selected Display P3 color space\n");
+		}
+	}
+
+	// Try Extended sRGB (linear)
+	for (uint32_t i = 0; i < formatCount && !foundPreferred; i++) {
+		if ((formats[i].format == VK_FORMAT_B8G8R8A8_UNORM ||
+		     formats[i].format == VK_FORMAT_R8G8B8A8_UNORM) &&
+			formats[i].colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) {
+			surfaceFormat = formats[i];
+			foundPreferred = 1;
+			printf("Selected Extended sRGB Linear color space\n");
+		}
+	}
+
+	// Fallback to standard sRGB
+	for (uint32_t i = 0; i < formatCount && !foundPreferred; i++) {
+		if ((formats[i].format == VK_FORMAT_B8G8R8A8_UNORM ||
+		     formats[i].format == VK_FORMAT_R8G8B8A8_UNORM) &&
+			formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			surfaceFormat = formats[i];
+			foundPreferred = 1;
+			printf("Selected sRGB color space (fallback)\n");
+		}
+	}
+
+	// Set HDR metadata if HDR color space selected
+	int isHDR = (surfaceFormat.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT ||
+	             surfaceFormat.colorSpace == VK_COLOR_SPACE_HDR10_HLG_EXT);
+
 	free(formats);
 
 	ctx->swapchainImageFormat = surfaceFormat.format;
+	ctx->swapchainColorSpace = surfaceFormat.colorSpace;
 
 	uint32_t presentModeCount;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(ctx->physicalDevice, ctx->surface, &presentModeCount, NULL);
@@ -131,6 +187,15 @@ static void createSwapchain(WindowVulkanContext* ctx)
 	if (vkCreateSwapchainKHR(ctx->device, &createInfo, NULL, &ctx->swapchain) != VK_SUCCESS) {
 		fprintf(stderr, "Failed to create swapchain\n");
 		return;
+	}
+
+	// Apply HDR metadata if HDR color space selected
+	if (isHDR) {
+		VkHdrMetadataEXT hdrMetadata;
+		if (nvgvk_query_hdr_capabilities(ctx->physicalDevice, ctx->surface, &hdrMetadata)) {
+			nvgvk_set_hdr_metadata(ctx->device, ctx->swapchain, &hdrMetadata);
+			printf("HDR metadata applied to swapchain\n");
+		}
 	}
 
 	vkGetSwapchainImagesKHR(ctx->device, ctx->swapchain, &ctx->swapchainImageCount, NULL);

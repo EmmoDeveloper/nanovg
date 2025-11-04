@@ -38,7 +38,8 @@ NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
                $(BUILD_DIR)/nanovg_vk_virtual_atlas.o $(BUILD_DIR)/nvg_freetype.o \
                $(BUILD_DIR)/nanovg_vk_atlas_packing.o $(BUILD_DIR)/nanovg_vk_multi_atlas.o \
                $(BUILD_DIR)/nanovg_vk_atlas_defrag.o $(BUILD_DIR)/nanovg_vk_compute.o \
-               $(BUILD_DIR)/nanovg_vk_async_upload.o $(BUILD_DIR)/vknvg_msdf.o
+               $(BUILD_DIR)/nanovg_vk_async_upload.o $(BUILD_DIR)/vknvg_msdf.o \
+               $(BUILD_DIR)/nvg_vk_hdr_metadata.o
 
 $(BUILD_DIR)/nvg_vk_context.o: src/vulkan/nvg_vk_context.c src/vulkan/nvg_vk_context.h src/vulkan/nvg_vk_types.h | $(BUILD_DIR)
 	@echo "Compiling nvg_vk_context.c..."
@@ -88,6 +89,10 @@ $(BUILD_DIR)/nanovg_vk_compute.o: src/nanovg_vk_compute.c src/nanovg_vk_compute.
 
 $(BUILD_DIR)/nanovg_vk_async_upload.o: src/nanovg_vk_async_upload.c src/nanovg_vk_async_upload.h | $(BUILD_DIR)
 	@echo "Compiling nanovg_vk_async_upload.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/nvg_vk_hdr_metadata.o: src/vulkan/nvg_vk_hdr_metadata.c src/vulkan/nvg_vk_hdr_metadata.h | $(BUILD_DIR)
+	@echo "Compiling nvg_vk_hdr_metadata.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/vk_shader.o: src/vulkan/vk_shader.c src/vulkan/vk_shader.h | $(BUILD_DIR)

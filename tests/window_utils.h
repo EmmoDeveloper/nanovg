@@ -24,6 +24,7 @@ typedef struct {
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
 	VkFormat swapchainImageFormat;
+	VkColorSpaceKHR swapchainColorSpace;
 	VkExtent2D swapchainExtent;
 	uint32_t swapchainImageCount;
 	VkImage* swapchainImages;
