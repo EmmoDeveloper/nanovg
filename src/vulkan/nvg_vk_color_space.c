@@ -672,28 +672,17 @@ void nvgvk_set_custom_color_space(NVGVkColorSpace* cs, int srcTransfer, int dstT
 void nvgvk_set_hdr_scale(NVGVkColorSpace* cs, float scale)
 {
 	if (!cs) return;
-
-	// Store the scale factor
-	// This would need to be added to the NVGVkColorSpace structure
-	// For now, just accept the value to avoid errors
-	(void)scale;
-	// TODO: Add hdrScale field to NVGVkColorSpace
+	cs->hdrScaleOverride = scale;
 }
 
 void nvgvk_set_gamut_mapping(NVGVkColorSpace* cs, int enabled)
 {
 	if (!cs) return;
-	// Store gamut mapping preference
-	// This would need to be added to the NVGVkColorSpace structure
-	(void)enabled;
-	// TODO: Add useGamutMapping field to NVGVkColorSpace
+	cs->useGamutMapping = enabled;
 }
 
 void nvgvk_set_tone_mapping(NVGVkColorSpace* cs, int enabled)
 {
 	if (!cs) return;
-	// Store tone mapping preference
-	// This would need to be added to the NVGVkColorSpace structure
-	(void)enabled;
-	// TODO: Add useToneMapping field to NVGVkColorSpace
+	cs->useToneMapping = enabled;
 }
