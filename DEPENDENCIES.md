@@ -287,7 +287,7 @@ LIBS := $(shell pkg-config --libs vulkan glfw3 harfbuzz fribidi) \
 	-Wl,-rpath,/opt/freetype/objs/.libs -Wl,-rpath,/opt/freetype/cairo/builddir/src
 ```
 
-**Updated Makefile (use local builds):**
+**Current Makefile (all local builds, NO pkg-config):**
 ```makefile
 INCLUDES := -I./src -I./tests \
 	-I/opt/freetype/include \
@@ -297,15 +297,16 @@ INCLUDES := -I./src -I./tests \
 	-I/opt/fribidi/build/lib \
 	-I/opt/fribidi/build/gen.tab \
 	-I/opt/glfw/include \
-	$(shell pkg-config --cflags vulkan)
+	-I/opt/lunarg-vulkan-sdk/x86_64/include
 
-LIBS := $(shell pkg-config --libs vulkan) \
+LIBS := -L/opt/lunarg-vulkan-sdk/x86_64/lib -lvulkan \
 	-L/opt/freetype/objs/.libs -lfreetype \
 	-L/opt/freetype/cairo/builddir/src -lcairo \
 	-L/work/java/ai-ide-jvm/harfbuzz/build/src -lharfbuzz \
 	-L/opt/fribidi/build/lib -lfribidi \
 	-L/opt/glfw/build/src -lglfw \
 	-lm -lpthread \
+	-Wl,-rpath,/opt/lunarg-vulkan-sdk/x86_64/lib \
 	-Wl,-rpath,/opt/freetype/objs/.libs \
 	-Wl,-rpath,/opt/freetype/cairo/builddir/src \
 	-Wl,-rpath,/work/java/ai-ide-jvm/harfbuzz/build/src \
@@ -338,10 +339,34 @@ Expected output should show local paths, not `/usr/lib`.
 
 ---
 
-## Notes
+## Library Control Policy
 
-1. **Vulkan SDK** from tarball is acceptable - system libraries work fine
-2. **HarfBuzz, FriBidi, GLFW** currently use system libraries via pkg-config
-3. **FreeType and Cairo** already use local builds
-4. After building FriBidi and GLFW, update Makefile to use local builds
-5. All dependencies use static or shared libraries - prefer static for portability
+### ✅ Full Source Control (NO pkg-config)
+
+All libraries are built from controlled source repositories:
+
+| Library | Location | Purpose | Build Status |
+|---------|----------|---------|--------------|
+| **FreeType** | `/opt/freetype/` | Font rendering, COLR emoji | ✅ Built |
+| **Cairo** | `/opt/freetype/cairo/` | Graphics, COLR rendering | ✅ Built |
+| **HarfBuzz** | `/work/java/ai-ide-jvm/harfbuzz/` | Text shaping | ✅ Built |
+| **FriBidi** | `/opt/fribidi/` | Bidirectional text | ✅ Built |
+| **GLFW** | `/opt/glfw/` | Window/input management | ✅ Built |
+| **Vulkan SDK** | `/opt/lunarg-vulkan-sdk/` | Graphics API | ✅ Installed |
+
+### Rationale
+
+**Why control all library versions:**
+1. **Reproducibility** - Same behavior across machines
+2. **Debugging** - Known library versions simplify troubleshooting
+3. **Features** - Access to latest APIs (e.g., FreeType 2.14 COLRv1 support)
+4. **No surprises** - System updates don't break the build
+
+**Vulkan SDK note:** Uses local SDK for headers/loader, but still uses system GPU drivers (ICD) at runtime for hardware acceleration.
+
+### Notes
+
+1. **NO pkg-config** - All paths explicit in Makefile
+2. **Git-based updates** - `git pull` in each library directory
+3. **Rpath configured** - Binaries find libraries at runtime
+4. **Static linking preferred** - Where available, for portability
