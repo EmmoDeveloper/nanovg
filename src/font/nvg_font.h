@@ -1,0 +1,71 @@
+#ifndef NVG_FONT_H
+#define NVG_FONT_H
+
+#include "nvg_font_types.h"
+
+// Font system lifecycle
+NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight);
+void nvgFontDestroy(NVGFontSystem* fs);
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* userdata, int image), void* userdata);
+
+// Font loading
+int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path);
+int nvgFontAddFontMem(NVGFontSystem* fs, const char* name, unsigned char* data, int ndata, int freeData);
+int nvgFontFindFont(NVGFontSystem* fs, const char* name);
+void nvgFontAddFallback(NVGFontSystem* fs, int baseFont, int fallbackFont);
+void nvgFontResetFallback(NVGFontSystem* fs, int baseFont);
+
+// Font state
+void nvgFontSetFont(NVGFontSystem* fs, int fontId);
+void nvgFontSetSize(NVGFontSystem* fs, float size);
+void nvgFontSetSpacing(NVGFontSystem* fs, float spacing);
+void nvgFontSetBlur(NVGFontSystem* fs, float blur);
+void nvgFontSetAlign(NVGFontSystem* fs, int align);
+void nvgFontSetFontMSDF(NVGFontSystem* fs, int font, int msdfMode);
+void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height);
+
+// Text layout and iteration
+void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, float y,
+                                const char* string, const char* end, int bidi, void* state);
+int nvgFontShapedTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGlyph* quad);
+void nvgFontTextIterFree(NVGTextIter* iter);
+int nvgFontTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGlyph* quad);
+
+// Text measurement
+float nvgFontTextBounds(NVGFontSystem* fs, float x, float y, const char* string, const char* end, float* bounds);
+float nvgFontTextBoundsShaped(NVGFontSystem* fs, float x, float y, const char* string, const char* end,
+                               float* bounds, int bidi, void* state);
+void nvgFontVertMetrics(NVGFontSystem* fs, float* ascender, float* descender, float* lineh);
+float nvgFontLineBounds(NVGFontSystem* fs, float y, float* miny, float* maxy);
+
+// Variable fonts
+int nvgFontSetVarDesignCoords(NVGFontSystem* fs, int fontId, const float* coords, unsigned int num_coords);
+int nvgFontGetVarDesignCoords(NVGFontSystem* fs, int fontId, float* coords, unsigned int num_coords);
+int nvgFontGetNamedInstanceCount(NVGFontSystem* fs, int fontId);
+int nvgFontSetNamedInstance(NVGFontSystem* fs, int fontId, unsigned int instance_index);
+
+// OpenType features
+void nvgFontSetFeature(NVGFontSystem* fs, const char* tag, int enabled);
+void nvgFontResetFeatures(NVGFontSystem* fs);
+
+// Font configuration
+void nvgFontSetHinting(NVGFontSystem* fs, int hinting);
+void nvgFontSetKerning(NVGFontSystem* fs, int enabled);
+
+// Font information
+const char* nvgFontGetFamilyName(NVGFontSystem* fs, int fontId);
+const char* nvgFontGetStyleName(NVGFontSystem* fs, int fontId);
+int nvgFontIsVariable(NVGFontSystem* fs, int fontId);
+int nvgFontIsScalable(NVGFontSystem* fs, int fontId);
+int nvgFontIsFixedWidth(NVGFontSystem* fs, int fontId);
+int nvgFontGetVarAxisCount(NVGFontSystem* fs, int fontId);
+int nvgFontGetVarAxis(NVGFontSystem* fs, int fontId, unsigned int axis_index, NVGVarAxis* axis);
+
+// Glyph-level API
+int nvgFontGetGlyphCount(NVGFontSystem* fs, int fontId);
+int nvgFontGetGlyphMetrics(NVGFontSystem* fs, int fontId, unsigned int codepoint, NVGGlyphMetrics* metrics);
+float nvgFontGetKerning(NVGFontSystem* fs, int fontId, unsigned int left_glyph, unsigned int right_glyph);
+int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int codepoint,
+                       float x, float y, NVGCachedGlyph* quad);
+
+#endif // NVG_FONT_H
