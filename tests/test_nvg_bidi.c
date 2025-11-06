@@ -213,7 +213,7 @@ int main(void)
 		// Save screenshot after first frame
 		if (frameCount == 0 && !screenshotSaved) {
 			printf("   Saving screenshot...\n");
-			if (window_save_screenshot(winCtx, imageIndex, "bidi_test.ppm")) {
+			if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/bidi_test.ppm")) {
 				printf("   ✓ Screenshot saved to bidi_test.ppm\n");
 				screenshotSaved = 1;
 			}

@@ -126,7 +126,7 @@ int main(void)
 
 	// Save screenshot
 	printf("8. Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "nvg_text_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/nvg_text_test.ppm")) {
 		printf("   ✓ Screenshot saved to nvg_text_test.ppm\n\n");
 	}
 

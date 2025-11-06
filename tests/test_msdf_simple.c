@@ -73,7 +73,7 @@ int main(void)
 		printf("✓ Frame rendered\n");
 
 		// Save screenshot
-		window_save_screenshot(winCtx, imageIndex, "msdf_simple_test.png");
+		window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/msdf_simple_test.png");
 		printf("✓ Screenshot saved\n");
 	}
 

@@ -143,8 +143,8 @@ int main() {
 	}
 
 	// Save to PNG
-	cairo_surface_write_to_png(surface, "chinese_poem_output.png");
-	printf("\nSUCCESS: Rendered Chinese poem to chinese_poem_output.png\n");
+	cairo_surface_write_to_png(surface, "build/test/screendumps/chinese_poem_output.png");
+	printf("\nSUCCESS: Rendered Chinese poem to build/test/screendumps/chinese_poem_output.png\n");
 
 	// Print poem information
 	printf("\nPoem Information:\n");

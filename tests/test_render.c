@@ -102,9 +102,15 @@ int main(void)
 	// Begin render pass and draw
 	printf("7. Rendering triangle to framebuffer...\n");
 
+	// Create semaphore for image acquisition
+	VkSemaphore imageAvailableSemaphore;
+	VkSemaphoreCreateInfo semaphoreInfo = {0};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	vkCreateSemaphore(winCtx->device, &semaphoreInfo, NULL, &imageAvailableSemaphore);
+
 	uint32_t imageIndex;
 	vkAcquireNextImageKHR(winCtx->device, winCtx->swapchain, UINT64_MAX,
-	                      VK_NULL_HANDLE, VK_NULL_HANDLE, &imageIndex);
+	                      imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
 	VkCommandBufferBeginInfo beginInfo = {0};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -150,20 +156,25 @@ int main(void)
 	vkEndCommandBuffer(nvgCtx.commandBuffer);
 
 	// Submit
+	VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 	VkSubmitInfo submitInfo = {0};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.waitSemaphoreCount = 1;
+	submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+	submitInfo.pWaitDstStageMask = waitStages;
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &nvgCtx.commandBuffer;
 
 	vkQueueSubmit(winCtx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(winCtx->graphicsQueue);
+	vkDestroySemaphore(winCtx->device, imageAvailableSemaphore, NULL);
 
 	printf("   ✓ Triangle rendered\n\n");
 
 	// Save screenshot
 	printf("8. Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "render_test.ppm")) {
-		printf("   ✓ Screenshot saved to render_test.ppm\n\n");
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/render_test.ppm")) {
+		printf("   ✓ Screenshot saved to build/test/screendumps/render_test.ppm\n\n");
 	} else {
 		printf("   ✗ Failed to save screenshot\n\n");
 	}

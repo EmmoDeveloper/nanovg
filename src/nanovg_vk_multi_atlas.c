@@ -309,7 +309,7 @@ VKNVGatlasManager* vknvg__createAtlasManager(VkDevice device,
 	manager->descriptorSetLayout = descriptorSetLayout;
 	manager->sampler = sampler;
 	manager->atlasSize = atlasSize;
-	manager->format = VK_FORMAT_R8_UNORM;
+	manager->format = VK_FORMAT_R8G8B8A8_UNORM;  // RGBA to support MSDF (RGB) and grayscale (R only)
 	manager->packingHeuristic = VKNVG_PACK_BEST_AREA_FIT;
 	manager->splitRule = VKNVG_SPLIT_SHORTER_AXIS;
 

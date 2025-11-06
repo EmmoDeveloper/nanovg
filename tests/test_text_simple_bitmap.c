@@ -103,7 +103,7 @@ int main(void)
 	vkQueueSubmit(winCtx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(winCtx->graphicsQueue);
 
-	window_save_screenshot(winCtx, imageIndex, "text_bitmap_test.ppm");
+	window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/text_bitmap_test.ppm");
 	printf("Screenshot saved to text_bitmap_test.ppm\n");
 
 	vkDestroySemaphore(winCtx->device, imageAvailableSemaphore, NULL);

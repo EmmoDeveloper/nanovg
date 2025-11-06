@@ -238,7 +238,7 @@ int main(void)
 
 	// Save screenshot
 	printf("\nSaving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "custom_font_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/custom_font_test.ppm")) {
 		printf("✓ Screenshot saved to custom_font_test.ppm\n");
 	}
 

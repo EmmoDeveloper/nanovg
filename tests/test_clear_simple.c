@@ -72,7 +72,7 @@ int main(void)
 	printf("Rendering complete, saving screenshot...\n");
 
 	// Save screenshot
-	if (window_save_screenshot(winCtx, imageIndex, "clear_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/clear_test.ppm")) {
 		printf("Screenshot saved to clear_test.ppm\n");
 	}
 

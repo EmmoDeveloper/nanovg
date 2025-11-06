@@ -217,7 +217,7 @@ int main(void)
 
 	// Save screenshot
 	printf("7. Saving screenshot...\n");
-	window_save_screenshot(winCtx, imageIndex, "text_msdf_test.ppm");
+	window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/text_msdf_test.ppm");
 	printf("   ✓ Screenshot saved to text_msdf_test.ppm\n\n");
 
 	// Cleanup

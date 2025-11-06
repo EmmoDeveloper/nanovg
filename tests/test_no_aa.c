@@ -90,7 +90,7 @@ int main(void)
 	vkDestroySemaphore(winCtx->device, imageAvailableSemaphore, NULL);
 
 	// Save screenshot
-	if (window_save_screenshot(winCtx, imageIndex, "no_aa_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/no_aa_test.ppm")) {
 		printf("Screenshot saved to no_aa_test.ppm\n");
 	}
 

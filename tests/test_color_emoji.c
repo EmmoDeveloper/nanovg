@@ -49,7 +49,7 @@ int main() {
 		return 1;
 	}
 	
-	cairo_surface_write_to_png(surface, "test_color_emoji_output.png");
+	cairo_surface_write_to_png(surface, "build/test/screendumps/test_color_emoji_output.png");
 	printf("SUCCESS: Rendered color emoji to test_color_emoji_output.png\n");
 	
 	cairo_scaled_font_destroy(scaled_font);

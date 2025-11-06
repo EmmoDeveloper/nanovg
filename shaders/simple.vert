@@ -14,8 +14,8 @@ void main() {
 	fragTexCoord = inTexCoord;
 	fragPosition = inPos;
 
-	// Transform to NDC
-	// Match text shader: Y increases downward (Vulkan convention)
+	// Transform to NDC - Vulkan Y-up convention (Y=0 at bottom)
 	vec2 ndc = (2.0 * inPos / view.viewSize) - 1.0;
+	ndc.y = -ndc.y; // Flip Y for Vulkan Y-up (bottom-left origin)
 	gl_Position = vec4(ndc.x, ndc.y, 0.0, 1.0);
 }

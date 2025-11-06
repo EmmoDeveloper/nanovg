@@ -166,7 +166,7 @@ int main(void)
 	printf("Frame rendered. Saving screenshot...\n");
 
 	// Save screenshot
-	if (window_save_screenshot(winCtx, imageIndex, "visual_bounds_test.ppm") == 0) {
+	if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/visual_bounds_test.ppm") == 0) {
 		printf("Screenshot saved to visual_bounds_test.ppm\n");
 	} else {
 		printf("Failed to save screenshot\n");

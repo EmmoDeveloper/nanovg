@@ -35,7 +35,7 @@ void main() {
 	// Calculate UV coordinates
 	outTexCoord = inInstanceUVOffset + corner * inInstanceUVSize;
 
-	// Transform to NDC
+	// Transform to NDC - Vulkan Y-up convention (Y=0 at bottom)
 	gl_Position = vec4(
 		2.0 * position.x / pc.viewSize.x - 1.0,
 		1.0 - 2.0 * position.y / pc.viewSize.y,

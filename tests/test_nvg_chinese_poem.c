@@ -169,6 +169,11 @@ int main(void)
 		presentInfo.pImageIndices = &imageIndex;
 		vkQueuePresentKHR(winCtx->graphicsQueue, &presentInfo);
 
+		// Save screenshot on first frame
+		if (frame == 0) {
+			window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/chinese_poem_test.ppm");
+		}
+
 		vkDestroySemaphore(winCtx->device, imageAvailableSemaphore, NULL);
 
 		// Progress indicator

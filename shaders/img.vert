@@ -12,9 +12,8 @@ layout(binding = 0) uniform ViewUniforms {
 void main() {
 	fragTexCoord = inTexCoord;
 
-	// Transform to NDC
-	// Note: NanoVG provides coordinates with Y=0 at bottom (OpenGL convention)
-	// But Vulkan uses Y=0 at top, so we negate Y to flip it
+	// Transform to NDC - Vulkan Y-up convention (Y=0 at bottom)
 	vec2 ndc = (2.0 * inPos / view.viewSize) - 1.0;
+	ndc.y = -ndc.y; // Flip Y for Vulkan Y-up (bottom-left origin)
 	gl_Position = vec4(ndc.x, ndc.y, 0.0, 1.0);
 }

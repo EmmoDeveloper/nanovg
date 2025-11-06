@@ -192,7 +192,7 @@ int main(void)
 		// Save screenshot after first frame
 		if (frameCount == 0 && !screenshotSaved) {
 			printf("   Saving screenshot...\n");
-			if (window_save_screenshot(winCtx, imageIndex, "color_emoji_test.ppm")) {
+			if (window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/color_emoji_test.ppm")) {
 				printf("   ✓ Screenshot saved to color_emoji_test.ppm\n");
 				screenshotSaved = 1;
 			}
