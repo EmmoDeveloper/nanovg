@@ -288,6 +288,8 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 	// Bind texture descriptor set if using image
 	if (call->image > 0) {
 		int texId = call->image - 1;
+		printf("[nvgvk_render_triangles] Binding texture %d (image %d), descriptorSet=%p, image=%p\n",
+			texId, call->image, (void*)vk->textures[texId].descriptorSet, (void*)vk->textures[texId].image);
 		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES && vk->textures[texId].image != VK_NULL_HANDLE) {
 			vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 			                        pipeline->layout, 0, 1, &vk->textures[texId].descriptorSet, 0, NULL);
@@ -300,6 +302,9 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 
 	// Skip viewSize (2 floats) to get FragUniforms
 	NVGVkFragUniforms* frag = (NVGVkFragUniforms*)(&vk->uniforms[call->uniformOffset].scissorMat);
+
+	printf("[nvgvk_render_triangles] texType=%d, type=%d, innerCol=(%.2f,%.2f,%.2f,%.2f)\n",
+		frag->texType, frag->type, frag->innerCol[0], frag->innerCol[1], frag->innerCol[2], frag->innerCol[3]);
 
 	vkCmdPushConstants(vk->commandBuffer, pipeline->layout,
 	                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

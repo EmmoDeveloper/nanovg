@@ -46,6 +46,7 @@ typedef struct {
 	unsigned int codepoint;
 	const char* str;      // Current position in string
 	const char* next;     // Next position
+	unsigned int glyphIndex; // Current HarfBuzz glyph index for iteration
 } NVGTextIter;
 
 // Font rendering state

@@ -6,7 +6,7 @@
 // Font system lifecycle
 NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight);
 void nvgFontDestroy(NVGFontSystem* fs);
-void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* userdata, int image), void* userdata);
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data), void* userdata);
 
 // Font loading
 int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path);
@@ -39,10 +39,10 @@ void nvgFontVertMetrics(NVGFontSystem* fs, float* ascender, float* descender, fl
 float nvgFontLineBounds(NVGFontSystem* fs, float y, float* miny, float* maxy);
 
 // Variable fonts
-int nvgFontSetVarDesignCoords(NVGFontSystem* fs, int fontId, const float* coords, unsigned int num_coords);
-int nvgFontGetVarDesignCoords(NVGFontSystem* fs, int fontId, float* coords, unsigned int num_coords);
-int nvgFontGetNamedInstanceCount(NVGFontSystem* fs, int fontId);
-int nvgFontSetNamedInstance(NVGFontSystem* fs, int fontId, unsigned int instance_index);
+int nvgFont__SetVarDesignCoords(NVGFontSystem* fs, int fontId, const float* coords, unsigned int num_coords);
+int nvgFont__GetVarDesignCoords(NVGFontSystem* fs, int fontId, float* coords, unsigned int num_coords);
+int nvgFont__GetNamedInstanceCount(NVGFontSystem* fs, int fontId);
+int nvgFont__SetNamedInstance(NVGFontSystem* fs, int fontId, unsigned int instance_index);
 
 // OpenType features
 void nvgFontSetFeature(NVGFontSystem* fs, const char* tag, int enabled);
@@ -53,13 +53,13 @@ void nvgFontSetHinting(NVGFontSystem* fs, int hinting);
 void nvgFontSetKerning(NVGFontSystem* fs, int enabled);
 
 // Font information
-const char* nvgFontGetFamilyName(NVGFontSystem* fs, int fontId);
-const char* nvgFontGetStyleName(NVGFontSystem* fs, int fontId);
-int nvgFontIsVariable(NVGFontSystem* fs, int fontId);
-int nvgFontIsScalable(NVGFontSystem* fs, int fontId);
-int nvgFontIsFixedWidth(NVGFontSystem* fs, int fontId);
-int nvgFontGetVarAxisCount(NVGFontSystem* fs, int fontId);
-int nvgFontGetVarAxis(NVGFontSystem* fs, int fontId, unsigned int axis_index, NVGVarAxis* axis);
+const char* nvgFont__GetFamilyName(NVGFontSystem* fs, int fontId);
+const char* nvgFont__GetStyleName(NVGFontSystem* fs, int fontId);
+int nvgFont__IsVariable(NVGFontSystem* fs, int fontId);
+int nvgFont__IsScalable(NVGFontSystem* fs, int fontId);
+int nvgFont__IsFixedWidth(NVGFontSystem* fs, int fontId);
+int nvgFont__GetVarAxisCount(NVGFontSystem* fs, int fontId);
+int nvgFont__GetVarAxis(NVGFontSystem* fs, int fontId, unsigned int axis_index, NVGVarAxis* axis);
 
 // Glyph-level API
 int nvgFontGetGlyphCount(NVGFontSystem* fs, int fontId);

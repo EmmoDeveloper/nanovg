@@ -12,8 +12,8 @@ layout(binding = 0) uniform ViewUniforms {
 void main() {
 	fragTexCoord = inTexCoord;
 
-	// Transform to NDC - Vulkan Y-up convention (Y=0 at bottom)
+	// Transform to NDC - NanoVG uses Y-down (0 at top)
 	vec2 ndc = (2.0 * inPos / view.viewSize) - 1.0;
-	ndc.y = -ndc.y; // Flip Y for Vulkan Y-up (bottom-left origin)
+	// Don't flip Y - keep NanoVG Y-down convention
 	gl_Position = vec4(ndc.x, ndc.y, 0.0, 1.0);
 }

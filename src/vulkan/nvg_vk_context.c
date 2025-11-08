@@ -4,7 +4,6 @@
 #include "nvg_vk_texture.h"
 #include "nvg_vk_color_space_ubo.h"
 #include "../nanovg.h"
-#include "../nanovg_vk_virtual_atlas.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -102,45 +101,6 @@ int nvgvk_create(void* userPtr, const NVGVkCreateInfo* createInfo)
 		return 0;
 	}
 
-	// Initialize virtual atlas (for CJK fonts and large glyph sets)
-	// Note: Font context and rasterize callback will be set later via vknvg__setAtlasFontContext
-	vk->virtualAtlas = vknvg__createVirtualAtlas(vk->device, vk->physicalDevice, NULL, NULL);
-	if (!vk->virtualAtlas) {
-		fprintf(stderr, "NanoVG Vulkan: Failed to create virtual atlas\n");
-		nvgvk__destroy_texture_descriptors(vk);
-		nvgvk_buffer_destroy(vk, &vk->uniformBuffer);
-		nvgvk_buffer_destroy(vk, &vk->vertexBuffer);
-		free(vk->vertices);
-		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &vk->commandBuffer);
-		return 0;
-	}
-
-	// Enable async uploads using the graphics queue
-	// TODO: Find dedicated transfer queue for better performance
-	// For now, use graphics queue (works but not optimal)
-	VkResult result = vknvg__enableAsyncUploads((VKNVGvirtualAtlas*)vk->virtualAtlas,
-	                                             vk->queue,  // Use graphics queue
-	                                             0);          // Queue family 0 (graphics)
-
-	if (result == VK_SUCCESS) {
-		printf("NanoVG Vulkan: Async uploads enabled (using graphics queue)\n");
-	} else {
-		printf("NanoVG Vulkan: Warning - Failed to enable async uploads (error %d)\n", result);
-		// Not a fatal error - continue without async uploads
-	}
-
-	// Enable GPU MSDF generation (graphics queue can do compute operations)
-	result = vknvg__enableGPUMSDF((VKNVGvirtualAtlas*)vk->virtualAtlas,
-	                               vk->queue,  // Use graphics queue for compute
-	                               0);          // Queue family 0 (graphics)
-
-	if (result == VK_SUCCESS) {
-		printf("NanoVG Vulkan: GPU MSDF generation enabled (using graphics queue)\n");
-	} else {
-		printf("NanoVG Vulkan: Warning - Failed to enable GPU MSDF (error %d)\n", result);
-		// Not a fatal error - will fall back to CPU rasterization
-	}
-
 	return 1;
 }
 
@@ -153,12 +113,6 @@ void nvgvk_delete(void* userPtr)
 
 	// Wait for device to be idle before cleanup
 	vkDeviceWaitIdle(vk->device);
-
-	// Destroy virtual atlas
-	if (vk->virtualAtlas) {
-		vknvg__destroyVirtualAtlas((VKNVGvirtualAtlas*)vk->virtualAtlas);
-		vk->virtualAtlas = NULL;
-	}
 
 	// Destroy texture descriptor system
 	nvgvk__destroy_texture_descriptors(vk);

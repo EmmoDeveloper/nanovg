@@ -203,9 +203,6 @@ struct NVGVkContext {
 	int flags;
 	int edgeAntiAlias;
 
-	// Virtual atlas (forward declared in nanovg_vk_virtual_atlas.h)
-	void* virtualAtlas;  // VKNVGvirtualAtlas*
-
 	// Color space management
 	void* colorSpace;			// NVGVkColorSpace*
 	NVGVkBuffer colorSpaceUBO;		// UBO for color space conversion

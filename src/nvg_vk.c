@@ -24,8 +24,6 @@
 #include "vulkan/nvg_vk_types.h"
 #include "vulkan/nvg_vk_color_space_ubo.h"
 #include "vulkan/nvg_vk_color_space.h"
-#include "nanovg_vk_virtual_atlas.h"
-#include "nvg_freetype.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,98 +54,6 @@ static void nvgvk__renderStroke(void* uptr, NVGpaint* paint, NVGcompositeOperati
 static void nvgvk__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOperationState compositeOperation, NVGscissor* scissor, const NVGvertex* verts, int nverts, float fringe);
 static void nvgvk__renderDelete(void* uptr);
 static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem);
-
-// Glyph rasterization callback for virtual atlas
-static uint8_t* nvgvk__rasterizeGlyph(void* fontContext, VKNVGglyphKey key,
-                                        uint16_t* width, uint16_t* height,
-                                        int16_t* bearingX, int16_t* bearingY,
-                                        uint16_t* advance, uint8_t* bytesPerPixel)
-{
-	NVGFontSystem* fs = (NVGFontSystem*)fontContext;
-	if (!fs) return NULL;
-
-	// Extract parameters from VKNVGglyphKey
-	int font_id = (int)key.fontID;
-	uint32_t codepoint = key.codepoint;
-	int pixel_size = (int)(key.size >> 16);  // Convert from 16.16 fixed point
-
-	// Use the new nvgft_rasterize_glyph API
-	int w, h, bx, by, ax, bpp;
-	unsigned char* pixel_data = nvgft_rasterize_glyph(fs, font_id, codepoint, pixel_size,
-	                                                    &w, &h, &bx, &by, &ax, &bpp);
-
-	printf("[nvgvk__rasterizeGlyph] font=%d codepoint=%u size=%d -> pixel_data=%p w=%d h=%d bpp=%d\n",
-	       font_id, codepoint, pixel_size, (void*)pixel_data, w, h, bpp);
-
-	// Fill output parameters
-	if (pixel_data) {
-		if (width) *width = (uint16_t)w;
-		if (height) *height = (uint16_t)h;
-		if (bearingX) *bearingX = (int16_t)bx;
-		if (bearingY) *bearingY = (int16_t)by;
-		if (advance) *advance = (uint16_t)ax;
-		if (bytesPerPixel) *bytesPerPixel = (uint8_t)bpp;
-	}
-
-	return pixel_data;  // Caller must free()
-}
-
-// Outline extraction callback (for GPU MSDF)
-static VKNVGglyphOutline* nvgvk__extractGlyphOutline(void* fontContext, VKNVGglyphKey key)
-{
-	NVGFontSystem* fs = (NVGFontSystem*)fontContext;
-	if (!fs) return NULL;
-
-	// Extract parameters from VKNVGglyphKey
-	int font_id = (int)key.fontID;
-	uint32_t codepoint = key.codepoint;
-	int pixel_size = (int)(key.size >> 16);  // Convert from 16.16 fixed point
-
-	// Use the new nvgft_extract_glyph_outline API
-	VKNVGglyphOutline* outline = nvgft_extract_glyph_outline(fs, font_id, codepoint, pixel_size);
-
-	printf("[nvgvk__extractGlyphOutline] font=%d codepoint=%u size=%d -> outline=%p\n",
-	       font_id, codepoint, pixel_size, (void*)outline);
-
-	return outline;
-}
-
-static int nvgvk__queryVirtualAtlas(void* atlasContext, int font_id, uint32_t codepoint,
-                                     int pixel_size, NVGFTVirtualAtlasGlyph* glyph)
-{
-	VKNVGvirtualAtlas* atlas = (VKNVGvirtualAtlas*)atlasContext;
-	if (!atlas) return -1;
-
-	// Create key for virtual atlas lookup
-	VKNVGglyphKey key;
-	key.fontID = (uint16_t)font_id;
-	key.codepoint = codepoint;
-	key.size = (uint32_t)(pixel_size << 16);  // Convert to 16.16 fixed point
-
-	// Request glyph (this will trigger background loading if not cached)
-	VKNVGglyphCacheEntry* entry = vknvg__requestGlyph(atlas, key);
-	if (!entry || entry->state != VKNVG_GLYPH_UPLOADED) {
-		return -1;  // Not ready yet (either loading or not found)
-	}
-
-	// Fill glyph info from cache entry
-	glyph->atlasIndex = entry->atlasIndex;
-	glyph->width = entry->width;
-	glyph->height = entry->height;
-	glyph->bearingX = entry->bearingX;
-	glyph->bearingY = entry->bearingY;
-	glyph->advance = entry->advance;
-
-	// Calculate normalized texture coordinates
-	uint16_t atlas_width = 4096;  // Virtual atlas uses 4096x4096
-	uint16_t atlas_height = 4096;
-	glyph->s0 = (float)entry->atlasX / (float)atlas_width;
-	glyph->t0 = (float)entry->atlasY / (float)atlas_height;
-	glyph->s1 = (float)(entry->atlasX + entry->width) / (float)atlas_width;
-	glyph->t1 = (float)(entry->atlasY + entry->height) / (float)atlas_height;
-
-	return 0;  // Found
-}
 
 NVGcontext* nvgCreateVk(VkDevice device, VkPhysicalDevice physicalDevice,
                         VkQueue queue, VkCommandPool commandPool,
@@ -394,6 +300,8 @@ static void nvgvk__convertPaint(NVGVkBackend* backend, NVGVkUniforms* frag, NVGp
 		int texId = paint->image - 1;
 		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES) {
 			NVGVkTexture* tex = &backend->vk.textures[texId];
+			printf("[nvg_vk] texId=%d, tex->type=%d (RGBA=%d, ALPHA=%d, MSDF=%d)\n",
+				texId, tex->type, NVG_TEXTURE_RGBA, NVG_TEXTURE_ALPHA, NVG_TEXTURE_MSDF);
 			if (tex->type == NVG_TEXTURE_RGBA) {
 				// RGBA texture: check premultiply flag
 				frag->texType = (tex->flags & NVG_IMAGE_PREMULTIPLIED) ? 0 : 1;
@@ -401,6 +309,7 @@ static void nvgvk__convertPaint(NVGVkBackend* backend, NVGVkUniforms* frag, NVGp
 				// ALPHA texture
 				frag->texType = 2;
 			}
+			printf("[nvg_vk] Setting frag->texType=%d for texId=%d\n", frag->texType, texId);
 		} else {
 			frag->texType = 0;
 		}
@@ -604,15 +513,6 @@ void nvgVkEndRenderPass(NVGcontext* ctx)
 	nvgvk_end_render_pass(&backend->vk);
 }
 
-void nvgVkSetGlyphReadyCallback(NVGcontext* ctx, NVGVkGlyphReadyCallback callback, void* userdata)
-{
-	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
-	if (!backend || !backend->vk.virtualAtlas) return;
-
-	vknvg__setGlyphReadyCallback((VKNVGvirtualAtlas*)backend->vk.virtualAtlas,
-	                              (VKNVGglyphReadyCallback)callback,
-	                              userdata);
-}
 
 void nvgVkSetHDRScale(NVGcontext* ctx, float scale)
 {
@@ -655,20 +555,7 @@ void nvgVkSetToneMapping(NVGcontext* ctx, int enabled)
 
 static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)
 {
-	NVGVkBackend* backend = (NVGVkBackend*)uptr;
-	if (!backend || !backend->vk.virtualAtlas || !fontSystem) return;
-
-	// Connect the font system to the virtual atlas (for rasterization and outline extraction)
-	vknvg__setAtlasFontContext((VKNVGvirtualAtlas*)backend->vk.virtualAtlas,
-	                           fontSystem,
-	                           nvgvk__rasterizeGlyph,
-	                           nvgvk__extractGlyphOutline);
-
-	// Connect virtual atlas to font system (for queries)
-	nvgft_set_virtual_atlas((NVGFontSystem*)fontSystem,
-	                        nvgvk__queryVirtualAtlas,
-	                        backend->vk.virtualAtlas);
-
-	printf("NanoVG Vulkan: Font context and virtual atlas bidirectionally connected (query=%p, atlas=%p)\n",
-	       (void*)nvgvk__queryVirtualAtlas, backend->vk.virtualAtlas);
+	// Font system integration will be added in Phase 2
+	(void)uptr;
+	(void)fontSystem;
 }

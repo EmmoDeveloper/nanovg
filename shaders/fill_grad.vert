@@ -16,6 +16,6 @@ void main() {
 
 	// Transform to NDC - Vulkan Y-up convention
 	vec2 ndc = (2.0 * inPos / view.viewSize) - 1.0;
-	ndc.y = -ndc.y; // Flip Y for Vulkan Y-up (bottom-left origin)
+	// ndc.y = -ndc.y; // Removed Y-flip // Flip Y for Vulkan Y-up (bottom-left origin)
 	gl_Position = vec4(ndc.x, ndc.y, 0.0, 1.0);
 }
