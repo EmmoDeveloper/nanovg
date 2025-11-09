@@ -92,6 +92,9 @@ void nvgVkSetGamutMapping(NVGcontext* ctx, int enabled);
 // enabled: 0 = linear scale, 1 = apply tone mapping (ACES, Reinhard, etc.)
 void nvgVkSetToneMapping(NVGcontext* ctx, int enabled);
 
+// Debug function to dump the font atlas texture to a PPM file
+void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename);
+
 #ifdef __cplusplus
 }
 #endif

@@ -5,58 +5,128 @@
 #include <math.h>
 
 // Internal helpers
+// Skyline-based atlas packing (adapted from fontstash.h)
 
-static int nvg__allocAtlasNode(NVGAtlasManager* atlas, int w, int h, int* x, int* y) {
-	int i, bestIdx = -1, bestY = atlas->height, bestX = 0;
+static int nvg__atlasInsertNode(NVGAtlasManager* atlas, int idx, int x, int y, int w)
+{
+	int i;
+	if (atlas->nnodes + 1 > atlas->cnodes) {
+		atlas->cnodes = atlas->cnodes == 0 ? 8 : atlas->cnodes * 2;
+		atlas->nodes = (NVGAtlasNode*)realloc(atlas->nodes, sizeof(NVGAtlasNode) * atlas->cnodes);
+		if (atlas->nodes == NULL)
+			return 0;
+	}
+	for (i = atlas->nnodes; i > idx; i--)
+		atlas->nodes[i] = atlas->nodes[i-1];
+	atlas->nodes[idx].x = (short)x;
+	atlas->nodes[idx].y = (short)y;
+	atlas->nodes[idx].width = (short)w;
+	atlas->nnodes++;
+	return 1;
+}
 
-	// Find best node
-	for (i = 0; i < atlas->nnodes; i++) {
-		int node_y = atlas->nodes[i].y;
-		if (atlas->nodes[i].width >= w) {
-			if (node_y < bestY) {
-				bestIdx = i;
-				bestY = node_y;
-				bestX = atlas->nodes[i].x;
+static void nvg__atlasRemoveNode(NVGAtlasManager* atlas, int idx)
+{
+	int i;
+	if (atlas->nnodes == 0) return;
+	for (i = idx; i < atlas->nnodes - 1; i++)
+		atlas->nodes[i] = atlas->nodes[i+1];
+	atlas->nnodes--;
+}
+
+static int nvg__atlasAddSkylineLevel(NVGAtlasManager* atlas, int idx, int x, int y, int w, int h)
+{
+	int i;
+
+	// Insert new node
+	if (nvg__atlasInsertNode(atlas, idx, x, y + h, w) == 0)
+		return 0;
+
+	// Delete skyline segments that fall under the shadow of the new segment
+	for (i = idx + 1; i < atlas->nnodes; i++) {
+		if (atlas->nodes[i].x < atlas->nodes[i-1].x + atlas->nodes[i-1].width) {
+			int shrink = atlas->nodes[i-1].x + atlas->nodes[i-1].width - atlas->nodes[i].x;
+			atlas->nodes[i].x += (short)shrink;
+			atlas->nodes[i].width -= (short)shrink;
+			if (atlas->nodes[i].width <= 0) {
+				nvg__atlasRemoveNode(atlas, i);
+				i--;
+			} else {
+				break;
 			}
+		} else {
+			break;
 		}
 	}
 
-	if (bestIdx == -1) return 0;
-
-	// Check if we fit vertically
-	if (bestY + h > atlas->height) return 0;
-
-	*x = bestX;
-	*y = bestY;
-
-	// Insert new node
-	if (atlas->nnodes + 1 >= atlas->cnodes) {
-		atlas->cnodes = atlas->cnodes == 0 ? 8 : atlas->cnodes * 2;
-		atlas->nodes = (NVGAtlasNode*)realloc(atlas->nodes, sizeof(NVGAtlasNode) * atlas->cnodes);
-	}
-
-	for (i = atlas->nnodes; i > bestIdx; i--) {
-		atlas->nodes[i] = atlas->nodes[i-1];
-	}
-	atlas->nodes[bestIdx].x = (short)(*x + w);
-	atlas->nodes[bestIdx].y = (short)*y;
-	atlas->nodes[bestIdx].width = (short)(atlas->width - (*x + w));
-	atlas->nnodes++;
-
-	// Update existing node
-	if (bestIdx < atlas->nnodes - 1) {
-		atlas->nodes[bestIdx+1].x = (short)*x;
-		atlas->nodes[bestIdx+1].y = (short)(*y + h);
-		atlas->nodes[bestIdx+1].width = (short)w;
+	// Merge same height skyline segments that are next to each other
+	for (i = 0; i < atlas->nnodes - 1; i++) {
+		if (atlas->nodes[i].y == atlas->nodes[i+1].y) {
+			atlas->nodes[i].width += atlas->nodes[i+1].width;
+			nvg__atlasRemoveNode(atlas, i + 1);
+			i--;
+		}
 	}
 
 	return 1;
 }
 
-static NVGGlyphCacheEntry* nvg__findGlyph(NVGGlyphCache* cache, unsigned int codepoint, int fontId, float size) {
+static int nvg__atlasRectFits(NVGAtlasManager* atlas, int i, int w, int h)
+{
+	// Check if there is enough space at the location of skyline span 'i'
+	int x = atlas->nodes[i].x;
+	int y = atlas->nodes[i].y;
+	int spaceLeft;
+	if (x + w > atlas->width)
+		return -1;
+	spaceLeft = w;
+	while (spaceLeft > 0) {
+		if (i == atlas->nnodes) return -1;
+		if (atlas->nodes[i].y > y)
+			y = atlas->nodes[i].y;
+		if (y + h > atlas->height) return -1;
+		spaceLeft -= atlas->nodes[i].width;
+		++i;
+	}
+	return y;
+}
+
+static int nvg__allocAtlasNode(NVGAtlasManager* atlas, int w, int h, int* x, int* y)
+{
+	int besth = atlas->height, bestw = atlas->width, besti = -1;
+	int bestx = -1, besty = -1, i;
+
+	// Bottom left fit heuristic
+	for (i = 0; i < atlas->nnodes; i++) {
+		int y_fit = nvg__atlasRectFits(atlas, i, w, h);
+		if (y_fit != -1) {
+			if (y_fit + h < besth || (y_fit + h == besth && atlas->nodes[i].width < bestw)) {
+				besti = i;
+				bestw = atlas->nodes[i].width;
+				besth = y_fit + h;
+				bestx = atlas->nodes[i].x;
+				besty = y_fit;
+			}
+		}
+	}
+
+	if (besti == -1)
+		return 0;
+
+	// Perform the actual packing
+	if (nvg__atlasAddSkylineLevel(atlas, besti, bestx, besty, w, h) == 0)
+		return 0;
+
+	*x = bestx;
+	*y = besty;
+
+	return 1;
+}
+
+static NVGGlyphCacheEntry* nvg__findGlyph(NVGGlyphCache* cache, unsigned int glyphIndex, int fontId, float size) {
 	for (int i = 0; i < cache->count; i++) {
 		NVGGlyphCacheEntry* entry = &cache->entries[i];
-		if (entry->valid && entry->codepoint == codepoint &&
+		if (entry->valid && entry->glyphIndex == glyphIndex &&
 			entry->fontId == fontId && fabsf(entry->size - size) < 0.01f) {
 			return entry;
 		}
@@ -137,9 +207,11 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 	NVGGlyphCacheEntry* entry = nvg__findGlyph(fs->glyphCache, glyph_index, fontId, fs->state.size);
 	if (entry) {
 		static int cache_hit_count = 0;
-		if (cache_hit_count++ < 5) {
-			printf("[nvgFontRenderGlyph] Cache HIT for glyph %u (fontId=%d, size=%.1f)\n",
-				glyph_index, fontId, fs->state.size);
+		if (cache_hit_count++ < 50 || glyph_index == 36) {  // 36 = 'A' glyph
+			printf("[nvgFontRenderGlyph] Cache HIT for glyph %u (fontId=%d, size=%.1f), entry size=%.1f, atlas pos (%.1f,%.1f), tex coords (%.4f,%.4f)-(%.4f,%.4f)\n",
+				glyph_index, fontId, fs->state.size, entry->size,
+				entry->x, entry->y,
+				entry->s0, entry->t0, entry->s1, entry->t1);
 		}
 		quad->codepoint = glyph_index;
 		quad->x0 = x + entry->bearingX;
@@ -199,14 +271,15 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 
 	// Create cache entry
 	entry = nvg__allocGlyph(fs->glyphCache);
-	entry->codepoint = glyph_index;
+	entry->glyphIndex = glyph_index;
 	entry->fontId = fontId;
 	entry->size = fs->state.size;
+	entry->hinting = fs->state.hinting;
 
 	static int cache_miss_count = 0;
-	if (cache_miss_count++ < 20) {
-		printf("[nvgFontRenderGlyph] Cache MISS for glyph %u (fontId=%d, size=%.1f), cache entry #%d\n",
-			glyph_index, fontId, fs->state.size, fs->glyphCache->count - 1);
+	if (cache_miss_count++ < 50 || glyph_index == 36) {  // 36 = 'A' glyph
+		printf("[nvgFontRenderGlyph] Cache MISS for glyph %u (fontId=%d, size=%.1f), atlas region (%d,%d) size (%d,%d) [COORDS NOT YET CALCULATED]\n",
+			glyph_index, fontId, fs->state.size, ax, ay, gw+2, gh+2);
 	}
 	entry->atlasIndex = 0;
 	entry->x = (float)(ax + 1);
@@ -217,9 +290,28 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 	entry->t0 = entry->y / (float)fs->atlasManager->height;
 	entry->s1 = (entry->x + entry->w) / (float)fs->atlasManager->width;
 	entry->t1 = (entry->y + entry->h) / (float)fs->atlasManager->height;
+
+	static int coord_debug = 0;
+	if (coord_debug++ < 35) {
+		printf("[Tex coord calc #%d] glyph %u, entry (%.1f,%.1f) size (%.1f,%.1f), atlas dim (%d,%d) @ %p -> coords (%.4f,%.4f)-(%.4f,%.4f)\n",
+			coord_debug, glyph_index,
+			entry->x, entry->y, entry->w, entry->h,
+			fs->atlasManager->width, fs->atlasManager->height, (void*)fs->atlasManager,
+			entry->s0, entry->t0, entry->s1, entry->t1);
+	}
 	entry->advanceX = (float)slot->advance.x / 64.0f;
 	entry->bearingX = (float)slot->bitmap_left;
 	entry->bearingY = (float)slot->bitmap_top;
+
+	// Apply UV inset to prevent linear filtering from sampling adjacent glyphs
+	// With linear filtering, sampling at edges blends with neighboring texels
+	// Inset by 0.5 pixels to stay within glyph bounds
+	float uvInsetX = 0.5f / (float)fs->atlasManager->width;
+	float uvInsetY = 0.5f / (float)fs->atlasManager->height;
+	entry->s0 += uvInsetX;
+	entry->t0 += uvInsetY;
+	entry->s1 -= uvInsetX;
+	entry->t1 -= uvInsetY;
 
 	// Fill quad
 	quad->codepoint = glyph_index;
@@ -238,21 +330,34 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 	quad->generation = entry->generation;
 
 	// Upload bitmap data to atlas (grayscale format - FreeType outputs 1 byte per pixel)
-	// Use bitmap.pitch instead of width as stride may include padding
+	// Atlas allocated (gw+2) × (gh+2) for 1-pixel padding, so upload with padding cleared
 	if (fs->atlasManager->textureCallback && gw > 0 && gh > 0) {
-		int pitch = abs(slot->bitmap.pitch);  // pitch can be negative for top-down bitmaps
-		// Copy with proper pitch handling (no Y-flip needed with vertex shader Y-down)
-		unsigned char* data = (unsigned char*)malloc(gw * gh);
+		int pitch = abs(slot->bitmap.pitch);
+		int padded_w = gw + 2;
+		int padded_h = gh + 2;
+
+		// Allocate padded buffer and clear it (zero padding prevents texture bleeding)
+		unsigned char* data = (unsigned char*)calloc(padded_w * padded_h, 1);
 		if (data) {
+			// Copy glyph data to center of padded buffer (leaving 1px border of zeros)
 			for (int y = 0; y < gh; y++) {
-				memcpy(data + y * gw, slot->bitmap.buffer + y * pitch, gw);
+				memcpy(data + (y + 1) * padded_w + 1,
+				       slot->bitmap.buffer + y * pitch,
+				       gw);
+			}
+
+			// Upload entire padded region starting at allocated atlas position
+			static int upload_debug = 0;
+			if (upload_debug++ < 30) {
+				printf("[Atlas upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
+					upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
 			}
 			fs->atlasManager->textureCallback(
 				fs->atlasManager->textureUserdata,
-				(int)entry->x,
-				(int)entry->y,
-				gw,
-				gh,
+				(int)ax,  // Upload to allocated position (not entry->x which has +1 offset)
+				(int)ay,
+				padded_w,
+				padded_h,
 				data
 			);
 			free(data);

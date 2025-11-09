@@ -19,6 +19,7 @@
 #include "nvg_vk.h"
 #include "vulkan/nvg_vk_context.h"
 #include "vulkan/nvg_vk_texture.h"
+#include "vulkan/nvg_vk_buffer.h"
 #include "vulkan/nvg_vk_pipeline.h"
 #include "vulkan/nvg_vk_render.h"
 #include "vulkan/nvg_vk_types.h"
@@ -558,4 +559,124 @@ static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)
 	// Font system integration will be added in Phase 2
 	(void)uptr;
 	(void)fontSystem;
+}
+
+void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
+	if (!backend || !filename) return;
+
+	NVGVkContext* vk = &backend->vk;
+
+	// Find the font atlas texture (ID 1)
+	if (vk->textureCount < 1) {
+		printf("[Atlas Dump] No textures allocated\n");
+		return;
+	}
+
+	NVGVkTexture* tex = &vk->textures[0];  // Font atlas is texture 0
+	if (tex->image == VK_NULL_HANDLE) {
+		printf("[Atlas Dump] Atlas texture not initialized\n");
+		return;
+	}
+
+	int width = tex->width;
+	int height = tex->height;
+
+	// Create staging buffer to read back texture
+	VkDeviceSize imageSize = width * height;  // 1 byte per pixel for alpha texture
+	NVGVkBuffer stagingBuffer;
+	if (!nvgvk_buffer_create(vk, &stagingBuffer, imageSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT)) {
+		printf("[Atlas Dump] Failed to create staging buffer\n");
+		return;
+	}
+
+	// Create command buffer for copy
+	VkCommandBuffer cmd;
+	VkCommandBufferAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool = vk->commandPool;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = 1;
+
+	if (vkAllocateCommandBuffers(vk->device, &allocInfo, &cmd) != VK_SUCCESS) {
+		nvgvk_buffer_destroy(vk, &stagingBuffer);
+		return;
+	}
+
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	vkBeginCommandBuffer(cmd, &beginInfo);
+
+	// Transition image to TRANSFER_SRC
+	VkImageMemoryBarrier barrier = {0};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = tex->image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.layerCount = 1;
+	barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+	vkCmdPipelineBarrier(cmd,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		0, 0, NULL, 0, NULL, 1, &barrier);
+
+	// Copy image to buffer
+	VkBufferImageCopy region = {0};
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.layerCount = 1;
+	region.imageExtent.width = width;
+	region.imageExtent.height = height;
+	region.imageExtent.depth = 1;
+
+	vkCmdCopyImageToBuffer(cmd, tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		stagingBuffer.buffer, 1, &region);
+
+	// Transition back to SHADER_READ
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(cmd,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		0, 0, NULL, 0, NULL, 1, &barrier);
+
+	vkEndCommandBuffer(cmd);
+
+	// Submit and wait
+	VkSubmitInfo submitInfo = {0};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &cmd;
+
+	vkQueueSubmit(vk->queue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(vk->queue);
+
+	// Write PPM file
+	FILE* f = fopen(filename, "wb");
+	if (f) {
+		fprintf(f, "P6\n%d %d\n255\n", width, height);
+		unsigned char* data = (unsigned char*)stagingBuffer.mapped;
+		for (int i = 0; i < width * height; i++) {
+			unsigned char gray = data[i];
+			fputc(gray, f);  // R
+			fputc(gray, f);  // G
+			fputc(gray, f);  // B
+		}
+		fclose(f);
+		printf("[Atlas Dump] Wrote %dx%d atlas to %s\n", width, height, filename);
+	}
+
+	// Cleanup
+	vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &cmd);
+	nvgvk_buffer_destroy(vk, &stagingBuffer);
 }
