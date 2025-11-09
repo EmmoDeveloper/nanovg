@@ -23,6 +23,7 @@
 
 #include "nanovg.h"
 #include "font/nvg_font.h"
+#include "font/nvg_font_internal.h"
 #include "font/nvg_font_types.h"
 
 #ifndef NVG_NO_STB
@@ -3125,8 +3126,13 @@ float nvgRenderGlyph(NVGcontext* ctx, unsigned int codepoint, float x, float y)
 	nvgFontSetSize(ctx->fs, state->fontSize * scale);
 	nvgFontSetFont(ctx->fs, state->fontId);
 
+	// Convert codepoint to glyph index
+	// Note: Font fallback will be handled internally by nvgFontRenderGlyph if glyph_index is 0
+	FT_Face face = ctx->fs->fonts[state->fontId].face;
+	unsigned int glyph_index = FT_Get_Char_Index(face, codepoint);
+
 	NVGCachedGlyph quad;
-	if (!nvgFontRenderGlyph(ctx->fs, state->fontId, codepoint, x * scale, y * scale, &quad)) {
+	if (!nvgFontRenderGlyph(ctx->fs, state->fontId, glyph_index, codepoint, x * scale, y * scale, &quad)) {
 		return 0.0f;
 	}
 

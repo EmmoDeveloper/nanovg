@@ -66,7 +66,7 @@ int nvgFont__GetVarAxis(NVGFontSystem* fs, int fontId, unsigned int axis_index, 
 int nvgFontGetGlyphCount(NVGFontSystem* fs, int fontId);
 int nvgFontGetGlyphMetrics(NVGFontSystem* fs, int fontId, unsigned int codepoint, NVGGlyphMetrics* metrics);
 float nvgFontGetKerning(NVGFontSystem* fs, int fontId, unsigned int left_glyph, unsigned int right_glyph);
-int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int codepoint,
+int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, unsigned int codepoint,
                        float x, float y, NVGCachedGlyph* quad);
 
 #endif // NVG_FONT_H

@@ -120,11 +120,11 @@ $(BUILD_DIR)/vk_shader.o: src/vulkan/vk_shader.c src/vulkan/vk_shader.h | $(BUIL
 	@echo "Compiling vk_shader.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/window_utils.o: tests/window_utils.c tests/window_utils.h | $(BUILD_DIR)
+$(BUILD_DIR)/window_utils.o: src/tools/window_utils.c src/tools/window_utils.h | $(BUILD_DIR)
 	@echo "Compiling window_utils.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/test_window.o: tests/test_window.c tests/window_utils.h src/vulkan/vk_shader.h | $(BUILD_DIR)
+$(BUILD_DIR)/test_window.o: tests/test_window.c src/tools/window_utils.h src/vulkan/vk_shader.h | $(BUILD_DIR)
 	@echo "Compiling test_window.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 

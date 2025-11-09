@@ -10,6 +10,9 @@
 #include <hb-ft.h>
 #include <fribidi.h>
 
+// Internal helpers
+int nvg__findFontForCodepoint(NVGFontSystem* fs, int baseFontId, unsigned int codepoint);
+
 // Internal font structure
 struct NVGFont {
 	char name[64];

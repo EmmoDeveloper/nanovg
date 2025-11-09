@@ -4,6 +4,29 @@
 #include <string.h>
 #include <float.h>
 
+// UTF-8 decoder helper
+static int nvg__decodeUTF8(const char* str, unsigned int* codepoint) {
+	unsigned char c = (unsigned char)*str;
+
+	if (c < 128) {
+		*codepoint = c;
+		return 1;
+	} else if ((c & 0xE0) == 0xC0) {
+		*codepoint = ((c & 0x1F) << 6) | (str[1] & 0x3F);
+		return 2;
+	} else if ((c & 0xF0) == 0xE0) {
+		*codepoint = ((c & 0x0F) << 12) | ((str[1] & 0x3F) << 6) | (str[2] & 0x3F);
+		return 3;
+	} else if ((c & 0xF8) == 0xF0) {
+		*codepoint = ((c & 0x07) << 18) | ((str[1] & 0x3F) << 12) |
+		             ((str[2] & 0x3F) << 6) | (str[3] & 0x3F);
+		return 4;
+	} else {
+		*codepoint = 0;
+		return 1;
+	}
+}
+
 // Text shaping with HarfBuzz and FriBidi
 
 void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, float y,
@@ -185,14 +208,18 @@ int nvgFontShapedTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGly
 	}
 
 	// Get current glyph
-	unsigned int glyph_id = glyph_info[iter->glyphIndex].codepoint;
+	unsigned int glyph_id = glyph_info[iter->glyphIndex].codepoint;  // This is glyph INDEX, not codepoint!
 	unsigned int cluster = glyph_info[iter->glyphIndex].cluster;
 	float x_offset = (float)glyph_pos[iter->glyphIndex].x_offset / 64.0f;
 	float y_offset = (float)glyph_pos[iter->glyphIndex].y_offset / 64.0f;
 	float x_advance = (float)glyph_pos[iter->glyphIndex].x_advance / 64.0f;
 
+	// Decode the actual Unicode codepoint from the original string
+	unsigned int codepoint = 0;
+	nvg__decodeUTF8(iter->str + cluster, &codepoint);
+
 	// Render glyph and get quad
-	if (!nvgFontRenderGlyph(fs, fs->state.fontId, glyph_id,
+	if (!nvgFontRenderGlyph(fs, fs->state.fontId, glyph_id, codepoint,
 	                        iter->x + x_offset, iter->y + y_offset, quad)) {
 		iter->glyphIndex++;
 		iter->x += x_advance + fs->state.spacing;
@@ -250,8 +277,12 @@ int nvgFontTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGlyph* qu
 		return nvgFontTextIterNext(fs, iter, quad);
 	}
 
+	// Convert codepoint to glyph index, fallback will handle if not found
+	FT_Face face = fs->fonts[fs->state.fontId].face;
+	unsigned int glyph_index = FT_Get_Char_Index(face, codepoint);
+
 	// Render glyph
-	if (!nvgFontRenderGlyph(fs, fs->state.fontId, codepoint, iter->x, iter->y, quad)) {
+	if (!nvgFontRenderGlyph(fs, fs->state.fontId, glyph_index, codepoint, iter->x, iter->y, quad)) {
 		return nvgFontTextIterNext(fs, iter, quad);
 	}
 

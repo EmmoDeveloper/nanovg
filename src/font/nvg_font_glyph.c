@@ -200,7 +200,7 @@ float nvgFontGetKerning(NVGFontSystem* fs, int fontId, unsigned int left_glyph, 
 	return (float)kerning.x / 64.0f;
 }
 
-int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
+int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, unsigned int codepoint,
                        float x, float y, NVGCachedGlyph* quad) {
 	if (!fs || fontId < 0 || fontId >= fs->nfonts || !quad) return 0;
 
@@ -215,7 +215,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 				entry->x, entry->y,
 				entry->s0, entry->t0, entry->s1, entry->t1);
 		}
-		quad->codepoint = glyph_index;
+		quad->codepoint = codepoint;
 		quad->x0 = x + entry->bearingX;
 		quad->y0 = y - entry->bearingY;
 		quad->x1 = quad->x0 + entry->w;
@@ -234,6 +234,23 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 
 	// Render glyph (glyph_index is already a FreeType glyph index from HarfBuzz)
 	FT_Face face = fs->fonts[fontId].face;
+
+	// If glyph_index is 0 (.notdef), try fallback fonts
+	if (glyph_index == 0 && codepoint != 0 && fs->fonts[fontId].nfallbacks > 0) {
+		// Find which fallback font has this codepoint
+		int fallbackFontId = nvg__findFontForCodepoint(fs, fontId, codepoint);
+		if (fallbackFontId != fontId) {
+			// Found a fallback font with this glyph
+			FT_Face fallback_face = fs->fonts[fallbackFontId].face;
+			unsigned int fallback_glyph_index = FT_Get_Char_Index(fallback_face, codepoint);
+			if (fallback_glyph_index != 0) {
+				// Recursively render with fallback font
+				return nvgFontRenderGlyph(fs, fallbackFontId, fallback_glyph_index,
+				                          codepoint, x, y, quad);
+			}
+		}
+	}
+
 	if (glyph_index == 0) return 0;
 
 	FT_Set_Pixel_Sizes(face, 0, (FT_UInt)fs->state.size);
@@ -329,7 +346,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 	entry->t1 -= uvInsetY;
 
 	// Fill quad
-	quad->codepoint = glyph_index;
+	quad->codepoint = codepoint;
 	quad->x0 = x + entry->bearingX;
 	quad->y0 = y - entry->bearingY;
 	quad->x1 = quad->x0 + entry->w;

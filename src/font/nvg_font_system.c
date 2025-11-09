@@ -228,6 +228,30 @@ void nvgFontResetFallback(NVGFontSystem* fs, int baseFont) {
 	fs->fonts[baseFont].nfallbacks = 0;
 }
 
+// Font fallback helper - finds which font (base or fallback) has a glyph for the codepoint
+int nvg__findFontForCodepoint(NVGFontSystem* fs, int baseFontId, unsigned int codepoint) {
+	if (!fs || baseFontId < 0 || baseFontId >= fs->nfonts) return -1;
+
+	// Try base font first
+	FT_Face face = fs->fonts[baseFontId].face;
+	if (FT_Get_Char_Index(face, codepoint) != 0) {
+		return baseFontId;
+	}
+
+	// Try fallback fonts
+	for (int i = 0; i < fs->fonts[baseFontId].nfallbacks; i++) {
+		int fallbackId = fs->fonts[baseFontId].fallbacks[i];
+		if (fallbackId >= 0 && fallbackId < fs->nfonts) {
+			face = fs->fonts[fallbackId].face;
+			if (FT_Get_Char_Index(face, codepoint) != 0) {
+				return fallbackId;
+			}
+		}
+	}
+
+	return baseFontId;  // Fallback to base font if nothing found
+}
+
 // Font state
 
 void nvgFontSetFont(NVGFontSystem* fs, int fontId) {
