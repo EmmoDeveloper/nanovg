@@ -3210,14 +3210,23 @@ int nvgFontSetNamedInstance(NVGcontext* ctx, int instance_index)
 
 void nvgFontFeature(NVGcontext* ctx, unsigned int tag, int enabled)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)tag; (void)enabled;
+	if (!ctx || !ctx->fs) return;
+
+	// Convert 32-bit tag to 4-character string
+	char tagStr[5];
+	tagStr[0] = (char)((tag >> 24) & 0xFF);
+	tagStr[1] = (char)((tag >> 16) & 0xFF);
+	tagStr[2] = (char)((tag >> 8) & 0xFF);
+	tagStr[3] = (char)(tag & 0xFF);
+	tagStr[4] = '\0';
+
+	nvgFontSetFeature(ctx->fs, tagStr, enabled);
 }
 
 void nvgFontFeaturesReset(NVGcontext* ctx)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx;
+	if (!ctx || !ctx->fs) return;
+	nvgFontResetFeatures(ctx->fs);
 }
 
 // vim: ft=c nu noet ts=4
