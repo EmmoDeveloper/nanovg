@@ -102,6 +102,16 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 	// Apply OpenType features
 	hb_feature_t features[32];
 	unsigned int num_features = 0;
+
+	// Add kerning feature control
+	if (!fs->state.kerningEnabled && num_features < 32) {
+		features[num_features].tag = HB_TAG('k','e','r','n');
+		features[num_features].value = 0;
+		features[num_features].start = 0;
+		features[num_features].end = (unsigned int)-1;
+		num_features++;
+	}
+
 	for (int i = 0; i < fs->nfeatures && num_features < 32; i++) {
 		features[num_features].tag = hb_tag_from_string(fs->features[i].tag, -1);
 		features[num_features].value = fs->features[i].enabled ? 1 : 0;
@@ -336,6 +346,16 @@ float nvgFontTextBoundsShaped(NVGFontSystem* fs, float x, float y, const char* s
 	// Apply OpenType features
 	hb_feature_t features[32];
 	unsigned int num_features = 0;
+
+	// Add kerning feature control
+	if (!fs->state.kerningEnabled && num_features < 32) {
+		features[num_features].tag = HB_TAG('k','e','r','n');
+		features[num_features].value = 0;
+		features[num_features].start = 0;
+		features[num_features].end = (unsigned int)-1;
+		num_features++;
+	}
+
 	for (int i = 0; i < fs->nfeatures && num_features < 32; i++) {
 		features[num_features].tag = hb_tag_from_string(fs->features[i].tag, -1);
 		features[num_features].value = fs->features[i].enabled ? 1 : 0;

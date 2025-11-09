@@ -3170,7 +3170,9 @@ void nvgKerningEnabled(NVGcontext* ctx, int enabled)
 {
 	NVGstate* state = nvg__getState(ctx);
 	state->kerningEnabled = enabled;
-	// Stubbed out - font system call removed
+	if (ctx->fs) {
+		nvgFontSetKerning(ctx->fs, enabled);
+	}
 }
 
 void nvgFontBaseline(NVGcontext* ctx, float* ascender, float* descender, float* lineHeight)

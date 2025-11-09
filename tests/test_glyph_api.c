@@ -19,10 +19,10 @@ int main(void) {
 		return 1;
 	}
 
-	// Load font
-	int font = nvgCreateFont(vg, "sans", "fonts/sans/NotoSans-Regular.ttf");
+	// Load font - using Inter which has good kerning data
+	int font = nvgCreateFont(vg, "sans", "fonts/variable/Inter/Inter-VariableFont_opsz,wght.ttf");
 	if (font == -1) {
-		printf("Failed to load font\n");
+		printf("Failed to load Inter font\n");
 		nvgDeleteVk(vg);
 		window_destroy_context(winCtx);
 		return 1;
@@ -51,15 +51,20 @@ int main(void) {
 		printf("  Height: %.2f\n\n", metrics.height);
 	}
 
-	// Test kerning between 'A' and 'V'
-	if (nvgGetGlyphMetrics(vg, 'A', &metrics) == 0) {
-		unsigned int glyphA = metrics.glyphIndex;
-		if (nvgGetGlyphMetrics(vg, 'V', &metrics) == 0) {
-			unsigned int glyphV = metrics.glyphIndex;
-			float kerning = nvgGetKerning(vg, glyphA, glyphV);
-			printf("Kerning between 'A' and 'V': %.2f\n\n", kerning);
-		}
-	}
+	// Test kerning by measuring text bounds
+	float bounds[4];
+	nvgKerningEnabled(vg, 1);
+	float widthWithKern = nvgTextBounds(vg, 0, 0, "WAVE", NULL, bounds);
+
+	nvgKerningEnabled(vg, 0);
+	float widthNoKern = nvgTextBounds(vg, 0, 0, "WAVE", NULL, bounds);
+
+	nvgKerningEnabled(vg, 1);  // Re-enable for rendering
+
+	printf("Text width 'WAVE':\n");
+	printf("  With kerning:    %.2f\n", widthWithKern);
+	printf("  Without kerning: %.2f\n", widthNoKern);
+	printf("  Difference:      %.2f\n\n", widthNoKern - widthWithKern);
 
 	// Render
 	uint32_t imageIndex;
@@ -210,7 +215,7 @@ int main(void) {
 	vkQueueSubmit(winCtx->graphicsQueue, 1, &submitInfo, winCtx->inFlightFences[winCtx->currentFrame]);
 	vkWaitForFences(winCtx->device, 1, &winCtx->inFlightFences[winCtx->currentFrame], VK_TRUE, UINT64_MAX);
 
-	window_save_screenshot(winCtx, imageIndex, "build/test/screendumps/glyph_api_test.ppm");
+	window_save_screenshot(winCtx, imageIndex, "screendumps/glyph_api_test.ppm");
 
 	nvgDeleteVk(vg);
 	window_destroy_context(winCtx);
