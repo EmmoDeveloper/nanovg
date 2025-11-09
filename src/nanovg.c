@@ -3032,43 +3032,126 @@ void nvgTextBoxBounds(NVGcontext* ctx, float x, float y, float breakRowWidth, co
 
 void nvgTextMetrics(NVGcontext* ctx, float* ascender, float* descender, float* lineh)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx;
-	if (ascender) *ascender = 0.0f;
-	if (descender) *descender = 0.0f;
-	if (lineh) *lineh = 0.0f;
+	NVGstate* state = nvg__getState(ctx);
+	float scale = nvg__getFontScale(state) * ctx->devicePxRatio;
+	float invscale = 1.0f / scale;
+
+	if (state->fontId == -1 || !ctx->fs) {
+		if (ascender) *ascender = 0.0f;
+		if (descender) *descender = 0.0f;
+		if (lineh) *lineh = 0.0f;
+		return;
+	}
+
+	nvgFontSetSize(ctx->fs, state->fontSize * scale);
+	nvgFontSetFont(ctx->fs, state->fontId);
+
+	float asc, desc, lh;
+	nvgFontVertMetrics(ctx->fs, &asc, &desc, &lh);
+
+	if (ascender) *ascender = asc * invscale;
+	if (descender) *descender = desc * invscale;
+	if (lineh) *lineh = lh * invscale;
 }
 
 // Glyph-level API implementations
 
 int nvgGetGlyphMetrics(NVGcontext* ctx, unsigned int codepoint, NVGglyphMetrics* metrics)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)codepoint;
-	if (metrics) {
-		metrics->bearingX = 0.0f;
-		metrics->bearingY = 0.0f;
-		metrics->advanceX = 0.0f;
-		metrics->advanceY = 0.0f;
-		metrics->width = 0.0f;
-		metrics->height = 0.0f;
-		metrics->glyphIndex = 0;
+	NVGstate* state = nvg__getState(ctx);
+	float scale = nvg__getFontScale(state) * ctx->devicePxRatio;
+	float invscale = 1.0f / scale;
+
+	if (state->fontId == -1 || !ctx->fs || !metrics) {
+		if (metrics) {
+			metrics->bearingX = 0.0f;
+			metrics->bearingY = 0.0f;
+			metrics->advanceX = 0.0f;
+			metrics->advanceY = 0.0f;
+			metrics->width = 0.0f;
+			metrics->height = 0.0f;
+			metrics->glyphIndex = 0;
+		}
+		return -1;
 	}
-	return -1;
+
+	nvgFontSetSize(ctx->fs, state->fontSize * scale);
+	nvgFontSetFont(ctx->fs, state->fontId);
+
+	NVGGlyphMetrics m;
+	if (!nvgFontGetGlyphMetrics(ctx->fs, state->fontId, codepoint, &m)) {
+		return -1;
+	}
+
+	// Scale back to user space
+	metrics->bearingX = m.bearingX * invscale;
+	metrics->bearingY = m.bearingY * invscale;
+	metrics->advanceX = m.advanceX * invscale;
+	metrics->advanceY = m.advanceY * invscale;
+	metrics->width = m.width * invscale;
+	metrics->height = m.height * invscale;
+	metrics->glyphIndex = m.glyphIndex;
+
+	return 0;
 }
 
 float nvgGetKerning(NVGcontext* ctx, unsigned int left, unsigned int right)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)left; (void)right;
-	return 0.0f;
+	NVGstate* state = nvg__getState(ctx);
+	float scale = nvg__getFontScale(state) * ctx->devicePxRatio;
+	float invscale = 1.0f / scale;
+
+	if (state->fontId == -1 || !ctx->fs) {
+		return 0.0f;
+	}
+
+	nvgFontSetSize(ctx->fs, state->fontSize * scale);
+	nvgFontSetFont(ctx->fs, state->fontId);
+
+	float kerning = nvgFontGetKerning(ctx->fs, state->fontId, left, right);
+	return kerning * invscale;
 }
 
 float nvgRenderGlyph(NVGcontext* ctx, unsigned int codepoint, float x, float y)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)codepoint; (void)x; (void)y;
-	return 0.0f;
+	NVGstate* state = nvg__getState(ctx);
+	float scale = nvg__getFontScale(state) * ctx->devicePxRatio;
+	float invscale = 1.0f / scale;
+
+	if (state->fontId == -1 || !ctx->fs) {
+		return 0.0f;
+	}
+
+	nvgFontSetSize(ctx->fs, state->fontSize * scale);
+	nvgFontSetFont(ctx->fs, state->fontId);
+
+	NVGCachedGlyph quad;
+	if (!nvgFontRenderGlyph(ctx->fs, state->fontId, codepoint, x * scale, y * scale, &quad)) {
+		return 0.0f;
+	}
+
+	// Render the glyph quad
+	NVGvertex verts[6];
+	int nverts = 0;
+
+	float c[4*2];
+	// Transform corners
+	nvgTransformPoint(&c[0], &c[1], state->xform, quad.x0 * invscale, quad.y0 * invscale);
+	nvgTransformPoint(&c[2], &c[3], state->xform, quad.x1 * invscale, quad.y0 * invscale);
+	nvgTransformPoint(&c[4], &c[5], state->xform, quad.x1 * invscale, quad.y1 * invscale);
+	nvgTransformPoint(&c[6], &c[7], state->xform, quad.x0 * invscale, quad.y1 * invscale);
+
+	// Create triangles
+	nvg__vset(&verts[nverts], c[0], c[1], quad.s0, quad.t0); nverts++;
+	nvg__vset(&verts[nverts], c[4], c[5], quad.s1, quad.t1); nverts++;
+	nvg__vset(&verts[nverts], c[2], c[3], quad.s1, quad.t0); nverts++;
+	nvg__vset(&verts[nverts], c[0], c[1], quad.s0, quad.t0); nverts++;
+	nvg__vset(&verts[nverts], c[6], c[7], quad.s0, quad.t1); nverts++;
+	nvg__vset(&verts[nverts], c[4], c[5], quad.s1, quad.t1); nverts++;
+
+	nvg__renderText(ctx, verts, nverts);
+
+	return quad.advanceX * invscale;
 }
 
 void nvgSubpixelText(NVGcontext* ctx, int enabled)
@@ -3092,11 +3175,8 @@ void nvgKerningEnabled(NVGcontext* ctx, int enabled)
 
 void nvgFontBaseline(NVGcontext* ctx, float* ascender, float* descender, float* lineHeight)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx;
-	if (ascender) *ascender = 0.0f;
-	if (descender) *descender = 0.0f;
-	if (lineHeight) *lineHeight = 0.0f;
+	// nvgFontBaseline is the same as nvgTextMetrics
+	nvgTextMetrics(ctx, ascender, descender, lineHeight);
 }
 
 void nvgFontHinting(NVGcontext* ctx, int hinting)
