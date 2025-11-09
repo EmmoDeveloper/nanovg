@@ -6,6 +6,7 @@
 // Font system configuration
 #define NVG_FONT_MAX_FONTS 32
 #define NVG_FONT_MAX_FALLBACKS 8
+#define NVG_FONT_MAX_VAR_AXES 32
 #define NVG_FONT_ATLAS_INITIAL_SIZE 512
 #define NVG_FONT_GLYPH_CACHE_SIZE 1024
 

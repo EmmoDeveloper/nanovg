@@ -23,6 +23,7 @@
 
 #include "nanovg.h"
 #include "font/nvg_font.h"
+#include "font/nvg_font_types.h"
 
 #ifndef NVG_NO_STB
 #define STB_IMAGE_IMPLEMENTATION
@@ -2557,11 +2558,11 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 		nvgTransformPoint(&c[6],&c[7], state->xform, q.x0*invscale, q.y1*invscale);
 		// Create triangles
 		if (nverts+6 <= cverts) {
-			static int first_text = 1;
-			if (first_text) {
-				printf("[nvgText] First glyph quad: (%.1f,%.1f) (%.1f,%.1f) (%.1f,%.1f) (%.1f,%.1f), uv=(%.3f,%.3f)-(%.3f,%.3f)\n",
-					c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], q.s0, q.t0, q.s1, q.t1);
-				first_text = 0;
+			static int vert_debug = 0;
+			// Only log 48px glyphs from the test strings (not title or footer)
+			if (state->fontSize > 40.0f && vert_debug++ < 100) {
+				printf("[nvgText VERT #%d] glyph %u at 48px: uv=(%.4f,%.4f)-(%.4f,%.4f)\n",
+					vert_debug, q.codepoint, q.s0, q.t0, q.s1, q.t1);
 			}
 			nvg__vset(&verts[nverts], c[0], c[1], q.s0, q.t0); nverts++;
 			nvg__vset(&verts[nverts], c[4], c[5], q.s1, q.t1); nverts++;
@@ -2576,7 +2577,11 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 
 	nvg__flushTextTexture(ctx);
 
-	printf("[nvgText] About to render text: nverts=%d\n", nverts);
+	// Print first few chars for identification
+	char preview[20] = {0};
+	int preview_len = (end - string) < 10 ? (end - string) : 10;
+	memcpy(preview, string, preview_len);
+	printf("[nvgText] About to render text '%s': nverts=%d\n", preview, nverts);
 	nvg__renderText(ctx, verts, nverts);
 
 	return iter.x / scale;
@@ -2928,15 +2933,17 @@ float nvgTextBounds(NVGcontext* ctx, float x, float y, const char* string, const
 	nvgFontSetAlign(ctx->fs, state->textAlign);
 	nvgFontSetFont(ctx->fs, state->fontId);
 
-	width = nvgFontTextBounds(ctx->fs, x*scale, y*scale, string, end, bounds);
-	if (bounds != NULL) {
-		// Use line bounds for height.
-		nvgFontLineBounds(ctx->fs, y*scale, &bounds[1], &bounds[3]);
+	// Use HarfBuzz extents (no FreeType state mutation)
+	width = nvgFontTextBoundsShaped(ctx->fs, x*scale, y*scale, string, end, bounds, 0, NULL);
+
+	if (bounds) {
+		// Scale bounds back to user space
 		bounds[0] *= invscale;
 		bounds[1] *= invscale;
 		bounds[2] *= invscale;
 		bounds[3] *= invscale;
 	}
+
 	return width * invscale;
 }
 
@@ -3137,51 +3144,68 @@ int nvgFontIsFixedWidth(NVGcontext* ctx)
 // Variable Fonts
 int nvgFontIsVariable(NVGcontext* ctx)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx;
-	return 0;
+	NVGstate* state = nvg__getState(ctx);
+	if (state->fontId == -1) return 0;
+	return nvgFont__IsVariable(ctx->fs, state->fontId);
 }
 
 int nvgFontVariationAxisCount(NVGcontext* ctx)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx;
-	return 0;
+	NVGstate* state = nvg__getState(ctx);
+	if (state->fontId == -1) return 0;
+	return nvgFont__GetVarAxisCount(ctx->fs, state->fontId);
 }
 
 int nvgFontVariationAxis(NVGcontext* ctx, int axis_index, NVGvarAxis* axis)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)axis_index; (void)axis;
-	return -1;
+	NVGstate* state = nvg__getState(ctx);
+	if (state->fontId == -1 || axis == NULL) return -1;
+
+	NVGVarAxis internal_axis;
+	if (!nvgFont__GetVarAxis(ctx->fs, state->fontId, axis_index, &internal_axis)) {
+		return -1;
+	}
+
+	// Convert internal NVGVarAxis to public NVGvarAxis
+	strncpy(axis->name, internal_axis.name, sizeof(axis->name) - 1);
+	axis->name[sizeof(axis->name) - 1] = '\0';
+	axis->minimum = internal_axis.minValue;
+	axis->def = internal_axis.defaultValue;
+	axis->maximum = internal_axis.maxValue;
+	// Convert 4-char tag string to unsigned int
+	axis->tag = ((unsigned int)internal_axis.tag[0] << 24) |
+	            ((unsigned int)internal_axis.tag[1] << 16) |
+	            ((unsigned int)internal_axis.tag[2] << 8) |
+	            ((unsigned int)internal_axis.tag[3]);
+	return 0;
 }
 
 int nvgFontSetVariationAxes(NVGcontext* ctx, const float* coords, int num_coords)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)coords; (void)num_coords;
-	return -1;
+	NVGstate* state = nvg__getState(ctx);
+	if (state->fontId == -1 || coords == NULL || num_coords <= 0) return -1;
+	return nvgFont__SetVarDesignCoords(ctx->fs, state->fontId, coords, num_coords);
 }
 
 int nvgFontGetVariationAxes(NVGcontext* ctx, float* coords, int num_coords)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)coords; (void)num_coords;
-	return -1;
+	NVGstate* state = nvg__getState(ctx);
+	if (state->fontId == -1 || coords == NULL || num_coords <= 0) return -1;
+	return nvgFont__GetVarDesignCoords(ctx->fs, state->fontId, coords, num_coords);
 }
 
 int nvgFontNamedInstanceCount(NVGcontext* ctx)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx;
-	return 0;
+	NVGstate* state = nvg__getState(ctx);
+	if (state->fontId == -1) return 0;
+	return nvgFont__GetNamedInstanceCount(ctx->fs, state->fontId);
 }
 
 int nvgFontSetNamedInstance(NVGcontext* ctx, int instance_index)
 {
-	// Stubbed out - will be implemented in new font system
-	(void)ctx; (void)instance_index;
-	return -1;
+	NVGstate* state = nvg__getState(ctx);
+	if (state->fontId == -1) return -1;
+	return nvgFont__SetNamedInstance(ctx->fs, state->fontId, instance_index);
 }
 
 void nvgFontFeature(NVGcontext* ctx, unsigned int tag, int enabled)

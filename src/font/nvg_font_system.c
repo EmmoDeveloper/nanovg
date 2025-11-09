@@ -156,6 +156,8 @@ int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path) {
 	fs->fonts[idx].freeData = 0;
 	fs->fonts[idx].nfallbacks = 0;
 	fs->fonts[idx].msdfMode = 0;
+	fs->fonts[idx].varStateId = 0;  // Initial variation state
+	fs->fonts[idx].varCoordsCount = 0;  // No variation coordinates yet
 	fs->nfonts++;
 
 	return idx;
@@ -196,6 +198,8 @@ int nvgFontAddFontMem(NVGFontSystem* fs, const char* name, unsigned char* data, 
 	fs->fonts[idx].freeData = freeData;
 	fs->fonts[idx].nfallbacks = 0;
 	fs->fonts[idx].msdfMode = 0;
+	fs->fonts[idx].varStateId = 0;  // Initial variation state
+	fs->fonts[idx].varCoordsCount = 0;  // No variation coordinates yet
 	fs->nfonts++;
 
 	return idx;
@@ -258,6 +262,9 @@ void nvgFontSetFontMSDF(NVGFontSystem* fs, int font, int msdfMode) {
 
 void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 	if (!fs || !fs->atlasManager || !fs->glyphCache) return;
+
+	printf("[nvgFontResetAtlas] Resetting atlas from %dx%d to %dx%d\n",
+		fs->atlasManager->width, fs->atlasManager->height, width, height);
 
 	// Clear glyph cache
 	memset(fs->glyphCache->entries, 0, sizeof(fs->glyphCache->entries));

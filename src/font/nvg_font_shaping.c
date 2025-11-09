@@ -2,6 +2,7 @@
 #include "nvg_font_internal.h"
 #include <stdlib.h>
 #include <string.h>
+#include <float.h>
 
 // Text shaping with HarfBuzz and FriBidi
 
@@ -41,19 +42,44 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 
 	// Shape text if font is set
 	if (fs->state.fontId >= 0 && fs->state.fontId < fs->nfonts) {
-		hb_font_t* hb_font = fs->fonts[fs->state.fontId].hb_font;
+		FT_Face face = fs->fonts[fs->state.fontId].face;
+
+		static int shape_debug = 0;
+		if (shape_debug++ < 10) {
+			printf("[nvgFontShapedTextIterInit] Shaping with fontId=%d, varStateId=%u, size=%.1f\n",
+				fs->state.fontId, fs->fonts[fs->state.fontId].varStateId, fs->state.size);
+		}
+
+		// Set FreeType face size first
+		FT_Set_Pixel_Sizes(face, 0, (FT_UInt)fs->state.size);
+
+		// Re-apply variation coordinates to ensure FreeType face has correct settings
+		if (fs->fonts[fs->state.fontId].varCoordsCount > 0) {
+			FT_Fixed* ft_coords = (FT_Fixed*)malloc(sizeof(FT_Fixed) * fs->fonts[fs->state.fontId].varCoordsCount);
+			if (ft_coords) {
+				for (unsigned int i = 0; i < fs->fonts[fs->state.fontId].varCoordsCount; i++) {
+					ft_coords[i] = (FT_Fixed)(fs->fonts[fs->state.fontId].varCoords[i] * 65536.0f);
+				}
+				FT_Set_Var_Design_Coordinates(face, fs->fonts[fs->state.fontId].varCoordsCount, ft_coords);
+				free(ft_coords);
+			}
+		}
+
+		// Create a fresh HarfBuzz font for this shaping to pick up current variation settings
+		// HarfBuzz will read metrics from the FreeType face at the current size and variation
+		hb_font_t* hb_font = hb_ft_font_create(face, NULL);
 		if (hb_font) {
-			// Set HarfBuzz font scale to match font size
-			// HarfBuzz uses 26.6 fixed point (units of 1/64), FreeType uses pixels
-			// Scale both x and y to the font size in pixels * 64
-			int scale = (int)(fs->state.size * 64.0f);
-			hb_font_set_scale(hb_font, scale, scale);
+			// Note: We don't call hb_font_set_scale() because hb_ft_font_create() already
+			// picks up the size from the FreeType face
 
 			if (num_features > 0) {
 				hb_shape(hb_font, fs->shapingState.hb_buffer, features, num_features);
 			} else {
 				hb_shape(hb_font, fs->shapingState.hb_buffer, NULL, 0);
 			}
+
+			// Destroy the temporary HarfBuzz font
+			hb_font_destroy(hb_font);
 		}
 	}
 
@@ -85,9 +111,10 @@ int nvgFontShapedTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGly
 	float x_advance = (float)glyph_pos[iter->glyphIndex].x_advance / 64.0f;
 
 	static int glyph_debug = 0;
-	if (glyph_debug++ < 25) {
-		printf("[nvgFontShapedTextIterNext] cluster=%u glyph_id=%u x_advance=%.1f\n",
-			glyph_info[iter->glyphIndex].cluster, glyph_id, x_advance);
+	if (glyph_debug++ < 120) {
+		printf("[nvgFontShapedTextIterNext] cluster=%u glyph_id=%u x_advance=%.1f varStateId=%u size=%.1f\n",
+			glyph_info[iter->glyphIndex].cluster, glyph_id, x_advance,
+			fs->fonts[fs->state.fontId].varStateId, fs->state.size);
 	}
 
 	// Render glyph and get quad
@@ -228,28 +255,93 @@ float nvgFontTextBoundsShaped(NVGFontSystem* fs, float x, float y, const char* s
 	}
 
 	if (!end) end = string + strlen(string);
+	if (fs->state.fontId < 0 || fs->state.fontId >= fs->nfonts) {
+		if (bounds) {
+			bounds[0] = bounds[1] = bounds[2] = bounds[3] = 0.0f;
+		}
+		return 0.0f;
+	}
 
-	NVGTextIter iter;
-	NVGCachedGlyph quad;
-	float minx = x, miny = y, maxx = x, maxy = y;
-	int first = 1;
+	// Use HarfBuzz extents - it already knows the bounds!
+	hb_buffer_t* hb_buffer = hb_buffer_create();
+	hb_buffer_set_direction(hb_buffer, HB_DIRECTION_LTR);
+	hb_buffer_set_script(hb_buffer, HB_SCRIPT_LATIN);
+	hb_buffer_set_language(hb_buffer, hb_language_from_string("en", -1));
+	hb_buffer_add_utf8(hb_buffer, string, (int)(end - string), 0, (int)(end - string));
 
-	nvgFontShapedTextIterInit(fs, &iter, x, y, string, end, bidi, state);
+	// Apply OpenType features
+	hb_feature_t features[32];
+	unsigned int num_features = 0;
+	for (int i = 0; i < fs->nfeatures && num_features < 32; i++) {
+		features[num_features].tag = hb_tag_from_string(fs->features[i].tag, -1);
+		features[num_features].value = fs->features[i].enabled ? 1 : 0;
+		features[num_features].start = 0;
+		features[num_features].end = (unsigned int)-1;
+		num_features++;
+	}
 
-	while (nvgFontShapedTextIterNext(fs, &iter, &quad)) {
-		if (first) {
-			minx = quad.x0;
-			miny = quad.y0;
-			maxx = quad.x1;
-			maxy = quad.y1;
-			first = 0;
-		} else {
-			if (quad.x0 < minx) minx = quad.x0;
-			if (quad.y0 < miny) miny = quad.y0;
-			if (quad.x1 > maxx) maxx = quad.x1;
-			if (quad.y1 > maxy) maxy = quad.y1;
+	// Shape with HarfBuzz
+	hb_font_t* hb_font = fs->fonts[fs->state.fontId].hb_font;
+	int scale = (int)(fs->state.size * 64.0f);
+	hb_font_set_scale(hb_font, scale, scale);
+
+	if (num_features > 0) {
+		hb_shape(hb_font, hb_buffer, features, num_features);
+	} else {
+		hb_shape(hb_font, hb_buffer, NULL, 0);
+	}
+
+	// Get shaped glyphs and use HarfBuzz font extents
+	unsigned int glyph_count;
+	hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(hb_buffer, &glyph_count);
+	hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(hb_buffer, &glyph_count);
+
+	// Let HarfBuzz tell us the extents directly
+	hb_font_extents_t font_extents;
+	hb_font_get_h_extents(hb_font, &font_extents);
+
+	float cur_x = x;
+	float minx = FLT_MAX, miny = FLT_MAX, maxx = -FLT_MAX, maxy = -FLT_MAX;
+
+	// Use HarfBuzz glyph extents (no FreeType needed!)
+	for (unsigned int i = 0; i < glyph_count; i++) {
+		hb_glyph_extents_t extents;
+		if (hb_font_get_glyph_extents(hb_font, glyph_info[i].codepoint, &extents)) {
+			float x_offset = (float)glyph_pos[i].x_offset / 64.0f;
+			float y_offset = (float)glyph_pos[i].y_offset / 64.0f;
+			float x_advance = (float)glyph_pos[i].x_advance / 64.0f;
+
+			// HarfBuzz extents in Y-up coordinates:
+			// y_bearing = distance from baseline to glyph top (positive = above baseline)
+			// height = signed vertical span (can be negative!)
+			// Glyph bounds in Y-up: top = y_bearing, bottom = y_bearing + height
+			// For Vulkan (Y-down, baseline at y):
+			float glyph_top_y_up = (float)extents.y_bearing / 64.0f;
+			float glyph_bottom_y_up = glyph_top_y_up + (float)extents.height / 64.0f;
+
+			float glyph_x0 = cur_x + x_offset + (float)extents.x_bearing / 64.0f;
+			float glyph_y0 = y - y_offset - glyph_top_y_up;      // Top in Vulkan (smaller Y)
+			float glyph_x1 = glyph_x0 + (float)extents.width / 64.0f;
+			float glyph_y1 = y - y_offset - glyph_bottom_y_up;  // Bottom in Vulkan (larger Y)
+
+			if (glyph_x0 < minx) minx = glyph_x0;
+			if (glyph_y0 < miny) miny = glyph_y0;
+			if (glyph_x1 > maxx) maxx = glyph_x1;
+			if (glyph_y1 > maxy) maxy = glyph_y1;
+
+			cur_x += x_advance + fs->state.spacing;
 		}
 	}
+
+	// Clamp bounds if no glyphs were processed
+	if (minx > maxx) {
+		minx = x;
+		maxx = x;
+		miny = y;
+		maxy = y;
+	}
+
+	hb_buffer_destroy(hb_buffer);
 
 	if (bounds) {
 		bounds[0] = minx;
@@ -258,7 +350,7 @@ float nvgFontTextBoundsShaped(NVGFontSystem* fs, float x, float y, const char* s
 		bounds[3] = maxy;
 	}
 
-	return iter.x - x;
+	return cur_x - x;
 }
 
 // OpenType features

@@ -14,6 +14,12 @@ int nvgFont__SetVarDesignCoords(NVGFontSystem* fs, int fontId, const float* coor
 	FT_Fixed* ft_coords = (FT_Fixed*)malloc(sizeof(FT_Fixed) * num_coords);
 	if (!ft_coords) return 0;
 
+	printf("[nvgFont__SetVarDesignCoords] Setting %u coords:", num_coords);
+	for (unsigned int i = 0; i < num_coords && i < 5; i++) {
+		printf(" %.1f", coords[i]);
+	}
+	printf("\n");
+
 	for (unsigned int i = 0; i < num_coords; i++) {
 		ft_coords[i] = (FT_Fixed)(coords[i] * 65536.0f);
 	}
@@ -21,10 +27,25 @@ int nvgFont__SetVarDesignCoords(NVGFontSystem* fs, int fontId, const float* coor
 	FT_Error err = FT_Set_Var_Design_Coordinates(face, num_coords, ft_coords);
 	free(ft_coords);
 
-	// Update HarfBuzz font
-	if (fs->fonts[fontId].hb_font) {
-		hb_font_destroy(fs->fonts[fontId].hb_font);
-		fs->fonts[fontId].hb_font = hb_ft_font_create(face, NULL);
+	if (err == 0) {
+		// Store the coordinates so we can re-apply them after FT_Set_Pixel_Sizes
+		fs->fonts[fontId].varCoordsCount = num_coords;
+		for (unsigned int i = 0; i < num_coords && i < NVG_FONT_MAX_VAR_AXES; i++) {
+			fs->fonts[fontId].varCoords[i] = coords[i];
+		}
+
+		// Update HarfBuzz font
+		if (fs->fonts[fontId].hb_font) {
+			hb_font_destroy(fs->fonts[fontId].hb_font);
+			fs->fonts[fontId].hb_font = hb_ft_font_create(face, NULL);
+		}
+
+		// Increment variation state ID - this invalidates cached glyphs for this font
+		fs->fonts[fontId].varStateId++;
+		printf("[nvgFont__SetVarDesignCoords] Font %d varStateId -> %u\n",
+			fontId, fs->fonts[fontId].varStateId);
+	} else {
+		printf("[nvgFont__SetVarDesignCoords] FT_Set_Var_Design_Coordinates failed with error %d\n", err);
 	}
 
 	return err == 0 ? 1 : 0;

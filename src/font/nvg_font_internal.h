@@ -21,13 +21,18 @@ struct NVGFont {
 	int fallbacks[NVG_FONT_MAX_FALLBACKS];
 	int nfallbacks;
 	int msdfMode;
+	unsigned int varStateId;  // Increments when variation coordinates change
+	float varCoords[NVG_FONT_MAX_VAR_AXES];  // Current variation coordinates
+	unsigned int varCoordsCount;  // Number of active variation coordinates
 };
 
 // Glyph cache entry
 typedef struct {
-	unsigned int codepoint;
+	unsigned int glyphIndex;  // FreeType glyph index (from HarfBuzz), NOT codepoint
 	int fontId;
 	float size;
+	int hinting;              // Hinting mode
+	unsigned int varStateId;  // Variation state ID (for variable fonts)
 	int atlasIndex;
 	float x, y, w, h;
 	float s0, t0, s1, t1;

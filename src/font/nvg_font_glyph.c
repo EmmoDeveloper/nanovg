@@ -123,11 +123,12 @@ static int nvg__allocAtlasNode(NVGAtlasManager* atlas, int w, int h, int* x, int
 	return 1;
 }
 
-static NVGGlyphCacheEntry* nvg__findGlyph(NVGGlyphCache* cache, unsigned int glyphIndex, int fontId, float size) {
+static NVGGlyphCacheEntry* nvg__findGlyph(NVGGlyphCache* cache, unsigned int glyphIndex, int fontId, float size, unsigned int varStateId) {
 	for (int i = 0; i < cache->count; i++) {
 		NVGGlyphCacheEntry* entry = &cache->entries[i];
 		if (entry->valid && entry->glyphIndex == glyphIndex &&
-			entry->fontId == fontId && fabsf(entry->size - size) < 0.01f) {
+			entry->fontId == fontId && fabsf(entry->size - size) < 0.01f &&
+			entry->varStateId == varStateId) {
 			return entry;
 		}
 	}
@@ -204,7 +205,8 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 	if (!fs || fontId < 0 || fontId >= fs->nfonts || !quad) return 0;
 
 	// Check cache first (use glyph_index as the key)
-	NVGGlyphCacheEntry* entry = nvg__findGlyph(fs->glyphCache, glyph_index, fontId, fs->state.size);
+	unsigned int varStateId = fs->fonts[fontId].varStateId;
+	NVGGlyphCacheEntry* entry = nvg__findGlyph(fs->glyphCache, glyph_index, fontId, fs->state.size, varStateId);
 	if (entry) {
 		static int cache_hit_count = 0;
 		if (cache_hit_count++ < 50 || glyph_index == 36) {  // 36 = 'A' glyph
@@ -235,6 +237,18 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 	if (glyph_index == 0) return 0;
 
 	FT_Set_Pixel_Sizes(face, 0, (FT_UInt)fs->state.size);
+
+	// Re-apply variation coordinates after FT_Set_Pixel_Sizes (which may reset them)
+	if (fs->fonts[fontId].varCoordsCount > 0) {
+		FT_Fixed* ft_coords = (FT_Fixed*)malloc(sizeof(FT_Fixed) * fs->fonts[fontId].varCoordsCount);
+		if (ft_coords) {
+			for (unsigned int i = 0; i < fs->fonts[fontId].varCoordsCount; i++) {
+				ft_coords[i] = (FT_Fixed)(fs->fonts[fontId].varCoords[i] * 65536.0f);
+			}
+			FT_Set_Var_Design_Coordinates(face, fs->fonts[fontId].varCoordsCount, ft_coords);
+			free(ft_coords);
+		}
+	}
 
 	FT_Int32 load_flags = FT_LOAD_RENDER;
 	if (!fs->state.hinting) {
@@ -275,6 +289,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index,
 	entry->fontId = fontId;
 	entry->size = fs->state.size;
 	entry->hinting = fs->state.hinting;
+	entry->varStateId = varStateId;
 
 	static int cache_miss_count = 0;
 	if (cache_miss_count++ < 50 || glyph_index == 36) {  // 36 = 'A' glyph
