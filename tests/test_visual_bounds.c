@@ -70,7 +70,7 @@ int main(void) {
 	nvgFillColor(vg, nvgRGBA(32, 32, 32, 255));
 	nvgFill(vg);
 
-	// Title
+	// Title - RE-ENABLED TO TEST CORRUPTION
 	nvgFontSize(vg, 24.0f);
 	nvgFontFace(vg, "sans");
 	nvgFillColor(vg, nvgRGBA(200, 200, 200, 255));
@@ -108,25 +108,28 @@ int main(void) {
 		nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 		nvgText(vg, x, y, tests[i], NULL);
 
-		// Label
-		nvgFontSize(vg, 12.0f);
-		nvgFontFace(vg, "sans");
-		nvgFillColor(vg, nvgRGBA(150, 150, 150, 255));
-		char label[64];
-		snprintf(label, sizeof(label), "%.0fx%.0f px",
-		         bounds[2] - bounds[0], bounds[3] - bounds[1]);
-		nvgText(vg, x + 350, y, label, NULL);
+		// Label - DISABLED FOR DEBUGGING
+		// nvgFontSize(vg, 12.0f);
+		// nvgFontFace(vg, "sans");
+		// nvgFillColor(vg, nvgRGBA(150, 150, 150, 255));
+		// char label[64];
+		// snprintf(label, sizeof(label), "%.0fx%.0f px",
+		//          bounds[2] - bounds[0], bounds[3] - bounds[1]);
+		// nvgText(vg, x + 350, y, label, NULL);
 
 		y += 120;
 	}
 
-	// Info
+	// Info - RE-ENABLED TO TEST CORRUPTION
 	nvgFontSize(vg, 12.0f);
 	nvgFontFace(vg, "sans");
 	nvgFillColor(vg, nvgRGBA(100, 100, 100, 255));
 	nvgText(vg, 50, 670, "Green box = visual bounds | Red line = baseline", NULL);
 
 	nvgEndFrame(vg);
+
+	// Dump atlas texture for debugging
+	nvgVkDumpAtlasTexture(vg, "build/test/screendumps/atlas_dump.ppm");
 
 	vkCmdEndRenderPass(cmd);
 	vkEndCommandBuffer(cmd);

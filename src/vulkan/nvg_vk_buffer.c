@@ -138,6 +138,9 @@ int nvgvk_buffer_reserve(NVGVkContext* vk, NVGVkBuffer* buffer,
 		return 1;
 	}
 
+	printf("[BUFFER REALLOC] Growing buffer from %zu to accommodate %zu bytes\n",
+	       (size_t)buffer->capacity, (size_t)size);
+
 	// Round up to next power of 2
 	VkDeviceSize newCapacity = buffer->capacity;
 	if (newCapacity == 0) {

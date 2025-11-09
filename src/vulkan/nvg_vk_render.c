@@ -310,6 +310,8 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 	                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 	                   0, sizeof(NVGVkFragUniforms), frag);
 
+	printf("[DRAW] triangles: count=%d offset=%d image=%d\n",
+		call->triangleCount, call->triangleOffset, call->image);
 	vkCmdDraw(vk->commandBuffer, call->triangleCount, 1, call->triangleOffset, 0);
 }
 

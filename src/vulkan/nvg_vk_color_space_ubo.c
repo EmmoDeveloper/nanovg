@@ -45,12 +45,7 @@ int nvgvk_init_color_space_ubo(NVGVkContext* vk)
 		return 0;
 	}
 
-	// Map the buffer for persistent updates
-	if (vkMapMemory(vk->device, vk->colorSpaceUBO.memory, 0, bufferSize, 0, &vk->colorSpaceUBO.mapped) != VK_SUCCESS) {
-		fprintf(stderr, "NanoVG Vulkan: Failed to map color space UBO\n");
-		nvgvk_buffer_destroy(vk, &vk->colorSpaceUBO);
-		return 0;
-	}
+	// Buffer is already mapped by nvgvk_buffer_create() - no need to map again
 
 	// Allocate descriptor set from existing descriptor pool
 	VkDescriptorSetAllocateInfo allocInfo = {0};
@@ -61,8 +56,7 @@ int nvgvk_init_color_space_ubo(NVGVkContext* vk)
 
 	if (vkAllocateDescriptorSets(vk->device, &allocInfo, &vk->colorSpaceDescriptorSet) != VK_SUCCESS) {
 		fprintf(stderr, "NanoVG Vulkan: Failed to allocate color space descriptor set\n");
-		vkUnmapMemory(vk->device, vk->colorSpaceUBO.memory);
-		nvgvk_buffer_destroy(vk, &vk->colorSpaceUBO);
+		nvgvk_buffer_destroy(vk, &vk->colorSpaceUBO);  // destroy handles unmap internally
 		return 0;
 	}
 
@@ -93,10 +87,7 @@ int nvgvk_init_color_space_ubo(NVGVkContext* vk)
 void nvgvk_destroy_color_space_ubo(NVGVkContext* vk)
 {
 	if (vk->colorSpaceUBO.buffer != VK_NULL_HANDLE) {
-		if (vk->colorSpaceUBO.mapped) {
-			vkUnmapMemory(vk->device, vk->colorSpaceUBO.memory);
-		}
-		nvgvk_buffer_destroy(vk, &vk->colorSpaceUBO);
+		nvgvk_buffer_destroy(vk, &vk->colorSpaceUBO);  // destroy handles unmap internally
 	}
 
 	if (vk->colorSpaceDescriptorLayout != VK_NULL_HANDLE) {

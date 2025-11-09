@@ -39,10 +39,7 @@ TEST_TARGETS := $(patsubst test_%,test-%,$(TEST_NAMES))
 
 .PHONY: all clean test-all build-all-tests
 
-all: $(BUILD_DIR)/test_window $(BUILD_DIR)/test_nvg_vk $(BUILD_DIR)/test_render \
-     $(BUILD_DIR)/test_shapes $(BUILD_DIR)/test_gradients $(BUILD_DIR)/test_fill \
-     $(BUILD_DIR)/test_convexfill $(BUILD_DIR)/test_stroke $(BUILD_DIR)/test_textures \
-     $(BUILD_DIR)/test_blending $(BUILD_DIR)/test_scissor $(BUILD_DIR)/test_nvg_api
+all: $(BUILD_DIR)/test_visual_bounds
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

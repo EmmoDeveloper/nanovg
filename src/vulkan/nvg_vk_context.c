@@ -173,10 +173,40 @@ void nvgvk_flush(void* userPtr)
 		return;
 	}
 
+	printf("[FLUSH] inRenderPass=%d, callCount=%d\n", vk->inRenderPass, vk->callCount);
+
 	// Upload vertex data to buffer
 	if (vk->vertexCount > 0) {
 		VkDeviceSize vertexDataSize = vk->vertexCount * sizeof(NVGvertex);
+		printf("[nvgvk_flush] Uploading %d vertices (%zu bytes) to GPU\n",
+			vk->vertexCount, vertexDataSize);
+
+		// Debug: print vertices at different offsets
+		NVGvertex* verts = (NVGvertex*)vk->vertices;
+		printf("[VERTEX DEBUG] Total vertex count: %d\n", vk->vertexCount);
+		printf("[VERTEX DEBUG] First 5 vertices (title text):\n");
+		for (int i = 18; i < 23 && i < vk->vertexCount; i++) {
+			printf("  Vert %d: pos=(%.1f,%.1f) uv=(%.4f,%.4f)\n",
+				i, (double)verts[i].x, (double)verts[i].y,
+				(double)verts[i].u, (double)verts[i].v);
+		}
+		printf("[VERTEX DEBUG] First test string vertices (offset ~162):\n");
+		for (int i = 162; i < 167 && i < vk->vertexCount; i++) {
+			printf("  Vert %d: pos=(%.1f,%.1f) uv=(%.4f,%.4f)\n",
+				i, (double)verts[i].x, (double)verts[i].y,
+				(double)verts[i].u, (double)verts[i].v);
+		}
+
 		nvgvk_buffer_upload(vk, &vk->vertexBuffer, vk->vertices, vertexDataSize);
+
+		// Verify upload: read back vertices from GPU buffer at same offsets
+		NVGvertex* gpuVerts = (NVGvertex*)vk->vertexBuffer.mapped;
+		printf("[VERIFY GPU] Vert 18 (title): pos=(%.1f,%.1f) uv=(%.4f,%.4f)\n",
+			(double)gpuVerts[18].x, (double)gpuVerts[18].y,
+			(double)gpuVerts[18].u, (double)gpuVerts[18].v);
+		printf("[VERIFY GPU] Vert 162 (test string): pos=(%.1f,%.1f) uv=(%.4f,%.4f)\n",
+			(double)gpuVerts[162].x, (double)gpuVerts[162].y,
+			(double)gpuVerts[162].u, (double)gpuVerts[162].v);
 	}
 
 	// Upload view uniforms (viewSize)
@@ -190,6 +220,8 @@ void nvgvk_flush(void* userPtr)
 	// Bind vertex buffer
 	VkDeviceSize offset = 0;
 	vkCmdBindVertexBuffers(vk->commandBuffer, 0, 1, &vk->vertexBuffer.buffer, &offset);
+	printf("[FLUSH] Bound vertex buffer %p with %d vertices uploaded\n",
+	       (void*)vk->vertexBuffer.buffer, vk->vertexCount);
 
 	// Bind color space UBO (set = 1) if available
 	// This is bound once per frame and shared across all draw calls

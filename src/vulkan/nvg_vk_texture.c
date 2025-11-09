@@ -3,6 +3,7 @@
 #include "../nanovg.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 // Helper: Get Vulkan format from texture type
 VkFormat nvgvk__get_vk_format(int type)
@@ -183,7 +184,8 @@ int nvgvk__create_sampler(NVGVkContext* vk, NVGVkTexture* tex, int imageFlags)
 	samplerInfo.addressModeV = addressMode;
 	samplerInfo.addressModeW = addressMode;
 	samplerInfo.maxAnisotropy = 1.0f;
-	samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = 0.0f;  // Only 1 mipmap level (0), clamp to prevent sampling non-existent levels
 
 	if (vkCreateSampler(vk->device, &samplerInfo, NULL, &tex->sampler) != VK_SUCCESS) {
 		fprintf(stderr, "NanoVG Vulkan: Failed to create sampler\n");
@@ -283,12 +285,20 @@ int nvgvk_create_texture(void* userPtr, int type, int w, int h,
 		return -1;
 	}
 
-	// Upload data if provided
+	// Upload data if provided, or clear texture if NULL (prevents garbage/undefined content)
 	if (data != NULL) {
 		// Note: id is 0-based here, but nvgvk_update_texture expects 1-based
 		if (!nvgvk_update_texture(userPtr, id + 1, 0, 0, w, h, data)) {
 			nvgvk_delete_texture(userPtr, id + 1);
 			return -1;
+		}
+	} else {
+		// Clear texture to prevent undefined/garbage content
+		printf("[nvgvk_create_texture] Clearing %dx%d atlas texture to zeros\n", w, h);
+		unsigned char* zeros = (unsigned char*)calloc(w * h * bytesPerPixel, 1);
+		if (zeros) {
+			nvgvk_update_texture(userPtr, id + 1, 0, 0, w, h, zeros);
+			free(zeros);
 		}
 	}
 
@@ -376,20 +386,15 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 		vkCmdEndRenderPass(vk->commandBuffer);
 		vkEndCommandBuffer(vk->commandBuffer);
 
-		// Submit with fence for synchronization
+		// Submit rendering commands and wait for completion
 		VkSubmitInfo submitInfo = {0};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &vk->commandBuffer;
 
-		// Wait for previous upload to complete, then reset fence
-		vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(vk->device, 1, &vk->uploadFence);
-
-		vkQueueSubmit(vk->queue, 1, &submitInfo, vk->uploadFence);
-
-		// Wait for fence (non-blocking for GPU, but we need to wait here for correctness)
-		vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
+		// Submit without fence and use QueueWaitIdle to avoid fence state conflicts
+		vkQueueSubmit(vk->queue, 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(vk->queue);
 
 		vk->inRenderPass = 0;
 	}
@@ -419,6 +424,8 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	// If texture was already used, it's in SHADER_READ_ONLY_OPTIMAL, otherwise UNDEFINED
 	barrier.oldLayout = (tex->flags & 0x8000) ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+	printf("[LAYOUT] Texture %d transition: %s -> TRANSFER_DST\n",
+		id, (tex->flags & 0x8000) ? "SHADER_READ" : "UNDEFINED");
 	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -426,11 +433,12 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	barrier.subresourceRange.levelCount = 1;
 	barrier.subresourceRange.layerCount = 1;
-	barrier.srcAccessMask = 0;
+	// Synchronize previous shader reads before starting transfer write
+	barrier.srcAccessMask = (tex->flags & 0x8000) ? VK_ACCESS_SHADER_READ_BIT : 0;
 	barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
 	vkCmdPipelineBarrier(uploadCmd,
-	                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	                     (tex->flags & 0x8000) ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
 	                     0, 0, NULL, 0, NULL, 1, &barrier);
 
@@ -452,6 +460,7 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	printf("[LAYOUT] Texture %d transition: TRANSFER_DST -> SHADER_READ\n", id);
 
 	vkCmdPipelineBarrier(uploadCmd,
 	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -463,19 +472,17 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 	// Mark texture as initialized
 	tex->flags |= 0x8000;
 
-	// Submit with fence for synchronization
+	// Submit upload commands with fence for synchronization
 	VkSubmitInfo submitInfo = {0};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &uploadCmd;
 
-	// Wait for previous upload to complete, then reset fence
-	vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
+	// Reset fence before submitting (fence was signaled by render submit above)
 	vkResetFences(vk->device, 1, &vk->uploadFence);
-
 	vkQueueSubmit(vk->queue, 1, &submitInfo, vk->uploadFence);
 
-	// Wait for fence (ensures upload completes before cleanup)
+	// Wait for upload to complete before cleanup
 	vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
 
 	// Cleanup
@@ -484,6 +491,9 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 
 	// If we were in a render pass, restart the command buffer and render pass
 	if (wasInRenderPass) {
+		static int restart_count = 0;
+		printf("[RENDER PASS RESTART #%d]\n", ++restart_count);
+
 		VkCommandBufferBeginInfo restartBegin = {0};
 		restartBegin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		restartBegin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -504,6 +514,13 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 		// Restore viewport and scissor state
 		vkCmdSetViewport(vk->commandBuffer, 0, 1, &vk->viewport);
 		vkCmdSetScissor(vk->commandBuffer, 0, 1, &vk->scissor);
+
+		// DO NOT rebind vertex buffer here - it will be bound in flush after vertices are uploaded
+		printf("[RESTART] Skipping vertex buffer rebind (%d vertices accumulated so far)\n",
+		       vk->vertexCount);
+
+		// Invalidate pipeline state - command buffer was restarted so bindings are lost
+		vk->currentPipeline = -1;
 	}
 
 	return 1;
