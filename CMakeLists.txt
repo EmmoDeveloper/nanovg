@@ -107,11 +107,11 @@ target_link_libraries(nanovg PUBLIC
 
 # Test utilities library
 add_library(test_utils STATIC
-	tests/window_utils.c
+	src/tools/window_utils.c
 )
 
 target_include_directories(test_utils PUBLIC
-	${CMAKE_SOURCE_DIR}/tests
+	${CMAKE_SOURCE_DIR}/src/tools
 	${CMAKE_SOURCE_DIR}/src
 	${Vulkan_INCLUDE_DIRS}
 	${GLFW_INCLUDE_DIRS}

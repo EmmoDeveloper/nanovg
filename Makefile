@@ -26,7 +26,7 @@ LIBS := -L/opt/lunarg-vulkan-sdk/x86_64/lib -lvulkan \
 	-Wl,-rpath,/opt/glfw/build/src
 
 BUILD_DIR := build
-TEST_SCREENDUMP_DIR := build/test/screendumps
+TEST_SCREENDUMP_DIR := screendumps
 
 # Automatically discover all test source files
 TEST_SOURCES := $(wildcard tests/test_*.c)
