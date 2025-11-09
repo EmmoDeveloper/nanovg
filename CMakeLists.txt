@@ -19,21 +19,34 @@ file(MAKE_DIRECTORY ${SCREENDUMP_DIR})
 
 # Find dependencies
 find_package(Vulkan REQUIRED)
-find_package(Freetype REQUIRED)
-find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 
-# Find HarfBuzz
-pkg_check_modules(HARFBUZZ REQUIRED harfbuzz)
+# Direct paths to local libraries
+set(FREETYPE_DIR "/opt/freetype")
+set(CAIRO_DIR "/opt/freetype/cairo")
+set(HARFBUZZ_DIR "/work/java/ai-ide-jvm/harfbuzz")
+set(FRIBIDI_DIR "/opt/fribidi")
+set(GLFW_DIR "/opt/glfw")
 
-# Find Cairo
-pkg_check_modules(CAIRO REQUIRED cairo)
+# FreeType
+set(FREETYPE_INCLUDE_DIRS "${FREETYPE_DIR}/include")
+set(FREETYPE_LIBRARIES "${FREETYPE_DIR}/objs/.libs/libfreetype.so")
 
-# Find FriBidi
-pkg_check_modules(FRIBIDI REQUIRED fribidi)
+# Cairo
+set(CAIRO_INCLUDE_DIRS "${CAIRO_DIR}/src")
+set(CAIRO_LIBRARIES "${CAIRO_DIR}/builddir/src/libcairo.so")
 
-# Find GLFW
-pkg_check_modules(GLFW REQUIRED glfw3)
+# HarfBuzz
+set(HARFBUZZ_INCLUDE_DIRS "${HARFBUZZ_DIR}/src")
+set(HARFBUZZ_LIBRARIES "${HARFBUZZ_DIR}/build/src/libharfbuzz.so")
+
+# FriBidi
+set(FRIBIDI_INCLUDE_DIRS "${FRIBIDI_DIR}/lib" "${FRIBIDI_DIR}/build/lib" "${FRIBIDI_DIR}/build/gen.tab")
+set(FRIBIDI_LIBRARIES "${FRIBIDI_DIR}/build/lib/libfribidi.so")
+
+# GLFW
+set(GLFW_INCLUDE_DIRS "${GLFW_DIR}/include")
+set(GLFW_LIBRARIES "${GLFW_DIR}/build/src/libglfw3.a")
 
 # Font system library
 add_library(nanovg_font STATIC
@@ -197,10 +210,10 @@ message(STATUS "Screenshot dir:   ${SCREENDUMP_DIR}")
 message(STATUS "")
 message(STATUS "Dependencies:")
 message(STATUS "  Vulkan:         ${Vulkan_VERSION}")
-message(STATUS "  FreeType:       ${FREETYPE_VERSION_STRING}")
-message(STATUS "  HarfBuzz:       ${HARFBUZZ_VERSION}")
-message(STATUS "  Cairo:          ${CAIRO_VERSION}")
-message(STATUS "  FriBidi:        ${FRIBIDI_VERSION}")
-message(STATUS "  GLFW:           ${GLFW_VERSION}")
+message(STATUS "  FreeType:       2.13.3")
+message(STATUS "  HarfBuzz:       10.2.0")
+message(STATUS "  Cairo:          1.18.4")
+message(STATUS "  FriBidi:        1.0.16")
+message(STATUS "  GLFW:           3.4.0")
 message(STATUS "======================================")
 message(STATUS "")
