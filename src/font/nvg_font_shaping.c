@@ -20,10 +20,80 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 
 	if (!end) end = string + strlen(string);
 
+	// Determine text direction
+	hb_direction_t direction = HB_DIRECTION_LTR;
+	FriBidiCharType base_dir = fs->shapingState.base_dir;
+
+	// Bidirectional text processing
+	if (bidi && fs->shapingState.bidi_enabled) {
+		int text_len = (int)(end - string);
+
+		// Convert UTF-8 to UTF-32 for FriBidi
+		FriBidiChar* unicode_str = (FriBidiChar*)malloc(sizeof(FriBidiChar) * (text_len + 1));
+		if (unicode_str) {
+			FriBidiStrIndex unicode_len = 0;
+			const char* p = string;
+
+			while (p < end) {
+				unsigned char c = (unsigned char)*p;
+				FriBidiChar codepoint = 0;
+
+				if (c < 128) {
+					codepoint = c;
+					p++;
+				} else if ((c & 0xE0) == 0xC0) {
+					codepoint = ((c & 0x1F) << 6) | (p[1] & 0x3F);
+					p += 2;
+				} else if ((c & 0xF0) == 0xE0) {
+					codepoint = ((c & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+					p += 3;
+				} else if ((c & 0xF8) == 0xF0) {
+					codepoint = ((c & 0x07) << 18) | ((p[1] & 0x3F) << 12) |
+					            ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+					p += 4;
+				} else {
+					p++;
+					continue;
+				}
+
+				unicode_str[unicode_len++] = codepoint;
+			}
+
+			// Get character types
+			FriBidiCharType* char_types = (FriBidiCharType*)malloc(sizeof(FriBidiCharType) * unicode_len);
+			if (char_types) {
+				fribidi_get_bidi_types(unicode_str, unicode_len, char_types);
+
+				// Determine base direction if AUTO
+				if (base_dir == FRIBIDI_TYPE_ON) {
+					// Use first strong character to determine direction
+					for (FriBidiStrIndex i = 0; i < unicode_len; i++) {
+						if (FRIBIDI_IS_RTL(char_types[i])) {
+							base_dir = FRIBIDI_TYPE_RTL;
+							break;
+						} else if (FRIBIDI_IS_STRONG(char_types[i])) {
+							// Strong LTR character
+							base_dir = FRIBIDI_TYPE_LTR;
+							break;
+						}
+					}
+				}
+
+				// Set HarfBuzz direction based on base direction
+				direction = (base_dir == FRIBIDI_TYPE_RTL)
+				           ? HB_DIRECTION_RTL : HB_DIRECTION_LTR;
+
+				free(char_types);
+			}
+
+			free(unicode_str);
+		}
+	}
+
 	// Prepare HarfBuzz buffer
 	hb_buffer_clear_contents(fs->shapingState.hb_buffer);
-	hb_buffer_set_direction(fs->shapingState.hb_buffer, HB_DIRECTION_LTR);
-	hb_buffer_set_script(fs->shapingState.hb_buffer, HB_SCRIPT_LATIN);
+	hb_buffer_set_direction(fs->shapingState.hb_buffer, direction);
+	hb_buffer_set_script(fs->shapingState.hb_buffer, HB_SCRIPT_COMMON);
 	hb_buffer_set_language(fs->shapingState.hb_buffer, hb_language_from_string("en", -1));
 
 	// Add text to buffer
@@ -379,6 +449,25 @@ void nvgFontResetFeatures(NVGFontSystem* fs) {
 void nvgFontSetHinting(NVGFontSystem* fs, int hinting) {
 	if (!fs) return;
 	fs->state.hinting = hinting;
+}
+
+void nvgFontSetTextDirection(NVGFontSystem* fs, int direction) {
+	if (!fs) return;
+	// Map NVGtextDirection to FriBidiCharType
+	switch (direction) {
+		case 0: // NVG_TEXT_DIR_AUTO
+			fs->shapingState.base_dir = FRIBIDI_TYPE_ON;
+			break;
+		case 1: // NVG_TEXT_DIR_LTR
+			fs->shapingState.base_dir = FRIBIDI_TYPE_LTR;
+			break;
+		case 2: // NVG_TEXT_DIR_RTL
+			fs->shapingState.base_dir = FRIBIDI_TYPE_RTL;
+			break;
+		default:
+			fs->shapingState.base_dir = FRIBIDI_TYPE_ON;
+			break;
+	}
 }
 
 void nvgFontSetKerning(NVGFontSystem* fs, int enabled) {

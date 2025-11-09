@@ -816,6 +816,17 @@ void nvgFontFeature(NVGcontext* ctx, unsigned int tag, int enabled);
 // Reset all OpenType features to default
 void nvgFontFeaturesReset(NVGcontext* ctx);
 
+// Bidirectional Text Direction
+enum NVGtextDirection {
+	NVG_TEXT_DIR_AUTO = 0,    // Auto-detect direction from text content
+	NVG_TEXT_DIR_LTR = 1,     // Force left-to-right
+	NVG_TEXT_DIR_RTL = 2,     // Force right-to-left
+};
+
+// Set text direction for bidirectional text
+// direction: NVG_TEXT_DIR_AUTO, NVG_TEXT_DIR_LTR, or NVG_TEXT_DIR_RTL
+void nvgTextDirection(NVGcontext* ctx, int direction);
+
 //
 // Internal Render API
 //

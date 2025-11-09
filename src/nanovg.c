@@ -93,6 +93,7 @@ struct NVGstate {
 	float baselineShift;  // Vertical baseline offset
 	int kerningEnabled;  // Enable automatic kerning
 	int fontHinting;  // Font hinting mode (NVGhinting enum)
+	int textDirection;  // Text direction (NVGtextDirection enum)
 };
 typedef struct NVGstate NVGstate;
 
@@ -2537,7 +2538,7 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 	verts = nvg__allocTempVerts(ctx, cverts);
 	if (verts == NULL) return x;
 
-	nvgFontShapedTextIterInit(ctx->fs, &iter, x*scale, y*scale, string, end, 0, NULL);
+	nvgFontShapedTextIterInit(ctx->fs, &iter, x*scale, y*scale, string, end, 1, NULL);
 	static int glyph_dbg = 0;
 	while (nvgFontShapedTextIterNext(ctx->fs, &iter, &q)) {
 		if (glyph_dbg++ == 0) {
@@ -2643,7 +2644,7 @@ int nvgTextGlyphPositions(NVGcontext* ctx, float x, float y, const char* string,
 	nvgFontSetAlign(ctx->fs, state->textAlign);
 	nvgFontSetFont(ctx->fs, state->fontId);
 
-	nvgFontShapedTextIterInit(ctx->fs, &iter, x*scale, y*scale, string, end, 0, NULL);
+	nvgFontShapedTextIterInit(ctx->fs, &iter, x*scale, y*scale, string, end, 1, NULL);
 	prevIter = iter;
 	while (nvgFontTextIterNext(ctx->fs, &iter, &q)) {
 		prevIter = iter;
@@ -3227,6 +3228,15 @@ void nvgFontFeaturesReset(NVGcontext* ctx)
 {
 	if (!ctx || !ctx->fs) return;
 	nvgFontResetFeatures(ctx->fs);
+}
+
+void nvgTextDirection(NVGcontext* ctx, int direction)
+{
+	NVGstate* state = nvg__getState(ctx);
+	state->textDirection = direction;
+	if (ctx->fs) {
+		nvgFontSetTextDirection(ctx->fs, direction);
+	}
 }
 
 // vim: ft=c nu noet ts=4
