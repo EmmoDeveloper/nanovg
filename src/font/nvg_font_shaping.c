@@ -106,16 +106,10 @@ int nvgFontShapedTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGly
 
 	// Get current glyph
 	unsigned int glyph_id = glyph_info[iter->glyphIndex].codepoint;
+	unsigned int cluster = glyph_info[iter->glyphIndex].cluster;
 	float x_offset = (float)glyph_pos[iter->glyphIndex].x_offset / 64.0f;
 	float y_offset = (float)glyph_pos[iter->glyphIndex].y_offset / 64.0f;
 	float x_advance = (float)glyph_pos[iter->glyphIndex].x_advance / 64.0f;
-
-	static int glyph_debug = 0;
-	if (glyph_debug++ < 120) {
-		printf("[nvgFontShapedTextIterNext] cluster=%u glyph_id=%u x_advance=%.1f varStateId=%u size=%.1f\n",
-			glyph_info[iter->glyphIndex].cluster, glyph_id, x_advance,
-			fs->fonts[fs->state.fontId].varStateId, fs->state.size);
-	}
 
 	// Render glyph and get quad
 	if (!nvgFontRenderGlyph(fs, fs->state.fontId, glyph_id,

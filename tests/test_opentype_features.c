@@ -19,10 +19,10 @@ int main(void) {
 		return 1;
 	}
 
-	// Load a font with OpenType features (using DejaVu Sans which has ligatures)
-	int font = nvgCreateFont(vg, "sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+	// Load a font with OpenType features (using Inter which has extensive features)
+	int font = nvgCreateFont(vg, "sans", "fonts/variable/Inter/Inter-VariableFont_opsz,wght.ttf");
 	if (font == -1) {
-		printf("Failed to load DejaVu Sans\n");
+		printf("Failed to load Inter font\n");
 		nvgDeleteVk(vg);
 		window_destroy_context(winCtx);
 		return 1;
@@ -81,28 +81,31 @@ int main(void) {
 	// Test 1: Standard Ligatures (liga)
 	nvgFontSize(vg, 18.0f);
 	nvgFillColor(vg, nvgRGBA(100, 180, 255, 255));
+	nvgFontFeaturesReset(vg);
 	nvgText(vg, 50, y, "Standard Ligatures (liga):", NULL);
 	y += 30;
 
-	// With ligatures enabled (default)
+	// With ligatures enabled
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_LIGA, 1);  // Enable ligatures
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Enabled:", NULL);
 
-	nvgFontFeaturesReset(vg);  // Reset to defaults
-	nvgFontFeature(vg, NVG_FEATURE_LIGA, 1);  // Enable ligatures
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, ligatureText, NULL);
 	y += 45;
 
 	// With ligatures disabled
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_LIGA, 0);  // Disable ligatures
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Disabled:", NULL);
 
-	nvgFontFeaturesReset(vg);
-	nvgFontFeature(vg, NVG_FEATURE_LIGA, 0);  // Disable ligatures
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, ligatureText, NULL);
@@ -111,28 +114,31 @@ int main(void) {
 	// Test 2: Contextual Alternates (calt)
 	nvgFontSize(vg, 18.0f);
 	nvgFillColor(vg, nvgRGBA(100, 180, 255, 255));
+	nvgFontFeaturesReset(vg);
 	nvgText(vg, 50, y, "Contextual Alternates (calt):", NULL);
 	y += 30;
 
 	// Enabled
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_CALT, 1);
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Enabled:", NULL);
 
-	nvgFontFeaturesReset(vg);
-	nvgFontFeature(vg, NVG_FEATURE_CALT, 1);
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, "The quick brown fox", NULL);
 	y += 45;
 
 	// Disabled
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_CALT, 0);
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Disabled:", NULL);
 
-	nvgFontFeaturesReset(vg);
-	nvgFontFeature(vg, NVG_FEATURE_CALT, 0);
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, "The quick brown fox", NULL);
@@ -141,16 +147,18 @@ int main(void) {
 	// Test 3: Tabular Numbers (tnum)
 	nvgFontSize(vg, 18.0f);
 	nvgFillColor(vg, nvgRGBA(100, 180, 255, 255));
+	nvgFontFeaturesReset(vg);
 	nvgText(vg, 50, y, "Tabular Numbers (tnum):", NULL);
 	y += 30;
 
 	// Proportional (default)
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_TNUM, 0);
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Proportional:", NULL);
 
-	nvgFontFeaturesReset(vg);
-	nvgFontFeature(vg, NVG_FEATURE_TNUM, 0);
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, numbersText, NULL);
@@ -158,12 +166,13 @@ int main(void) {
 	y += 80;
 
 	// Tabular
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_TNUM, 1);
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Tabular:", NULL);
 
-	nvgFontFeaturesReset(vg);
-	nvgFontFeature(vg, NVG_FEATURE_TNUM, 1);
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, numbersText, NULL);
@@ -173,28 +182,31 @@ int main(void) {
 	// Test 4: Slashed Zero (zero)
 	nvgFontSize(vg, 18.0f);
 	nvgFillColor(vg, nvgRGBA(100, 180, 255, 255));
+	nvgFontFeaturesReset(vg);
 	nvgText(vg, 50, y, "Slashed Zero (zero):", NULL);
 	y += 30;
 
 	// Normal zero
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_ZERO, 0);
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Normal:", NULL);
 
-	nvgFontFeaturesReset(vg);
-	nvgFontFeature(vg, NVG_FEATURE_ZERO, 0);
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, "0 O 0 O 0 O", NULL);
 	y += 45;
 
 	// Slashed zero
+	nvgFontFeaturesReset(vg);
+	nvgFontFeature(vg, NVG_FEATURE_ZERO, 1);
+
 	nvgFontSize(vg, 14.0f);
 	nvgFillColor(vg, nvgRGBA(180, 180, 180, 255));
 	nvgText(vg, 70, y, "Slashed:", NULL);
 
-	nvgFontFeaturesReset(vg);
-	nvgFontFeature(vg, NVG_FEATURE_ZERO, 1);
 	nvgFontSize(vg, fontSize);
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 200, y, "0 O 0 O 0 O", NULL);
@@ -203,7 +215,7 @@ int main(void) {
 	nvgFontSize(vg, 12.0f);
 	nvgFillColor(vg, nvgRGBA(120, 120, 120, 255));
 	nvgFontFeaturesReset(vg);
-	nvgText(vg, 50, 870, "Note: Not all fonts support all OpenType features", NULL);
+	nvgText(vg, 50, 870, "Inter font supports liga, tnum, and zero features", NULL);
 
 	nvgEndFrame(vg);
 
