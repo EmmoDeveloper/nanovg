@@ -3,7 +3,7 @@
 #include <string.h>
 #include "nanovg.h"
 #include "nvg_vk.h"
-#include "window_utils.h"
+#include "../src/tools/window_utils.h"
 
 int main(void) {
 	printf("=== NanoVG OpenType Features Test ===\n\n");
