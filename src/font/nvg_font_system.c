@@ -148,9 +148,6 @@ int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path) {
 	// CRITICAL: Detect if font has COLR data NOW, before any size is set
 	// Once FT_Set_Pixel_Sizes is called, FT_Get_Color_Glyph_Paint stops working
 	int hasCOLR = FT_HAS_COLOR(face) ? 1 : 0;
-	if (hasCOLR) {
-		printf("[nvgFontAddFont] Font '%s' has COLR color tables\n", name);
-	}
 
 	// Create HarfBuzz font
 	hb_font_t* hb_font = hb_ft_font_create(face, NULL);
@@ -197,9 +194,6 @@ int nvgFontAddFontMem(NVGFontSystem* fs, const char* name, unsigned char* data, 
 
 	// CRITICAL: Detect if font has COLR data NOW, before any size is set
 	int hasCOLR = FT_HAS_COLOR(face) ? 1 : 0;
-	if (hasCOLR) {
-		printf("[nvgFontAddFontMem] Font '%s' has COLR color tables\n", name);
-	}
 
 	// Create HarfBuzz font
 	hb_font_t* hb_font = hb_ft_font_create(face, NULL);
@@ -308,9 +302,6 @@ void nvgFontSetFontMSDF(NVGFontSystem* fs, int font, int msdfMode) {
 
 void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 	if (!fs || !fs->atlasManager || !fs->glyphCache) return;
-
-	printf("[nvgFontResetAtlas] Resetting atlas from %dx%d to %dx%d\n",
-		fs->atlasManager->width, fs->atlasManager->height, width, height);
 
 	// Clear glyph cache
 	memset(fs->glyphCache->entries, 0, sizeof(fs->glyphCache->entries));

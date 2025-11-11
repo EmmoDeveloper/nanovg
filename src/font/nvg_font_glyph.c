@@ -228,13 +228,6 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	unsigned int varStateId = fs->fonts[fontId].varStateId;
 	NVGGlyphCacheEntry* entry = nvg__findGlyph(fs->glyphCache, glyph_index, fontId, fs->state.size, varStateId);
 	if (entry) {
-		static int cache_hit_count = 0;
-		if (cache_hit_count++ < 50 || glyph_index == 36) {  // 36 = 'A' glyph
-			printf("[nvgFontRenderGlyph] Cache HIT for glyph %u (fontId=%d, size=%.1f), entry size=%.1f, atlas pos (%.1f,%.1f), tex coords (%.4f,%.4f)-(%.4f,%.4f)\n",
-				glyph_index, fontId, fs->state.size, entry->size,
-				entry->x, entry->y,
-				entry->s0, entry->t0, entry->s1, entry->t1);
-		}
 		quad->codepoint = codepoint;
 		quad->x0 = x + entry->bearingX;
 		quad->y0 = y - entry->bearingY;
@@ -319,8 +312,6 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 		FT_ClipBox clip_box;
 		FT_Bool has_clip_box = FT_Get_Color_Glyph_ClipBox(face, glyph_index, &clip_box);
 
-		printf("[nvgFontRenderGlyph] FT_Get_Color_Glyph_ClipBox returned: %d\n", has_clip_box);
-
 		if (has_clip_box) {
 			// Successfully got the clip box - this gives us the actual bounding box
 			// Convert from 26.6 fixed point to pixels and add padding
@@ -340,9 +331,6 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 			gh = yMax - yMin;
 			colr_bearingX = (float)xMin;
 			colr_bearingY = (float)yMax;  // Distance from baseline to top
-
-			printf("[nvgFontRenderGlyph] COLR clip box (with padding): (%d,%d)-(%d,%d) -> size %dx%d bearing(%.1f,%.1f)\n",
-			       xMin, yMin, xMax, yMax, gw, gh, colr_bearingX, colr_bearingY);
 		} else {
 			// Clip box not available, use font metrics with extra padding
 			// Add 10% padding to ensure we capture the full glyph
@@ -352,8 +340,6 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 			gh = (int)((ascent + descent) * 1.1f);
 			colr_bearingX = (float)(gw - advance) / 2.0f;  // Center horizontally
 			colr_bearingY = (float)ascent + (float)(gh - (ascent + descent)) / 2.0f;  // Center vertically
-			printf("[nvgFontRenderGlyph] COLR fallback (no clip box) with padding: advance=%d ascent=%d descent=%d -> %dx%d bearing(%.1f,%.1f)\n",
-			       advance, ascent, descent, gw, gh, colr_bearingX, colr_bearingY);
 		}
 
 		if (!nvg__renderCOLRGlyph(fs, face, glyph_index, gw, gh, &rgba_data, colr_bearingX, colr_bearingY)) {
@@ -404,11 +390,6 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	entry->isColor = isColor;
 	entry->atlasIndex = isColor ? 1 : 0;  // RGBA atlas for color, ALPHA atlas for grayscale
 
-	static int cache_miss_count = 0;
-	if (cache_miss_count++ < 50 || glyph_index == 36) {  // 36 = 'A' glyph
-		printf("[nvgFontRenderGlyph] Cache MISS for glyph %u (fontId=%d, size=%.1f), %s, atlas region (%d,%d) size (%d,%d) [COORDS NOT YET CALCULATED]\n",
-			glyph_index, fontId, fs->state.size, isColor ? "COLOR" : "ALPHA", ax, ay, gw+2, gh+2);
-	}
 	entry->x = (float)(ax + 1);
 	entry->y = (float)(ay + 1);
 	entry->w = (float)gw;

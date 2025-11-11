@@ -197,11 +197,8 @@ int nvg__renderCOLRGlyph(NVGFontSystem* fs, FT_Face face, unsigned int glyph_ind
                          int width, int height, unsigned char** rgba_data,
                          float bearingX, float bearingY) {
 	if (!fs || !face || !rgba_data) {
-		printf("[nvg__renderCOLRGlyph] NULL parameter check failed\n");
 		return 0;
 	}
-
-	printf("[nvg__renderCOLRGlyph] Rendering glyph %u at %dx%d using Cairo automatic COLR\n", glyph_index, width, height);
 
 	// Ensure Cairo surface is large enough
 	nvg__ensureCairoSize(fs, width, height);
@@ -217,7 +214,6 @@ int nvg__renderCOLRGlyph(NVGFontSystem* fs, FT_Face face, unsigned int glyph_ind
 	// Create Cairo font face from FreeType face
 	cairo_font_face_t* font_face = cairo_ft_font_face_create_for_ft_face(face, 0);
 	if (cairo_font_face_status(font_face) != CAIRO_STATUS_SUCCESS) {
-		printf("[nvg__renderCOLRGlyph] Failed to create Cairo font face\n");
 		return 0;
 	}
 
@@ -233,10 +229,7 @@ int nvg__renderCOLRGlyph(NVGFontSystem* fs, FT_Face face, unsigned int glyph_ind
 	cairo_matrix_init_identity(&ctm);
 	cairo_scaled_font_t* scaled_font = cairo_scaled_font_create(font_face, &font_matrix, &ctm, font_options);
 
-	printf("[nvg__renderCOLRGlyph] Using font size %.1f (face y_ppem=%ld) for canvas %dx%d\n",
-	       font_size, face->size->metrics.y_ppem, width, height);
 	if (cairo_scaled_font_status(scaled_font) != CAIRO_STATUS_SUCCESS) {
-		printf("[nvg__renderCOLRGlyph] Failed to create scaled font\n");
 		cairo_font_options_destroy(font_options);
 		cairo_font_face_destroy(font_face);
 		return 0;
@@ -252,15 +245,11 @@ int nvg__renderCOLRGlyph(NVGFontSystem* fs, FT_Face face, unsigned int glyph_ind
 	glyph.x = -bearingX;  // Offset so left edge aligns at x=0
 	glyph.y = bearingY;   // Baseline positioned so top edge aligns at y=0
 
-	printf("[nvg__renderCOLRGlyph] Cairo positioning: canvas=%dx%d glyph.x=%.1f glyph.y=%.1f (bearingX=%.1f bearingY=%.1f)\n",
-	       width, height, glyph.x, glyph.y, bearingX, bearingY);
-
 	// Render the glyph - Cairo automatically handles COLR
 	cairo_show_glyphs(cr, &glyph, 1);
 
 	cairo_status_t status = cairo_status(cr);
 	if (status != CAIRO_STATUS_SUCCESS) {
-		printf("[nvg__renderCOLRGlyph] Cairo rendering failed: %s\n", cairo_status_to_string(status));
 		cairo_scaled_font_destroy(scaled_font);
 		cairo_font_options_destroy(font_options);
 		cairo_font_face_destroy(font_face);
@@ -282,7 +271,6 @@ int nvg__renderCOLRGlyph(NVGFontSystem* fs, FT_Face face, unsigned int glyph_ind
 	if (!*rgba_data) return 0;
 
 	// Copy and convert from Cairo's ARGB32 (native endian) to premultiplied RGBA
-	int non_zero_pixels = 0;
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
 			unsigned char* src = surface_data + y * stride + x * 4;
@@ -299,33 +287,7 @@ int nvg__renderCOLRGlyph(NVGFontSystem* fs, FT_Face face, unsigned int glyph_ind
 			dst[1] = g;
 			dst[2] = b;
 			dst[3] = a;
-
-			if (r != 0 || g != 0 || b != 0 || a != 0) non_zero_pixels++;
 		}
-	}
-
-	// Check if we actually captured the full emoji by examining edges
-	int top_row_pixels = 0, bottom_row_pixels = 0, left_col_pixels = 0, right_col_pixels = 0;
-	for (int x = 0; x < width; x++) {
-		if ((*rgba_data)[x * 4 + 3] > 0) top_row_pixels++;
-		if ((*rgba_data)[(height - 1) * width * 4 + x * 4 + 3] > 0) bottom_row_pixels++;
-	}
-	for (int y = 0; y < height; y++) {
-		if ((*rgba_data)[y * width * 4 + 3] > 0) left_col_pixels++;
-		if ((*rgba_data)[y * width * 4 + (width - 1) * 4 + 3] > 0) right_col_pixels++;
-	}
-
-	printf("[nvg__renderCOLRGlyph] Extracted %dx%d RGBA data, %d non-zero pixels\n", width, height, non_zero_pixels);
-	printf("[nvg__renderCOLRGlyph] Edge pixels: top=%d bottom=%d left=%d right=%d (should be 0 if not clipped)\n",
-	       top_row_pixels, bottom_row_pixels, left_col_pixels, right_col_pixels);
-
-	// Debug: save Cairo surface to PNG
-	static int save_count = 0;
-	if (save_count++ == 0) {
-		char filename[256];
-		snprintf(filename, sizeof(filename), "screendumps/cairo_debug_%dx%d.png", width, height);
-		cairo_surface_write_to_png(fs->cairoState.surface, filename);
-		printf("[nvg__renderCOLRGlyph] Debug: saved Cairo surface to %s\n", filename);
 	}
 
 	return 1;
@@ -336,21 +298,10 @@ static int nvg__renderPaint(NVGFontSystem* fs, FT_Face face, FT_OpaquePaint* opa
 	FT_COLR_Paint paint;
 	memset(&paint, 0, sizeof(paint));
 
-	// Debug face state
-	printf("[nvg__renderPaint] face=%p, face->size=%p, face->glyph=%p\n",
-		face, face->size, face->glyph);
-	printf("[nvg__renderPaint] opaque_paint=%p, opaque_paint->p=%p\n",
-		opaque_paint, opaque_paint->p);
-	if (face->glyph) {
-		printf("[nvg__renderPaint] face->glyph->format=%d\n", face->glyph->format);
-	}
-
 	// FT_Get_Paint returns FT_Bool: 1 on success, 0 on failure
 	FT_Bool success = FT_Get_Paint(face, *opaque_paint, &paint);
-	printf("[nvg__renderPaint] FT_Get_Paint returned %d, paint.format = %d\n", success, paint.format);
 
 	if (!success) {
-		printf("[nvg__renderPaint] FT_Get_Paint failed\n");
 		return 0;
 	}
 
@@ -359,7 +310,6 @@ static int nvg__renderPaint(NVGFontSystem* fs, FT_Face face, FT_OpaquePaint* opa
 	switch (paint.format) {
 		case FT_COLR_PAINTFORMAT_COLR_LAYERS: {
 			// COLRv0 format - iterate through layers
-			printf("[nvg__renderPaint] Rendering COLR_LAYERS\n");
 			FT_LayerIterator layer_iterator = paint.u.colr_layers.layer_iterator;
 			FT_OpaquePaint layer_paint;
 
@@ -526,7 +476,6 @@ static int nvg__renderPaint(NVGFontSystem* fs, FT_Face face, FT_OpaquePaint* opa
 
 		// TODO: Implement other paint formats (sweep gradient, translate, scale, rotate, skew, etc.)
 		default:
-			printf("[nvg__renderPaint] Unsupported paint format %d\n", paint.format);
 			// Unsupported paint format - return success anyway to allow fallback
 			return 1;
 	}

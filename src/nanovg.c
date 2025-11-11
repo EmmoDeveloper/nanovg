@@ -2455,19 +2455,13 @@ static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const uns
 	if (atlasIndex == 1) {
 		// RGBA atlas for color emoji
 		fontImage = ctx->fontImagesRGBA[ctx->fontImageIdxRGBA];
-		printf("[nvg__textureUpdate] RGBA atlas: fontImageIdxRGBA=%d, fontImage=%d, updating region (%d,%d) %dx%d\n",
-			ctx->fontImageIdxRGBA, fontImage, x, y, w, h);
 	} else {
 		// ALPHA atlas for grayscale text
 		fontImage = ctx->fontImages[ctx->fontImageIdx];
-		printf("[nvg__textureUpdate] ALPHA atlas: fontImageIdx=%d, fontImage=%d, updating region (%d,%d) %dx%d\n",
-			ctx->fontImageIdx, fontImage, x, y, w, h);
 	}
 
 	if (fontImage != 0) {
 		ctx->params.renderUpdateTexture(ctx->params.userPtr, fontImage, x, y, w, h, data);
-	} else {
-		printf("[nvg__textureUpdate] ERROR: fontImage is 0 for atlasIndex=%d!\n", atlasIndex);
 	}
 }
 
@@ -2512,8 +2506,6 @@ static void nvg__renderText(NVGcontext* ctx, NVGvertex* verts, int nverts, int a
 	if (atlasIndex == 1) {
 		// RGBA atlas for color emoji
 		paint.image = ctx->fontImagesRGBA[ctx->fontImageIdxRGBA];
-		printf("[nvg__renderText] Using RGBA atlas: fontImageIdxRGBA=%d, fontImage=%d, nverts=%d\n",
-			ctx->fontImageIdxRGBA, paint.image, nverts);
 		// For color emoji, use white as inner color so the emoji colors show through
 		// Only preserve the alpha channel for opacity control
 		float alpha = paint.innerColor.a * state->alpha;
@@ -2521,8 +2513,6 @@ static void nvg__renderText(NVGcontext* ctx, NVGvertex* verts, int nverts, int a
 	} else {
 		// ALPHA atlas for regular text
 		paint.image = ctx->fontImages[ctx->fontImageIdx];
-		printf("[nvg__renderText] Using ALPHA atlas: fontImageIdx=%d, fontImage=%d, nverts=%d\n",
-			ctx->fontImageIdx, paint.image, nverts);
 		// Apply global alpha
 		paint.innerColor.a *= state->alpha;
 		paint.outerColor.a *= state->alpha;
@@ -2559,12 +2549,6 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 
 	nvgFontSetFont(ctx->fs, state->fontId);
 
-	static int dbg_fontsize = 0;
-	if (dbg_fontsize++ == 0) {
-		printf("[nvgText] fontSize=%.2f, scale=%.2f, passing %.2f to nvgft_set_size\n",
-			state->fontSize, scale, state->fontSize*scale);
-	}
-
 	nvgFontSetSize(ctx->fs, state->fontSize*scale);
 	nvgFontSetSpacing(ctx->fs, state->letterSpacing*scale);
 	nvgFontSetBlur(ctx->fs, state->fontBlur*scale);
@@ -2579,13 +2563,7 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 	int currentAtlasIndex = -1;  // Track current atlas
 	int batchStartVert = 0;       // Start of current batch
 
-	static int glyph_dbg = 0;
 	while (nvgFontShapedTextIterNext(ctx->fs, &iter, &q)) {
-		if (glyph_dbg++ == 0) {
-			printf("[nvgText] First glyph quad: x0=%.1f y0=%.1f x1=%.1f y1=%.1f, scale=%.2f invscale=%.2f\n",
-				q.x0, q.y0, q.x1, q.y1, scale, invscale);
-		}
-
 		// Check if we need to flush the current batch due to atlas change
 		if (currentAtlasIndex != -1 && q.atlasIndex != currentAtlasIndex) {
 			// Flush current batch with its atlas
@@ -2612,12 +2590,6 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 		nvgTransformPoint(&c[6],&c[7], state->xform, q.x0*invscale, q.y1*invscale);
 		// Create triangles
 		if (nverts+6 <= cverts) {
-			static int vert_debug = 0;
-			// Only log 48px glyphs from the test strings (not title or footer)
-			if (state->fontSize > 40.0f && vert_debug++ < 100) {
-				printf("[nvgText VERT #%d] glyph %u at 48px: uv=(%.4f,%.4f)-(%.4f,%.4f) atlasIdx=%d\n",
-					vert_debug, q.codepoint, q.s0, q.t0, q.s1, q.t1, q.atlasIndex);
-			}
 			nvg__vset(&verts[nverts], c[0], c[1], q.s0, q.t0); nverts++;
 			nvg__vset(&verts[nverts], c[4], c[5], q.s1, q.t1); nverts++;
 			nvg__vset(&verts[nverts], c[2], c[3], q.s1, q.t0); nverts++;
@@ -2634,11 +2606,6 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 	// Render final batch
 	int finalBatchVerts = nverts - batchStartVert;
 	if (finalBatchVerts > 0) {
-		char preview[20] = {0};
-		int preview_len = (end - string) < 10 ? (end - string) : 10;
-		memcpy(preview, string, preview_len);
-		printf("[nvgText] Rendering final batch '%s': nverts=%d, atlasIndex=%d\n",
-		       preview, finalBatchVerts, currentAtlasIndex);
 		nvg__renderText(ctx, verts + batchStartVert, finalBatchVerts, currentAtlasIndex);
 	}
 
