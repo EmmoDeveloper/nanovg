@@ -51,7 +51,7 @@ $(TEST_SCREENDUMP_DIR):
 # Font system
 FONT_OBJS := $(BUILD_DIR)/nvg_font_system.o $(BUILD_DIR)/nvg_font_glyph.o \
              $(BUILD_DIR)/nvg_font_shaping.o $(BUILD_DIR)/nvg_font_info.o \
-             $(BUILD_DIR)/nvg_font_colr.o
+             $(BUILD_DIR)/nvg_font_colr.o $(BUILD_DIR)/nvg_font_shape_cache.o
 
 # NanoVG Vulkan backend
 NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
@@ -120,6 +120,10 @@ $(BUILD_DIR)/nvg_font_info.o: src/font/nvg_font_info.c src/font/nvg_font.h src/f
 
 $(BUILD_DIR)/nvg_font_colr.o: src/font/nvg_font_colr.c src/font/nvg_font_colr.h src/font/nvg_font_internal.h | $(BUILD_DIR)
 	@echo "Compiling nvg_font_colr.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/nvg_font_shape_cache.o: src/font/nvg_font_shape_cache.c src/font/nvg_font_shape_cache.h | $(BUILD_DIR)
+	@echo "Compiling nvg_font_shape_cache.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/vk_shader.o: src/vulkan/vk_shader.c src/vulkan/vk_shader.h | $(BUILD_DIR)

@@ -104,6 +104,20 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 	// Initialize Cairo for COLR emoji rendering
 	nvg__initCairoState(fs);
 
+	// Initialize shaped text cache (Phase 14.2)
+	fs->shapedTextCache = nvgShapeCache_create();
+	if (!fs->shapedTextCache) {
+		nvg__destroyCairoState(fs);
+		free(fs->atlasManagerRGBA->nodes);
+		free(fs->atlasManagerRGBA);
+		free(fs->atlasManagerALPHA->nodes);
+		free(fs->atlasManagerALPHA);
+		free(fs->glyphCache);
+		FT_Done_FreeType(fs->ftLibrary);
+		free(fs);
+		return NULL;
+	}
+
 	return fs;
 }
 
@@ -148,6 +162,11 @@ void nvgFontDestroy(NVGFontSystem* fs) {
 	// Free glyph cache
 	if (fs->glyphCache) {
 		free(fs->glyphCache);
+	}
+
+	// Free shaped text cache (Phase 14.2)
+	if (fs->shapedTextCache) {
+		nvgShapeCache_destroy(fs->shapedTextCache);
 	}
 
 	// Shutdown FreeType
@@ -326,6 +345,12 @@ int nvg__findFontForCodepoint(NVGFontSystem* fs, int baseFontId, unsigned int co
 
 void nvgFontSetFont(NVGFontSystem* fs, int fontId) {
 	if (!fs) return;
+
+	// Invalidate cache entries for old font when font changes
+	if (fs->state.fontId != fontId && fs->shapedTextCache) {
+		nvgShapeCache_invalidateFont(fs->shapedTextCache, fs->state.fontId);
+	}
+
 	fs->state.fontId = fontId;
 }
 

@@ -12,6 +12,7 @@
 #include <fribidi.h>
 #include <cairo.h>
 #include <cairo-ft.h>
+#include "nvg_font_shape_cache.h"
 
 // Internal helpers
 int nvg__findFontForCodepoint(NVGFontSystem* fs, int baseFontId, unsigned int codepoint);
@@ -112,6 +113,7 @@ struct NVGFontSystem {
 	NVGOTFeature features[32];
 	int nfeatures;
 	NVGCairoState cairoState;  // For COLR emoji rendering
+	NVGShapedTextCache* shapedTextCache;  // Shaped text cache (Phase 14.2)
 };
 
 #endif // NVG_FONT_INTERNAL_H

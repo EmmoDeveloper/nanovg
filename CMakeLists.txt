@@ -55,6 +55,7 @@ add_library(nanovg_font STATIC
 	src/font/nvg_font_shaping.c
 	src/font/nvg_font_info.c
 	src/font/nvg_font_colr.c
+	src/font/nvg_font_shape_cache.c
 )
 
 target_include_directories(nanovg_font PUBLIC

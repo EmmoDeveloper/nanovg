@@ -29,6 +29,45 @@ static int nvg__decodeUTF8(const char* str, unsigned int* codepoint) {
 
 // Text shaping with HarfBuzz and FriBidi
 
+// Helper: Build cache key from current font system state
+static void nvg__buildShapeKey(NVGFontSystem* fs, NVGShapeKey* key,
+                                const char* string, const char* end, int bidi) {
+	memset(key, 0, sizeof(NVGShapeKey));
+
+	// Copy text
+	key->textLen = (int)(end - string);
+	key->text = (char*)malloc(key->textLen + 1);
+	if (key->text) {
+		memcpy(key->text, string, key->textLen);
+		key->text[key->textLen] = '\0';
+	}
+
+	// Copy font state
+	key->fontId = fs->state.fontId;
+	key->size = fs->state.size;
+	key->hinting = fs->state.hinting;
+	key->varStateId = (fs->state.fontId >= 0 && fs->state.fontId < fs->nfonts) ?
+	                  fs->fonts[fs->state.fontId].varStateId : 0;
+
+	// Copy features
+	key->kerningEnabled = fs->state.kerningEnabled;
+	key->nfeatures = fs->nfeatures;
+	for (int i = 0; i < fs->nfeatures && i < 32; i++) {
+		memcpy(key->featureTags[i], fs->features[i].tag, 5);
+		key->featureValues[i] = fs->features[i].enabled;
+	}
+
+	// Sort features by tag for consistent hashing
+	nvgShapeCache_sortFeatures(key);
+
+	// BiDi settings
+	key->bidiEnabled = bidi && fs->shapingState.bidi_enabled;
+	key->baseDir = (int)fs->shapingState.base_dir;
+
+	// Compute hash
+	key->hash = nvgShapeCache_hash(key);
+}
+
 void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, float y,
                                 const char* string, const char* end, int bidi, void* state) {
 	if (!fs || !iter || !string) return;
@@ -40,8 +79,33 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 	iter->str = string;
 	iter->next = string;
 	iter->glyphIndex = 0;
+	iter->cachedShaping = NULL;
 
 	if (!end) end = string + strlen(string);
+
+	// Skip empty strings
+	if (end == string) return;
+
+	// Try cache lookup (Phase 14.2)
+	if (fs->shapedTextCache) {
+		NVGShapeKey queryKey;
+		nvg__buildShapeKey(fs, &queryKey, string, end, bidi);
+
+		NVGShapedTextEntry* cached = nvgShapeCache_lookup(fs->shapedTextCache, &queryKey);
+
+		// Free the temporary text allocation (key was for lookup only)
+		if (queryKey.text) {
+			free(queryKey.text);
+			queryKey.text = NULL;
+		}
+
+		if (cached) {
+			// Cache HIT - use cached shaped result
+			iter->cachedShaping = cached;
+			return;
+		}
+		// Cache MISS - continue with shaping below
+	}
 
 	// Determine text direction
 	hb_direction_t direction = HB_DIRECTION_LTR;
@@ -191,16 +255,36 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 		// FriBidi integration would go here
 		// For now, we skip bidirectional reordering
 	}
+
+	// Insert into cache (Phase 14.2)
+	if (fs->shapedTextCache) {
+		NVGShapeKey insertKey;
+		nvg__buildShapeKey(fs, &insertKey, string, end, bidi);
+		nvgShapeCache_insert(fs->shapedTextCache, &insertKey, fs->shapingState.hb_buffer);
+		// Note: insert takes ownership of insertKey.text, so don't free it
+	}
 }
 
 int nvgFontShapedTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGlyph* quad) {
 	if (!fs || !iter || !quad) return 0;
 	if (fs->state.fontId < 0 || fs->state.fontId >= fs->nfonts) return 0;
 
-	// Get shaped glyphs from HarfBuzz
+	// Get shaped glyphs (from cache or shared buffer)
 	unsigned int glyph_count;
-	hb_glyph_info_t* glyph_info = hb_buffer_get_glyph_infos(fs->shapingState.hb_buffer, &glyph_count);
-	hb_glyph_position_t* glyph_pos = hb_buffer_get_glyph_positions(fs->shapingState.hb_buffer, &glyph_count);
+	hb_glyph_info_t* glyph_info;
+	hb_glyph_position_t* glyph_pos;
+
+	if (iter->cachedShaping) {
+		// Use cached shaping
+		NVGShapedTextEntry* cached = (NVGShapedTextEntry*)iter->cachedShaping;
+		glyph_count = cached->glyphCount;
+		glyph_info = cached->glyphInfo;
+		glyph_pos = cached->glyphPos;
+	} else {
+		// Use shared HarfBuzz buffer (current behavior)
+		glyph_info = hb_buffer_get_glyph_infos(fs->shapingState.hb_buffer, &glyph_count);
+		glyph_pos = hb_buffer_get_glyph_positions(fs->shapingState.hb_buffer, &glyph_count);
+	}
 
 	// Check if we've iterated through all glyphs
 	if (iter->glyphIndex >= glyph_count) {
@@ -476,7 +560,13 @@ void nvgFontSetFeature(NVGFontSystem* fs, const char* tag, int enabled) {
 	// Check if feature already exists
 	for (int i = 0; i < fs->nfeatures; i++) {
 		if (strcmp(fs->features[i].tag, tag) == 0) {
-			fs->features[i].enabled = enabled;
+			if (fs->features[i].enabled != enabled) {
+				fs->features[i].enabled = enabled;
+				// Feature changed - invalidate shaped text cache
+				if (fs->shapedTextCache) {
+					nvgShapeCache_clear(fs->shapedTextCache);
+				}
+			}
 			return;
 		}
 	}
@@ -487,12 +577,23 @@ void nvgFontSetFeature(NVGFontSystem* fs, const char* tag, int enabled) {
 		fs->features[fs->nfeatures].tag[4] = '\0';
 		fs->features[fs->nfeatures].enabled = enabled;
 		fs->nfeatures++;
+
+		// Feature added - invalidate shaped text cache
+		if (fs->shapedTextCache) {
+			nvgShapeCache_clear(fs->shapedTextCache);
+		}
 	}
 }
 
 void nvgFontResetFeatures(NVGFontSystem* fs) {
 	if (!fs) return;
-	fs->nfeatures = 0;
+	if (fs->nfeatures > 0) {
+		fs->nfeatures = 0;
+		// Features cleared - invalidate shaped text cache
+		if (fs->shapedTextCache) {
+			nvgShapeCache_clear(fs->shapedTextCache);
+		}
+	}
 }
 
 // Font configuration
@@ -504,21 +605,30 @@ void nvgFontSetHinting(NVGFontSystem* fs, int hinting) {
 
 void nvgFontSetTextDirection(NVGFontSystem* fs, int direction) {
 	if (!fs) return;
+
+	FriBidiCharType new_dir;
 	// Map NVGtextDirection to FriBidiCharType
 	switch (direction) {
 		case 0: // NVG_TEXT_DIR_AUTO
-			fs->shapingState.base_dir = FRIBIDI_TYPE_ON;
+			new_dir = FRIBIDI_TYPE_ON;
 			break;
 		case 1: // NVG_TEXT_DIR_LTR
-			fs->shapingState.base_dir = FRIBIDI_TYPE_LTR;
+			new_dir = FRIBIDI_TYPE_LTR;
 			break;
 		case 2: // NVG_TEXT_DIR_RTL
-			fs->shapingState.base_dir = FRIBIDI_TYPE_RTL;
+			new_dir = FRIBIDI_TYPE_RTL;
 			break;
 		default:
-			fs->shapingState.base_dir = FRIBIDI_TYPE_ON;
+			new_dir = FRIBIDI_TYPE_ON;
 			break;
 	}
+
+	// Direction changed - invalidate shaped text cache
+	if (fs->shapingState.base_dir != new_dir && fs->shapedTextCache) {
+		nvgShapeCache_clear(fs->shapedTextCache);
+	}
+
+	fs->shapingState.base_dir = new_dir;
 }
 
 void nvgFontSetKerning(NVGFontSystem* fs, int enabled) {
