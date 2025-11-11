@@ -1,6 +1,7 @@
 #include "nvg_font.h"
 #include "nvg_font_internal.h"
 #include "nvg_font_colr.h"
+#include "nvg_font_gpu_raster.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -350,8 +351,29 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 		}
 	}
 
-	if (!isColor) {
-		// Regular grayscale rendering
+	// Try GPU rasterization first for grayscale glyphs (if enabled and suitable)
+	int gpuRasterized = 0;
+	if (!isColor && fs->gpuRasterEnabled && fs->gpuRasterizer) {
+		// Load glyph without rendering to check metrics
+		FT_Int32 load_flags = FT_LOAD_DEFAULT;
+		if (!fs->state.hinting) {
+			load_flags |= FT_LOAD_NO_HINTING;
+		}
+		if (FT_Load_Glyph(face, glyph_index, load_flags) == 0) {
+			FT_GlyphSlot slot = face->glyph;
+			gw = (int)(slot->metrics.width / 64);
+			gh = (int)(slot->metrics.height / 64);
+
+			// Check if GPU rasterization is suitable for this glyph
+			if (nvgFont_ShouldUseGPU(fs, face, glyph_index, gw, gh)) {
+				// GPU rasterization will be attempted after atlas allocation
+				gpuRasterized = -1;  // Mark as "pending GPU"
+			}
+		}
+	}
+
+	if (!isColor && gpuRasterized == 0) {
+		// Regular CPU grayscale rendering
 		FT_Int32 load_flags = FT_LOAD_RENDER;
 		if (!fs->state.hinting) {
 			load_flags |= FT_LOAD_NO_HINTING;
@@ -462,63 +484,89 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	quad->atlasIndex = entry->atlasIndex;
 	quad->generation = entry->generation;
 
-	// Upload bitmap data to atlas
-	if (atlas->textureCallback && gw > 0 && gh > 0) {
-		int padded_w = gw + 2;
-		int padded_h = gh + 2;
+	// Upload bitmap data to atlas or use GPU rasterization
+	if (gw > 0 && gh > 0) {
+		// Try GPU rasterization if pending
+		if (gpuRasterized == -1) {
+			// Attempt GPU rasterization
+			if (nvgFont_RasterizeGlyphGPU(fs, face, glyph_index, gw, gh, ax + 1, ay + 1, atlasIdx)) {
+				gpuRasterized = 1;  // Success
+				printf("[nvgFontRenderGlyph] GPU rasterization succeeded for glyph %u\n", glyph_index);
+			} else {
+				// GPU failed, fall back to CPU
+				printf("[nvgFontRenderGlyph] GPU rasterization failed for glyph %u, falling back to CPU\n", glyph_index);
+				gpuRasterized = 0;
 
-		if (isColor && rgba_data) {
-			// Upload RGBA color emoji
-			int bytes_per_pixel = 4;
-			unsigned char* data = (unsigned char*)calloc(padded_w * padded_h * bytes_per_pixel, 1);
-			if (data) {
-				// Copy RGBA glyph data to center of padded buffer
-				for (int y = 0; y < gh; y++) {
-					memcpy(data + ((y + 1) * padded_w + 1) * bytes_per_pixel,
-					       rgba_data + y * gw * bytes_per_pixel,
-					       gw * bytes_per_pixel);
+				// Re-load and render with CPU
+				FT_Int32 load_flags = FT_LOAD_RENDER;
+				if (!fs->state.hinting) {
+					load_flags |= FT_LOAD_NO_HINTING;
 				}
-
-				static int upload_debug_color = 0;
-				if (upload_debug_color++ < 10) {
-					printf("[Atlas RGBA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
-						upload_debug_color, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+				if (FT_Load_Glyph(face, glyph_index, load_flags) != 0) {
+					return 0;
 				}
-				atlas->textureCallback(
-					atlas->textureUserdata,
-					(int)ax, (int)ay,
-					padded_w, padded_h,
-					data,
-					1  // atlasIndex = 1 for RGBA
-				);
-				free(data);
+				// Continue with CPU upload below
 			}
-			free(rgba_data);
-		} else {
-			// Upload grayscale bitmap
-			int pitch = abs(slot->bitmap.pitch);
-			unsigned char* data = (unsigned char*)calloc(padded_w * padded_h, 1);
-			if (data) {
-				// Copy glyph data to center of padded buffer (leaving 1px border of zeros)
-				for (int y = 0; y < gh; y++) {
-					memcpy(data + (y + 1) * padded_w + 1,
-					       slot->bitmap.buffer + y * pitch,
-					       gw);
-				}
+		}
 
-				static int upload_debug = 0;
-				if (upload_debug++ < 30) {
-					printf("[Atlas ALPHA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
-						upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+		// CPU upload path
+		if (atlas->textureCallback && gpuRasterized != 1) {
+			int padded_w = gw + 2;
+			int padded_h = gh + 2;
+
+			if (isColor && rgba_data) {
+				// Upload RGBA color emoji
+				int bytes_per_pixel = 4;
+				unsigned char* data = (unsigned char*)calloc(padded_w * padded_h * bytes_per_pixel, 1);
+				if (data) {
+					// Copy RGBA glyph data to center of padded buffer
+					for (int y = 0; y < gh; y++) {
+						memcpy(data + ((y + 1) * padded_w + 1) * bytes_per_pixel,
+						       rgba_data + y * gw * bytes_per_pixel,
+						       gw * bytes_per_pixel);
+					}
+
+					static int upload_debug_color = 0;
+					if (upload_debug_color++ < 10) {
+						printf("[Atlas RGBA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
+							upload_debug_color, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+					}
+					atlas->textureCallback(
+						atlas->textureUserdata,
+						(int)ax, (int)ay,
+						padded_w, padded_h,
+						data,
+						1  // atlasIndex = 1 for RGBA
+					);
+					free(data);
 				}
-				atlas->textureCallback(
-					atlas->textureUserdata,
-					(int)ax, (int)ay,
-					padded_w, padded_h,
-					data,
-					0  // atlasIndex = 0 for ALPHA
-				);
-				free(data);
+				free(rgba_data);
+			} else {
+				// Upload grayscale bitmap
+				int pitch = abs(slot->bitmap.pitch);
+				unsigned char* data = (unsigned char*)calloc(padded_w * padded_h, 1);
+				if (data) {
+					// Copy glyph data to center of padded buffer (leaving 1px border of zeros)
+					for (int y = 0; y < gh; y++) {
+						memcpy(data + (y + 1) * padded_w + 1,
+						       slot->bitmap.buffer + y * pitch,
+						       gw);
+					}
+
+					static int upload_debug = 0;
+					if (upload_debug++ < 30) {
+						printf("[Atlas ALPHA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
+							upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+					}
+					atlas->textureCallback(
+						atlas->textureUserdata,
+						(int)ax, (int)ay,
+						padded_w, padded_h,
+						data,
+						0  // atlasIndex = 0 for ALPHA
+					);
+					free(data);
+				}
 			}
 		}
 	}

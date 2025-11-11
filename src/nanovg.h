@@ -887,6 +887,7 @@ NVGcontext* nvgCreateInternal(NVGparams* params);
 void nvgDeleteInternal(NVGcontext* ctx);
 
 NVGparams* nvgInternalParams(NVGcontext* ctx);
+void* nvgGetFontSystem(NVGcontext* ctx);
 
 // Debug function to dump cached path data.
 void nvgDebugDumpPathCache(NVGcontext* ctx);

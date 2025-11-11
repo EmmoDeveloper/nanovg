@@ -1,6 +1,7 @@
 #include "nvg_font.h"
 #include "nvg_font_internal.h"
 #include "nvg_font_colr.h"
+#include "nvg_font_gpu_raster.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -440,4 +441,31 @@ void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 		fs->atlasManagerRGBA->nodes[0].width = (short)width;
 		fs->atlasManagerRGBA->atlasCount = 0;
 	}
+}
+
+// GPU rasterization (Phase 14.4)
+int nvgFont_EnableGpuRasterization(NVGFontSystem* fs, void* vkContext) {
+	if (!fs || !vkContext) return 0;
+
+	// Initialize with default parameters
+	NVGGpuRasterParams params = {
+		.pxRange = 1.5f,
+		.useWinding = 1,
+		.maxCurvesPerGlyph = 256,
+		.maxContoursPerGlyph = 32
+	};
+
+	if (nvgFont_InitGpuRasterizer(fs, vkContext, &params)) {
+		fs->gpuRasterEnabled = 1;
+		return 1;
+	}
+
+	return 0;
+}
+
+void nvgFont_DisableGpuRasterization(NVGFontSystem* fs) {
+	if (!fs) return;
+
+	fs->gpuRasterEnabled = 0;
+	nvgFont_DestroyGpuRasterizer(fs);
 }

@@ -55,6 +55,10 @@ void nvgFontSetHinting(NVGFontSystem* fs, int hinting);
 void nvgFontSetKerning(NVGFontSystem* fs, int enabled);
 void nvgFontSetTextDirection(NVGFontSystem* fs, int direction);
 
+// GPU rasterization (Phase 14.4)
+int nvgFont_EnableGpuRasterization(NVGFontSystem* fs, void* vkContext);
+void nvgFont_DisableGpuRasterization(NVGFontSystem* fs);
+
 // Font information
 const char* nvgFont__GetFamilyName(NVGFontSystem* fs, int fontId);
 const char* nvgFont__GetStyleName(NVGFontSystem* fs, int fontId);

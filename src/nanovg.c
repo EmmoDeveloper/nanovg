@@ -373,6 +373,11 @@ NVGparams* nvgInternalParams(NVGcontext* ctx)
     return &ctx->params;
 }
 
+void* nvgGetFontSystem(NVGcontext* ctx)
+{
+	return ctx ? ctx->fs : NULL;
+}
+
 void nvgDeleteInternal(NVGcontext* ctx)
 {
 	int i;
