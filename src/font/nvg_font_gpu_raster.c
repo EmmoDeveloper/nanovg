@@ -2,6 +2,7 @@
 #include "nvg_font_internal.h"
 #include "../vulkan/nvg_vk_compute.h"
 #include "../vulkan/nvg_vk_types.h"
+#include "../shaders/glyph_raster_comp.h"
 #include <freetype/ftoutln.h>
 #include <stdlib.h>
 #include <string.h>
@@ -293,8 +294,122 @@ int nvgFont_InitGpuRasterizer(NVGFontSystem* fs, void* vkContext,
 		raster->params.maxContoursPerGlyph = NVG_GPU_MAX_CONTOURS;
 	}
 
-	// TODO: Create compute pipeline, allocate staging buffer
-	// This will be implemented when we have the compute shader
+	NVGVkContext* vk = (NVGVkContext*)vkContext;
+
+	// Create compute pipeline
+	VkDescriptorSetLayoutBinding bindings[3] = {
+		// Binding 0: Glyph data buffer (storage buffer, read-only)
+		{
+			.binding = 0,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+		},
+		// Binding 1: Atlas image (storage image, write-only)
+		{
+			.binding = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+		},
+		// Binding 2: Atlas parameters (uniform buffer)
+		{
+			.binding = 2,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = 1,
+			.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+		}
+	};
+
+	// Push constants size (16 bytes)
+	uint32_t pushConstantSize = sizeof(NVGGpuRasterPushConstants);
+
+	if (!nvgvk_create_compute_pipeline(vk,
+	                                    (uint32_t*)glyph_raster_comp_spv,
+	                                    glyph_raster_comp_spv_len,
+	                                    bindings, 3,
+	                                    pushConstantSize,
+	                                    &raster->pipeline)) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to create compute pipeline\n");
+		free(raster);
+		return 0;
+	}
+
+	// Allocate staging buffer for glyph data (host-visible, device-local)
+	raster->glyphBufferSize = sizeof(NVGGpuGlyphData);
+
+	VkBufferCreateInfo bufferInfo = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = raster->glyphBufferSize,
+		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE
+	};
+
+	if (vkCreateBuffer(vk->device, &bufferInfo, NULL, &raster->glyphBuffer) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to create glyph buffer\n");
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	// Allocate memory (host-visible and coherent for easy updates)
+	VkMemoryRequirements memReqs;
+	vkGetBufferMemoryRequirements(vk->device, raster->glyphBuffer, &memReqs);
+
+	VkPhysicalDeviceMemoryProperties memProps;
+	vkGetPhysicalDeviceMemoryProperties(vk->physicalDevice, &memProps);
+
+	uint32_t memoryTypeIndex = UINT32_MAX;
+	VkMemoryPropertyFlags desiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+	                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+	for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
+		if ((memReqs.memoryTypeBits & (1 << i)) &&
+		    (memProps.memoryTypes[i].propertyFlags & desiredFlags) == desiredFlags) {
+			memoryTypeIndex = i;
+			break;
+		}
+	}
+
+	if (memoryTypeIndex == UINT32_MAX) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to find suitable memory type\n");
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	VkMemoryAllocateInfo allocInfo = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize = memReqs.size,
+		.memoryTypeIndex = memoryTypeIndex
+	};
+
+	if (vkAllocateMemory(vk->device, &allocInfo, NULL, &raster->glyphMemory) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to allocate glyph memory\n");
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	vkBindBufferMemory(vk->device, raster->glyphBuffer, raster->glyphMemory, 0);
+
+	// Map memory for persistent access
+	if (vkMapMemory(vk->device, raster->glyphMemory, 0, raster->glyphBufferSize, 0,
+	                &raster->glyphMapped) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to map glyph memory\n");
+		vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	// Bind glyph buffer to descriptor set
+	nvgvk_update_compute_descriptors(vk, &raster->pipeline, 0,
+	                                  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+	                                  raster->glyphBuffer, 0, raster->glyphBufferSize);
 
 	raster->valid = 1;
 	fs->gpuRasterizer = raster;
@@ -309,9 +424,25 @@ void nvgFont_DestroyGpuRasterizer(NVGFontSystem* fs) {
 	if (!fs || !fs->gpuRasterizer) return;
 
 	NVGFontGpuRasterizer* raster = (NVGFontGpuRasterizer*)fs->gpuRasterizer;
+	NVGVkContext* vk = (NVGVkContext*)raster->vkContext;
 
-	// TODO: Destroy compute pipeline, free staging buffer
-	// This will be implemented when we have Vulkan resources
+	if (raster->valid) {
+		// Unmap memory
+		if (raster->glyphMapped) {
+			vkUnmapMemory(vk->device, raster->glyphMemory);
+		}
+
+		// Free buffer and memory
+		if (raster->glyphBuffer != VK_NULL_HANDLE) {
+			vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		}
+		if (raster->glyphMemory != VK_NULL_HANDLE) {
+			vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		}
+
+		// Destroy compute pipeline
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+	}
 
 	free(raster);
 	fs->gpuRasterizer = NULL;
