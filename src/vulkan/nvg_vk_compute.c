@@ -46,6 +46,7 @@ int nvgvk_create_compute_pipeline(NVGVkContext* vk,
 
 		// Count descriptor types
 		uint32_t storageBufferCount = 0;
+		uint32_t uniformBufferCount = 0;
 		uint32_t storageImageCount = 0;
 		uint32_t sampledImageCount = 0;
 
@@ -53,6 +54,9 @@ int nvgvk_create_compute_pipeline(NVGVkContext* vk,
 			switch (bindings[i].descriptorType) {
 				case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
 					storageBufferCount += bindings[i].descriptorCount;
+					break;
+				case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+					uniformBufferCount += bindings[i].descriptorCount;
 					break;
 				case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
 					storageImageCount += bindings[i].descriptorCount;
@@ -70,6 +74,12 @@ int nvgvk_create_compute_pipeline(NVGVkContext* vk,
 			poolSizes[poolSizeCount++] = (VkDescriptorPoolSize){
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				.descriptorCount = storageBufferCount
+			};
+		}
+		if (uniformBufferCount > 0) {
+			poolSizes[poolSizeCount++] = (VkDescriptorPoolSize){
+				.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.descriptorCount = uniformBufferCount
 			};
 		}
 		if (storageImageCount > 0) {
