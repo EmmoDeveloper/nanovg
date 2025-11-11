@@ -21,6 +21,16 @@ struct NVGFontGpuRasterizer {
 	void* glyphMapped;
 	VkDeviceSize glyphBufferSize;
 
+	// Uniform buffer for atlas parameters
+	VkBuffer atlasParamsBuffer;
+	VkDeviceMemory atlasParamsMemory;
+	void* atlasParamsMapped;
+	VkDeviceSize atlasParamsSize;
+
+	// Command buffer for compute dispatches
+	VkCommandBuffer computeCmd;
+	VkFence computeFence;
+
 	int valid;
 };
 
@@ -411,6 +421,126 @@ int nvgFont_InitGpuRasterizer(NVGFontSystem* fs, void* vkContext,
 	                                  VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 	                                  raster->glyphBuffer, 0, raster->glyphBufferSize);
 
+	// Allocate atlas parameters uniform buffer
+	raster->atlasParamsSize = sizeof(NVGGpuAtlasParams);
+	VkBufferCreateInfo atlasBufferInfo = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = raster->atlasParamsSize,
+		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE
+	};
+
+	if (vkCreateBuffer(vk->device, &atlasBufferInfo, NULL, &raster->atlasParamsBuffer) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to create atlas params buffer\n");
+		vkUnmapMemory(vk->device, raster->glyphMemory);
+		vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	VkMemoryRequirements atlasMemReqs;
+	vkGetBufferMemoryRequirements(vk->device, raster->atlasParamsBuffer, &atlasMemReqs);
+
+	uint32_t atlasMemoryTypeIndex = UINT32_MAX;
+	for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
+		if ((atlasMemReqs.memoryTypeBits & (1 << i)) &&
+		    (memProps.memoryTypes[i].propertyFlags & desiredFlags) == desiredFlags) {
+			atlasMemoryTypeIndex = i;
+			break;
+		}
+	}
+
+	if (atlasMemoryTypeIndex == UINT32_MAX) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to find memory type for atlas params\n");
+		vkDestroyBuffer(vk->device, raster->atlasParamsBuffer, NULL);
+		vkUnmapMemory(vk->device, raster->glyphMemory);
+		vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	VkMemoryAllocateInfo atlasAllocInfo = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize = atlasMemReqs.size,
+		.memoryTypeIndex = atlasMemoryTypeIndex
+	};
+
+	if (vkAllocateMemory(vk->device, &atlasAllocInfo, NULL, &raster->atlasParamsMemory) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to allocate atlas params memory\n");
+		vkDestroyBuffer(vk->device, raster->atlasParamsBuffer, NULL);
+		vkUnmapMemory(vk->device, raster->glyphMemory);
+		vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	vkBindBufferMemory(vk->device, raster->atlasParamsBuffer, raster->atlasParamsMemory, 0);
+
+	if (vkMapMemory(vk->device, raster->atlasParamsMemory, 0, raster->atlasParamsSize, 0,
+	                &raster->atlasParamsMapped) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to map atlas params memory\n");
+		vkFreeMemory(vk->device, raster->atlasParamsMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->atlasParamsBuffer, NULL);
+		vkUnmapMemory(vk->device, raster->glyphMemory);
+		vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	// Bind atlas params buffer to descriptor set
+	nvgvk_update_compute_descriptors(vk, &raster->pipeline, 2,
+	                                  VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	                                  raster->atlasParamsBuffer, 0, raster->atlasParamsSize);
+
+	// Allocate command buffer for compute dispatches
+	VkCommandBufferAllocateInfo cmdAllocInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool = vk->commandPool,
+		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.commandBufferCount = 1
+	};
+
+	if (vkAllocateCommandBuffers(vk->device, &cmdAllocInfo, &raster->computeCmd) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to allocate compute command buffer\n");
+		vkUnmapMemory(vk->device, raster->atlasParamsMemory);
+		vkFreeMemory(vk->device, raster->atlasParamsMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->atlasParamsBuffer, NULL);
+		vkUnmapMemory(vk->device, raster->glyphMemory);
+		vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
+	// Create fence for synchronization
+	VkFenceCreateInfo fenceInfo = {
+		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+		.flags = 0
+	};
+
+	if (vkCreateFence(vk->device, &fenceInfo, NULL, &raster->computeFence) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to create compute fence\n");
+		vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &raster->computeCmd);
+		vkUnmapMemory(vk->device, raster->atlasParamsMemory);
+		vkFreeMemory(vk->device, raster->atlasParamsMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->atlasParamsBuffer, NULL);
+		vkUnmapMemory(vk->device, raster->glyphMemory);
+		vkFreeMemory(vk->device, raster->glyphMemory, NULL);
+		vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
+		nvgvk_destroy_compute_pipeline(vk, &raster->pipeline);
+		free(raster);
+		return 0;
+	}
+
 	raster->valid = 1;
 	fs->gpuRasterizer = raster;
 
@@ -427,12 +557,35 @@ void nvgFont_DestroyGpuRasterizer(NVGFontSystem* fs) {
 	NVGVkContext* vk = (NVGVkContext*)raster->vkContext;
 
 	if (raster->valid) {
-		// Unmap memory
+		// Destroy fence
+		if (raster->computeFence != VK_NULL_HANDLE) {
+			vkDestroyFence(vk->device, raster->computeFence, NULL);
+		}
+
+		// Free command buffer
+		if (raster->computeCmd != VK_NULL_HANDLE) {
+			vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &raster->computeCmd);
+		}
+
+		// Unmap atlas params memory
+		if (raster->atlasParamsMapped) {
+			vkUnmapMemory(vk->device, raster->atlasParamsMemory);
+		}
+
+		// Free atlas params buffer and memory
+		if (raster->atlasParamsBuffer != VK_NULL_HANDLE) {
+			vkDestroyBuffer(vk->device, raster->atlasParamsBuffer, NULL);
+		}
+		if (raster->atlasParamsMemory != VK_NULL_HANDLE) {
+			vkFreeMemory(vk->device, raster->atlasParamsMemory, NULL);
+		}
+
+		// Unmap glyph memory
 		if (raster->glyphMapped) {
 			vkUnmapMemory(vk->device, raster->glyphMemory);
 		}
 
-		// Free buffer and memory
+		// Free glyph buffer and memory
 		if (raster->glyphBuffer != VK_NULL_HANDLE) {
 			vkDestroyBuffer(vk->device, raster->glyphBuffer, NULL);
 		}
@@ -455,14 +608,12 @@ int nvgFont_RasterizeGlyphGPU(NVGFontSystem* fs, FT_Face face,
                                int width, int height,
                                int atlasX, int atlasY,
                                int atlasIndex) {
-	(void)atlasX;  // TODO: Will be used when compute shader is implemented
-	(void)atlasY;
-	(void)atlasIndex;
-
 	if (!fs || !fs->gpuRasterizer || !face) return 0;
 
 	NVGFontGpuRasterizer* raster = (NVGFontGpuRasterizer*)fs->gpuRasterizer;
 	if (!raster->valid) return 0;
+
+	NVGVkContext* vk = (NVGVkContext*)raster->vkContext;
 
 	// Extract outline to GPU format
 	NVGGpuGlyphData glyphData;
@@ -473,9 +624,156 @@ int nvgFont_RasterizeGlyphGPU(NVGFontSystem* fs, FT_Face face,
 	printf("[nvg_gpu_raster] Extracted glyph %u: %u curves, %u contours\n",
 	       glyphIndex, glyphData.curveCount, glyphData.contourCount);
 
-	// TODO: Upload to GPU buffer, dispatch compute shader, write to atlas
-	// This will be implemented when we have the compute shader
+	// Upload glyph data to staging buffer
+	memcpy(raster->glyphMapped, &glyphData, sizeof(NVGGpuGlyphData));
 
-	// For now, just return failure to trigger CPU fallback
-	return 0;
+	// Update atlas parameters
+	NVGGpuAtlasParams atlasParams;
+	atlasParams.offset[0] = atlasX;
+	atlasParams.offset[1] = atlasY;
+	atlasParams.glyphSize[0] = width;
+	atlasParams.glyphSize[1] = height;
+	memcpy(raster->atlasParamsMapped, &atlasParams, sizeof(NVGGpuAtlasParams));
+
+	// Get atlas texture (atlasIndex is 0=ALPHA, 1=RGBA)
+	// Textures in NVGVkContext are 0-indexed, but we need to find which one is the atlas
+	// For now, we'll use a simplified approach: assume atlas textures are the first two
+	if (atlasIndex < 0 || atlasIndex >= vk->textureCount) {
+		fprintf(stderr, "[nvg_gpu_raster] Invalid atlas index %d (textureCount=%d)\n",
+		        atlasIndex, vk->textureCount);
+		return 0;
+	}
+
+	NVGVkTexture* atlasTex = &vk->textures[atlasIndex];
+	if (atlasTex->image == VK_NULL_HANDLE || atlasTex->imageView == VK_NULL_HANDLE) {
+		fprintf(stderr, "[nvg_gpu_raster] Atlas texture %d not initialized\n", atlasIndex);
+		return 0;
+	}
+
+	// Bind atlas image to descriptor set (binding 1, storage image)
+	if (!nvgvk_update_compute_image_descriptor(vk, &raster->pipeline, 1,
+	                                            atlasTex->imageView,
+	                                            VK_IMAGE_LAYOUT_GENERAL)) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to bind atlas image\n");
+		return 0;
+	}
+
+	// Calculate workgroup counts (8x8 local size in shader)
+	uint32_t groupCountX = (width + 7) / 8;
+	uint32_t groupCountY = (height + 7) / 8;
+
+	// Set push constants
+	NVGGpuRasterPushConstants pushConstants;
+	pushConstants.curveCount = glyphData.curveCount;
+	pushConstants.contourCount = glyphData.contourCount;
+	pushConstants.pxRange = raster->params.pxRange;
+	pushConstants.useWinding = raster->params.useWinding;
+
+	// Begin command buffer
+	VkCommandBufferBeginInfo beginInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+	};
+
+	if (vkBeginCommandBuffer(raster->computeCmd, &beginInfo) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to begin command buffer\n");
+		return 0;
+	}
+
+	// Transition atlas image to GENERAL layout for compute writes
+	VkImageMemoryBarrier preBarrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = atlasTex->image,
+		.subresourceRange = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1
+		}
+	};
+
+	vkCmdPipelineBarrier(raster->computeCmd,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &preBarrier);
+
+	// Bind compute pipeline
+	vkCmdBindPipeline(raster->computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+	                  raster->pipeline.pipeline);
+
+	// Bind descriptor set
+	vkCmdBindDescriptorSets(raster->computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+	                        raster->pipeline.layout, 0, 1,
+	                        &raster->pipeline.descriptorSet, 0, NULL);
+
+	// Push constants
+	vkCmdPushConstants(raster->computeCmd, raster->pipeline.layout,
+	                   VK_SHADER_STAGE_COMPUTE_BIT, 0,
+	                   sizeof(NVGGpuRasterPushConstants), &pushConstants);
+
+	// Dispatch compute shader
+	vkCmdDispatch(raster->computeCmd, groupCountX, groupCountY, 1);
+
+	// Transition atlas image back to shader read layout
+	VkImageMemoryBarrier postBarrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = atlasTex->image,
+		.subresourceRange = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1
+		}
+	};
+
+	vkCmdPipelineBarrier(raster->computeCmd,
+	                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &postBarrier);
+
+	if (vkEndCommandBuffer(raster->computeCmd) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to end command buffer\n");
+		return 0;
+	}
+
+	// Submit and wait
+	VkSubmitInfo submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &raster->computeCmd
+	};
+
+	vkResetFences(vk->device, 1, &raster->computeFence);
+
+	if (vkQueueSubmit(vk->queue, 1, &submitInfo, raster->computeFence) != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Failed to submit compute commands\n");
+		return 0;
+	}
+
+	// Wait for completion (timeout: 1 second)
+	VkResult waitResult = vkWaitForFences(vk->device, 1, &raster->computeFence,
+	                                      VK_TRUE, 1000000000ULL);
+	if (waitResult != VK_SUCCESS) {
+		fprintf(stderr, "[nvg_gpu_raster] Compute fence wait failed: %d\n", waitResult);
+		return 0;
+	}
+
+	printf("[nvg_gpu_raster] GPU rasterization completed for glyph %u (%dx%d at %d,%d)\n",
+	       glyphIndex, width, height, atlasX, atlasY);
+
+	return 1;
 }

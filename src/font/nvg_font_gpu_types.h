@@ -58,12 +58,10 @@ typedef struct NVGGpuRasterPushConstants {
 	uint32_t useWinding;  // 0=analytical distance, 1=winding number
 } NVGGpuRasterPushConstants;
 
-// Atlas write parameters (16 bytes)
+// Atlas write parameters (16 bytes, matches shader layout)
 typedef struct NVGGpuAtlasParams {
-	int32_t offsetX;      // Where to write in atlas
-	int32_t offsetY;
-	int32_t glyphWidth;   // Glyph dimensions
-	int32_t glyphHeight;
+	int32_t offset[2];      // Where to write in atlas (x, y)
+	int32_t glyphSize[2];   // Glyph dimensions (width, height)
 } NVGGpuAtlasParams;
 
 #endif // NVG_FONT_GPU_TYPES_H
