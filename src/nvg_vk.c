@@ -561,20 +561,20 @@ static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)
 	(void)fontSystem;
 }
 
-void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename)
+void nvgVkDumpAtlasTextureByIndex(NVGcontext* ctx, int textureIndex, const char* filename)
 {
 	NVGVkBackend* backend = (NVGVkBackend*)nvgInternalParams(ctx)->userPtr;
 	if (!backend || !filename) return;
 
 	NVGVkContext* vk = &backend->vk;
 
-	// Find the font atlas texture (ID 1)
-	if (vk->textureCount < 1) {
-		printf("[Atlas Dump] No textures allocated\n");
+	// Check texture index
+	if (textureIndex < 0 || textureIndex >= vk->textureCount) {
+		printf("[Atlas Dump] Invalid texture index %d (have %d textures)\n", textureIndex, vk->textureCount);
 		return;
 	}
 
-	NVGVkTexture* tex = &vk->textures[0];  // Font atlas is texture 0
+	NVGVkTexture* tex = &vk->textures[textureIndex];
 	if (tex->image == VK_NULL_HANDLE) {
 		printf("[Atlas Dump] Atlas texture not initialized\n");
 		return;
@@ -582,9 +582,10 @@ void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename)
 
 	int width = tex->width;
 	int height = tex->height;
+	int isRGBA = (tex->type == NVG_TEXTURE_RGBA);
 
 	// Create staging buffer to read back texture
-	VkDeviceSize imageSize = width * height;  // 1 byte per pixel for alpha texture
+	VkDeviceSize imageSize = width * height * (isRGBA ? 4 : 1);  // RGBA or ALPHA
 	NVGVkBuffer stagingBuffer;
 	if (!nvgvk_buffer_create(vk, &stagingBuffer, imageSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT)) {
 		printf("[Atlas Dump] Failed to create staging buffer\n");
@@ -666,17 +667,32 @@ void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename)
 	if (f) {
 		fprintf(f, "P6\n%d %d\n255\n", width, height);
 		unsigned char* data = (unsigned char*)stagingBuffer.mapped;
-		for (int i = 0; i < width * height; i++) {
-			unsigned char gray = data[i];
-			fputc(gray, f);  // R
-			fputc(gray, f);  // G
-			fputc(gray, f);  // B
+		if (isRGBA) {
+			// RGBA texture - write RGB, ignore A
+			for (int i = 0; i < width * height; i++) {
+				fputc(data[i*4 + 0], f);  // R
+				fputc(data[i*4 + 1], f);  // G
+				fputc(data[i*4 + 2], f);  // B
+			}
+		} else {
+			// ALPHA texture - write as grayscale
+			for (int i = 0; i < width * height; i++) {
+				unsigned char gray = data[i];
+				fputc(gray, f);  // R
+				fputc(gray, f);  // G
+				fputc(gray, f);  // B
+			}
 		}
 		fclose(f);
-		printf("[Atlas Dump] Wrote %dx%d atlas to %s\n", width, height, filename);
+		printf("[Atlas Dump] Wrote %dx%d %s atlas to %s\n", width, height, isRGBA ? "RGBA" : "ALPHA", filename);
 	}
 
 	// Cleanup
 	vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &cmd);
 	nvgvk_buffer_destroy(vk, &stagingBuffer);
+}
+
+void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename)
+{
+	nvgVkDumpAtlasTextureByIndex(ctx, 0, filename);
 }

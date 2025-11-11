@@ -2555,7 +2555,7 @@ static int nvg__atlasGrow(void* uptr, int atlasIndex, int* newWidth, int* newHei
 		++ctx->fontImageIdx;
 	}
 
-	nvgFontResetAtlas(ctx->fs, iw, ih);
+	nvgFontResetAtlasByIndex(ctx->fs, atlasIndex, iw, ih);
 
 	if (newWidth) *newWidth = iw;
 	if (newHeight) *newHeight = ih;

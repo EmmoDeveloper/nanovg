@@ -24,6 +24,7 @@ void nvgFontSetBlur(NVGFontSystem* fs, float blur);
 void nvgFontSetAlign(NVGFontSystem* fs, int align);
 void nvgFontSetFontMSDF(NVGFontSystem* fs, int font, int msdfMode);
 void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height);
+void nvgFontResetAtlasByIndex(NVGFontSystem* fs, int atlasIndex, int width, int height);
 
 // Text layout and iteration
 void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, float y,

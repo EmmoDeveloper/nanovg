@@ -95,6 +95,9 @@ void nvgVkSetToneMapping(NVGcontext* ctx, int enabled);
 // Debug function to dump the font atlas texture to a PPM file
 void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename);
 
+// Debug function to dump a specific texture by index to a PPM file
+void nvgVkDumpAtlasTextureByIndex(NVGcontext* ctx, int textureIndex, const char* filename);
+
 #ifdef __cplusplus
 }
 #endif

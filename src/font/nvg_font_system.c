@@ -354,6 +354,39 @@ void nvgFontSetFontMSDF(NVGFontSystem* fs, int font, int msdfMode) {
 	fs->fonts[font].msdfMode = msdfMode;
 }
 
+void nvgFontResetAtlasByIndex(NVGFontSystem* fs, int atlasIndex, int width, int height) {
+	if (!fs || !fs->glyphCache) return;
+
+	// Clear glyph cache - all glyphs need to be re-rasterized
+	memset(fs->glyphCache->entries, 0, sizeof(fs->glyphCache->entries));
+	fs->glyphCache->count = 0;
+	fs->glyphCache->generation++;
+
+	if (atlasIndex == 1) {
+		// Reset RGBA atlas only
+		if (fs->atlasManagerRGBA) {
+			fs->atlasManagerRGBA->width = width;
+			fs->atlasManagerRGBA->height = height;
+			fs->atlasManagerRGBA->nnodes = 1;
+			fs->atlasManagerRGBA->nodes[0].x = 0;
+			fs->atlasManagerRGBA->nodes[0].y = 0;
+			fs->atlasManagerRGBA->nodes[0].width = (short)width;
+			fs->atlasManagerRGBA->atlasCount = 0;
+		}
+	} else {
+		// Reset ALPHA atlas only
+		if (fs->atlasManagerALPHA) {
+			fs->atlasManagerALPHA->width = width;
+			fs->atlasManagerALPHA->height = height;
+			fs->atlasManagerALPHA->nnodes = 1;
+			fs->atlasManagerALPHA->nodes[0].x = 0;
+			fs->atlasManagerALPHA->nodes[0].y = 0;
+			fs->atlasManagerALPHA->nodes[0].width = (short)width;
+			fs->atlasManagerALPHA->atlasCount = 0;
+		}
+	}
+}
+
 void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 	if (!fs || !fs->glyphCache) return;
 
@@ -362,7 +395,7 @@ void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 	fs->glyphCache->count = 0;
 	fs->glyphCache->generation++;
 
-	// Reset ALPHA atlas
+	// Reset BOTH atlases (legacy behavior)
 	if (fs->atlasManagerALPHA) {
 		fs->atlasManagerALPHA->width = width;
 		fs->atlasManagerALPHA->height = height;
@@ -373,7 +406,6 @@ void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 		fs->atlasManagerALPHA->atlasCount = 0;
 	}
 
-	// Reset RGBA atlas
 	if (fs->atlasManagerRGBA) {
 		fs->atlasManagerRGBA->width = width;
 		fs->atlasManagerRGBA->height = height;
