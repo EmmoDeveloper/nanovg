@@ -60,6 +60,7 @@ NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
                $(BUILD_DIR)/vknvg_msdf.o \
                $(BUILD_DIR)/nvg_vk_hdr_metadata.o $(BUILD_DIR)/nvg_vk_color_space_ubo.o \
                $(BUILD_DIR)/nvg_vk_color_space.o $(BUILD_DIR)/nvg_vk_color_space_math.o \
+               $(BUILD_DIR)/nvg_vk_compute.o \
                $(FONT_OBJS)
 
 $(BUILD_DIR)/nvg_vk_context.o: src/vulkan/nvg_vk_context.c src/vulkan/nvg_vk_context.h src/vulkan/nvg_vk_types.h | $(BUILD_DIR)
@@ -100,6 +101,10 @@ $(BUILD_DIR)/nvg_vk_color_space.o: src/vulkan/nvg_vk_color_space.c src/vulkan/nv
 
 $(BUILD_DIR)/nvg_vk_color_space_math.o: src/vulkan/nvg_vk_color_space_math.c src/vulkan/nvg_vk_color_space_math.h | $(BUILD_DIR)
 	@echo "Compiling nvg_vk_color_space_math.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/nvg_vk_compute.o: src/vulkan/nvg_vk_compute.c src/vulkan/nvg_vk_compute.h src/vulkan/nvg_vk_types.h | $(BUILD_DIR)
+	@echo "Compiling nvg_vk_compute.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/nvg_font_system.o: src/font/nvg_font_system.c src/font/nvg_font.h src/font/nvg_font_internal.h | $(BUILD_DIR)
