@@ -1,0 +1,259 @@
+#version 450
+
+// GPU glyph rasterization compute shader
+// Rasterizes glyphs from Bezier curve outlines directly on GPU
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Push constants (fast access, no descriptor)
+layout(push_constant) uniform PushConstants {
+	uint curveCount;
+	uint contourCount;
+	float pxRange;        // Anti-aliasing range in pixels (e.g., 1.5)
+	uint useWinding;      // 0=analytical distance, 1=winding number
+} params;
+
+// Glyph outline data (read-only, std430 layout)
+layout(std430, binding = 0) readonly buffer GlyphBuffer {
+	// Header
+	uint curveCount;
+	uint contourCount;
+	vec4 bbox;            // xMin, yMin, xMax, yMax
+	uint outputWidth;
+	uint outputHeight;
+	float scale;
+	uint padding;
+
+	// Variable arrays follow (manual indexing required)
+	uint data[];          // Packed curves and contours
+} glyph;
+
+// Atlas texture (write-only, R8 format for grayscale)
+layout(binding = 1, r8) uniform writeonly image2D atlasImage;
+
+// Atlas write parameters (uniform buffer)
+layout(binding = 2) uniform AtlasParams {
+	ivec2 offset;         // Where to write in atlas
+	ivec2 glyphSize;      // Glyph dimensions
+} atlas;
+
+// Curve types
+const uint CURVE_LINEAR = 1;
+const uint CURVE_QUADRATIC = 2;
+const uint CURVE_CUBIC = 3;
+
+// Curve structure (matches C struct, 48 bytes = 12 uints)
+struct Curve {
+	vec2 p0;
+	vec2 p1;
+	vec2 p2;
+	vec2 p3;
+	uint type;
+	uint contourId;
+};
+
+// Contour structure (16 bytes = 4 uints)
+struct Contour {
+	uint firstCurve;
+	uint curveCount;
+	int winding;
+	uint padding;
+};
+
+// Read curve from packed buffer
+Curve getCurve(uint index) {
+	// Header is 8 uints, curves start after
+	uint baseOffset = 8 + index * 12;
+
+	Curve c;
+	c.p0 = vec2(uintBitsToFloat(glyph.data[baseOffset + 0]),
+	            uintBitsToFloat(glyph.data[baseOffset + 1]));
+	c.p1 = vec2(uintBitsToFloat(glyph.data[baseOffset + 2]),
+	            uintBitsToFloat(glyph.data[baseOffset + 3]));
+	c.p2 = vec2(uintBitsToFloat(glyph.data[baseOffset + 4]),
+	            uintBitsToFloat(glyph.data[baseOffset + 5]));
+	c.p3 = vec2(uintBitsToFloat(glyph.data[baseOffset + 6]),
+	            uintBitsToFloat(glyph.data[baseOffset + 7]));
+	c.type = glyph.data[baseOffset + 8];
+	c.contourId = glyph.data[baseOffset + 9];
+
+	return c;
+}
+
+// Read contour from packed buffer
+Contour getContour(uint index) {
+	// Curves take curveCount * 12 uints, contours follow
+	uint curvesSize = params.curveCount * 12;
+	uint baseOffset = 8 + curvesSize + index * 4;
+
+	Contour cont;
+	cont.firstCurve = glyph.data[baseOffset + 0];
+	cont.curveCount = glyph.data[baseOffset + 1];
+	cont.winding = int(glyph.data[baseOffset + 2]);
+
+	return cont;
+}
+
+// Evaluate cubic Bezier at parameter t ∈ [0,1]
+vec2 evalCubic(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
+	float s = 1.0 - t;
+	float s2 = s * s;
+	float s3 = s2 * s;
+	float t2 = t * t;
+	float t3 = t2 * t;
+
+	return s3 * p0 + 3.0 * s2 * t * p1 + 3.0 * s * t2 * p2 + t3 * p3;
+}
+
+// Cubic Bezier derivative (for tangent calculation)
+vec2 evalCubicDerivative(vec2 p0, vec2 p1, vec2 p2, vec2 p3, float t) {
+	float s = 1.0 - t;
+	return 3.0 * s * s * (p1 - p0) + 6.0 * s * t * (p2 - p1) + 3.0 * t * t * (p3 - p2);
+}
+
+// Signed distance from point to cubic Bezier curve
+// Uses Newton-Raphson to find closest point on curve
+float signedDistanceToCubic(vec2 p, vec2 p0, vec2 p1, vec2 p2, vec2 p3) {
+	float minDist = 1e10;
+	float closestT = 0.0;
+
+	// Coarse sampling (8 samples)
+	for (int i = 0; i <= 8; i++) {
+		float t = float(i) / 8.0;
+		vec2 curvePoint = evalCubic(p0, p1, p2, p3, t);
+		float dist = distance(p, curvePoint);
+		if (dist < minDist) {
+			minDist = dist;
+			closestT = t;
+		}
+	}
+
+	// Newton-Raphson refinement (3 iterations)
+	for (int iter = 0; iter < 3; iter++) {
+		vec2 curvePoint = evalCubic(p0, p1, p2, p3, closestT);
+		vec2 derivative = evalCubicDerivative(p0, p1, p2, p3, closestT);
+
+		vec2 diff = p - curvePoint;
+		float numerator = dot(diff, derivative);
+		float denominator = dot(derivative, derivative);
+
+		if (abs(denominator) < 1e-6) break;
+
+		closestT -= numerator / denominator;
+		closestT = clamp(closestT, 0.0, 1.0);
+	}
+
+	vec2 closestPoint = evalCubic(p0, p1, p2, p3, closestT);
+	return distance(p, closestPoint);
+}
+
+// Compute winding contribution for point relative to curve
+// Based on horizontal ray casting
+int windingContribution(vec2 p, vec2 p0, vec2 p1, vec2 p2, vec2 p3) {
+	int winding = 0;
+	const int samples = 16;
+
+	for (int i = 0; i < samples; i++) {
+		float t0 = float(i) / float(samples);
+		float t1 = float(i + 1) / float(samples);
+
+		vec2 c0 = evalCubic(p0, p1, p2, p3, t0);
+		vec2 c1 = evalCubic(p0, p1, p2, p3, t1);
+
+		// Check if segment crosses horizontal ray from p to the right
+		if ((c0.y <= p.y && c1.y > p.y) || (c0.y > p.y && c1.y <= p.y)) {
+			// Compute x intersection
+			float t = (p.y - c0.y) / (c1.y - c0.y);
+			float xIntersect = c0.x + t * (c1.x - c0.x);
+
+			if (xIntersect > p.x) {
+				winding += (c1.y > c0.y) ? 1 : -1;
+			}
+		}
+	}
+
+	return winding;
+}
+
+// Compute coverage using winding number method
+float computeCoverageWinding(vec2 p) {
+	int totalWinding = 0;
+
+	// Sum winding contributions from all curves
+	for (uint i = 0; i < params.curveCount; i++) {
+		Curve curve = getCurve(i);
+
+		if (curve.type == CURVE_LINEAR) {
+			// Linear: treat as degenerate cubic (control points = endpoints)
+			totalWinding += windingContribution(p, curve.p0, curve.p0, curve.p3, curve.p3);
+		} else if (curve.type == CURVE_CUBIC) {
+			// Full cubic
+			totalWinding += windingContribution(p, curve.p0, curve.p1, curve.p2, curve.p3);
+		}
+	}
+
+	// Non-zero winding rule: inside if winding != 0
+	return abs(totalWinding) > 0 ? 1.0 : 0.0;
+}
+
+// Compute anti-aliased coverage using 4x supersampling
+float computeCoverageAA(vec2 pixelCenter) {
+	// 4x supersampling offsets
+	const vec2 offsets[4] = vec2[](
+		vec2(-0.25, -0.25),
+		vec2( 0.25, -0.25),
+		vec2(-0.25,  0.25),
+		vec2( 0.25,  0.25)
+	);
+
+	float coverage = 0.0;
+
+	for (int i = 0; i < 4; i++) {
+		vec2 samplePos = pixelCenter + offsets[i] * params.pxRange;
+
+		// Find minimum distance to any curve
+		float minDist = 1e10;
+		for (uint c = 0; c < params.curveCount; c++) {
+			Curve curve = getCurve(c);
+			float dist = signedDistanceToCubic(samplePos,
+				curve.p0, curve.p1, curve.p2, curve.p3);
+			minDist = min(minDist, abs(dist));
+		}
+
+		// Convert distance to coverage (soft threshold)
+		coverage += smoothstep(params.pxRange, 0.0, minDist);
+	}
+
+	return coverage / 4.0;
+}
+
+void main() {
+	ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+
+	// Bounds check
+	if (pixelCoord.x >= atlas.glyphSize.x ||
+	    pixelCoord.y >= atlas.glyphSize.y) {
+		return;
+	}
+
+	// Convert pixel to glyph space (normalized 0-1)
+	vec2 uv = (vec2(pixelCoord) + 0.5) / vec2(atlas.glyphSize);
+
+	// Transform to outline space using bounding box
+	vec2 glyphPos = glyph.bbox.xy + uv * (glyph.bbox.zw - glyph.bbox.xy);
+
+	// Compute coverage
+	float coverage;
+	if (params.useWinding == 1) {
+		coverage = computeCoverageWinding(glyphPos);
+	} else {
+		coverage = computeCoverageAA(glyphPos);
+	}
+
+	// Convert to 8-bit alpha [0, 255]
+	float alpha = clamp(coverage, 0.0, 1.0);
+
+	// Write to atlas at offset position
+	ivec2 atlasPos = atlas.offset + pixelCoord;
+	imageStore(atlasImage, atlasPos, vec4(alpha, 0.0, 0.0, 0.0));
+}
