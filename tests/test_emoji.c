@@ -19,6 +19,16 @@ int main(void) {
 		return 1;
 	}
 
+	// Load regular sans font
+	int sansFont = nvgCreateFont(vg, "sans", "fonts/sans/NotoSans-Regular.ttf");
+	if (sansFont == -1) {
+		printf("Failed to load sans font: fonts/sans/NotoSans-Regular.ttf\n");
+		nvgDeleteVk(vg);
+		window_destroy_context(winCtx);
+		return 1;
+	}
+	printf("Sans font loaded successfully\n");
+
 	// Load emoji font (Noto Color Emoji)
 	int emojiFont = nvgCreateFont(vg, "emoji", "fonts/emoji/Noto-COLRv1.ttf");
 	if (emojiFont == -1) {
@@ -67,12 +77,28 @@ int main(void) {
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgFill(vg);
 
-	// Draw single emoji
+	// Draw regular text
+	nvgFontFace(vg, "sans");
+	nvgFontSize(vg, 48.0f);
+	nvgFillColor(vg, nvgRGBA(0, 0, 0, 255));
+	nvgText(vg, 50, 100, "Hello World!", NULL);
+
+	// Draw text with emoji mixed in
+	nvgFontSize(vg, 64.0f);
+	nvgText(vg, 50, 200, "Text ", NULL);
+
+	nvgFontFace(vg, "emoji");
+	nvgFontSize(vg, 64.0f);
+	const char* emoji1 = "\xF0\x9F\x98\x80";  // U+1F600 GRINNING FACE
+	nvgText(vg, 150, 200, emoji1, NULL);
+
+	nvgFontFace(vg, "sans");
+	nvgText(vg, 220, 200, " and more text", NULL);
+
+	// Draw single large emoji
 	nvgFontFace(vg, "emoji");
 	nvgFontSize(vg, 128.0f);
-	nvgFillColor(vg, nvgRGBA(0, 0, 0, 255));
-	const char* testEmoji = "\xF0\x9F\x98\x80";  // U+1F600 GRINNING FACE
-	nvgText(vg, 336, 364, testEmoji, NULL);
+	nvgText(vg, 336, 400, emoji1, NULL);
 
 	nvgEndFrame(vg);
 
