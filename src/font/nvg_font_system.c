@@ -25,35 +25,65 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 		return NULL;
 	}
 
-	// Initialize atlas manager
-	fs->atlasManager = (NVGAtlasManager*)calloc(1, sizeof(NVGAtlasManager));
-	if (!fs->atlasManager) {
+	// Initialize ALPHA atlas manager
+	fs->atlasManagerALPHA = (NVGAtlasManager*)calloc(1, sizeof(NVGAtlasManager));
+	if (!fs->atlasManagerALPHA) {
 		free(fs->glyphCache);
 		FT_Done_FreeType(fs->ftLibrary);
 		free(fs);
 		return NULL;
 	}
-	fs->atlasManager->width = atlasWidth;
-	fs->atlasManager->height = atlasHeight;
-	fs->atlasManager->cnodes = 256;
-	fs->atlasManager->nodes = (NVGAtlasNode*)calloc(fs->atlasManager->cnodes, sizeof(NVGAtlasNode));
-	if (!fs->atlasManager->nodes) {
-		free(fs->atlasManager);
+	fs->atlasManagerALPHA->width = atlasWidth;
+	fs->atlasManagerALPHA->height = atlasHeight;
+	fs->atlasManagerALPHA->cnodes = 256;
+	fs->atlasManagerALPHA->nodes = (NVGAtlasNode*)calloc(fs->atlasManagerALPHA->cnodes, sizeof(NVGAtlasNode));
+	if (!fs->atlasManagerALPHA->nodes) {
+		free(fs->atlasManagerALPHA);
 		free(fs->glyphCache);
 		FT_Done_FreeType(fs->ftLibrary);
 		free(fs);
 		return NULL;
 	}
-	fs->atlasManager->nnodes = 1;
-	fs->atlasManager->nodes[0].x = 0;
-	fs->atlasManager->nodes[0].y = 0;
-	fs->atlasManager->nodes[0].width = (short)atlasWidth;
+	fs->atlasManagerALPHA->nnodes = 1;
+	fs->atlasManagerALPHA->nodes[0].x = 0;
+	fs->atlasManagerALPHA->nodes[0].y = 0;
+	fs->atlasManagerALPHA->nodes[0].width = (short)atlasWidth;
+
+	// Initialize RGBA atlas manager
+	fs->atlasManagerRGBA = (NVGAtlasManager*)calloc(1, sizeof(NVGAtlasManager));
+	if (!fs->atlasManagerRGBA) {
+		free(fs->atlasManagerALPHA->nodes);
+		free(fs->atlasManagerALPHA);
+		free(fs->glyphCache);
+		FT_Done_FreeType(fs->ftLibrary);
+		free(fs);
+		return NULL;
+	}
+	fs->atlasManagerRGBA->width = atlasWidth;
+	fs->atlasManagerRGBA->height = atlasHeight;
+	fs->atlasManagerRGBA->cnodes = 256;
+	fs->atlasManagerRGBA->nodes = (NVGAtlasNode*)calloc(fs->atlasManagerRGBA->cnodes, sizeof(NVGAtlasNode));
+	if (!fs->atlasManagerRGBA->nodes) {
+		free(fs->atlasManagerRGBA);
+		free(fs->atlasManagerALPHA->nodes);
+		free(fs->atlasManagerALPHA);
+		free(fs->glyphCache);
+		FT_Done_FreeType(fs->ftLibrary);
+		free(fs);
+		return NULL;
+	}
+	fs->atlasManagerRGBA->nnodes = 1;
+	fs->atlasManagerRGBA->nodes[0].x = 0;
+	fs->atlasManagerRGBA->nodes[0].y = 0;
+	fs->atlasManagerRGBA->nodes[0].width = (short)atlasWidth;
 
 	// Initialize HarfBuzz buffer
 	fs->shapingState.hb_buffer = hb_buffer_create();
 	if (!fs->shapingState.hb_buffer) {
-		free(fs->atlasManager->nodes);
-		free(fs->atlasManager);
+		free(fs->atlasManagerRGBA->nodes);
+		free(fs->atlasManagerRGBA);
+		free(fs->atlasManagerALPHA->nodes);
+		free(fs->atlasManagerALPHA);
 		free(fs->glyphCache);
 		FT_Done_FreeType(fs->ftLibrary);
 		free(fs);
@@ -101,12 +131,18 @@ void nvgFontDestroy(NVGFontSystem* fs) {
 	// Destroy Cairo state
 	nvg__destroyCairoState(fs);
 
-	// Free atlas manager
-	if (fs->atlasManager) {
-		if (fs->atlasManager->nodes) {
-			free(fs->atlasManager->nodes);
+	// Free atlas managers
+	if (fs->atlasManagerALPHA) {
+		if (fs->atlasManagerALPHA->nodes) {
+			free(fs->atlasManagerALPHA->nodes);
 		}
-		free(fs->atlasManager);
+		free(fs->atlasManagerALPHA);
+	}
+	if (fs->atlasManagerRGBA) {
+		if (fs->atlasManagerRGBA->nodes) {
+			free(fs->atlasManagerRGBA->nodes);
+		}
+		free(fs->atlasManagerRGBA);
 	}
 
 	// Free glyph cache
@@ -121,9 +157,15 @@ void nvgFontDestroy(NVGFontSystem* fs) {
 }
 
 void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex), void* userdata) {
-	if (!fs || !fs->atlasManager) return;
-	fs->atlasManager->textureCallback = callback;
-	fs->atlasManager->textureUserdata = userdata;
+	if (!fs) return;
+	if (fs->atlasManagerALPHA) {
+		fs->atlasManagerALPHA->textureCallback = callback;
+		fs->atlasManagerALPHA->textureUserdata = userdata;
+	}
+	if (fs->atlasManagerRGBA) {
+		fs->atlasManagerRGBA->textureCallback = callback;
+		fs->atlasManagerRGBA->textureUserdata = userdata;
+	}
 }
 
 // Font loading
@@ -301,19 +343,32 @@ void nvgFontSetFontMSDF(NVGFontSystem* fs, int font, int msdfMode) {
 }
 
 void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
-	if (!fs || !fs->atlasManager || !fs->glyphCache) return;
+	if (!fs || !fs->glyphCache) return;
 
 	// Clear glyph cache
 	memset(fs->glyphCache->entries, 0, sizeof(fs->glyphCache->entries));
 	fs->glyphCache->count = 0;
 	fs->glyphCache->generation++;
 
-	// Reset atlas
-	fs->atlasManager->width = width;
-	fs->atlasManager->height = height;
-	fs->atlasManager->nnodes = 1;
-	fs->atlasManager->nodes[0].x = 0;
-	fs->atlasManager->nodes[0].y = 0;
-	fs->atlasManager->nodes[0].width = (short)width;
-	fs->atlasManager->atlasCount = 0;
+	// Reset ALPHA atlas
+	if (fs->atlasManagerALPHA) {
+		fs->atlasManagerALPHA->width = width;
+		fs->atlasManagerALPHA->height = height;
+		fs->atlasManagerALPHA->nnodes = 1;
+		fs->atlasManagerALPHA->nodes[0].x = 0;
+		fs->atlasManagerALPHA->nodes[0].y = 0;
+		fs->atlasManagerALPHA->nodes[0].width = (short)width;
+		fs->atlasManagerALPHA->atlasCount = 0;
+	}
+
+	// Reset RGBA atlas
+	if (fs->atlasManagerRGBA) {
+		fs->atlasManagerRGBA->width = width;
+		fs->atlasManagerRGBA->height = height;
+		fs->atlasManagerRGBA->nnodes = 1;
+		fs->atlasManagerRGBA->nodes[0].x = 0;
+		fs->atlasManagerRGBA->nodes[0].y = 0;
+		fs->atlasManagerRGBA->nodes[0].width = (short)width;
+		fs->atlasManagerRGBA->atlasCount = 0;
+	}
 }

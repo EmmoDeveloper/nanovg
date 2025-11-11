@@ -374,8 +374,11 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 
 	FT_GlyphSlot slot = face->glyph;
 
+	// Select atlas manager based on glyph type
+	NVGAtlasManager* atlas = isColor ? fs->atlasManagerRGBA : fs->atlasManagerALPHA;
+
 	int ax, ay;
-	if (!nvg__allocAtlasNode(fs->atlasManager, gw + 2, gh + 2, &ax, &ay)) {
+	if (!nvg__allocAtlasNode(atlas, gw + 2, gh + 2, &ax, &ay)) {
 		// Atlas full - could trigger resize or defrag here
 		return 0;
 	}
@@ -394,17 +397,17 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	entry->y = (float)(ay + 1);
 	entry->w = (float)gw;
 	entry->h = (float)gh;
-	entry->s0 = entry->x / (float)fs->atlasManager->width;
-	entry->t0 = entry->y / (float)fs->atlasManager->height;
-	entry->s1 = (entry->x + entry->w) / (float)fs->atlasManager->width;
-	entry->t1 = (entry->y + entry->h) / (float)fs->atlasManager->height;
+	entry->s0 = entry->x / (float)atlas->width;
+	entry->t0 = entry->y / (float)atlas->height;
+	entry->s1 = (entry->x + entry->w) / (float)atlas->width;
+	entry->t1 = (entry->y + entry->h) / (float)atlas->height;
 
 	static int coord_debug = 0;
 	if (coord_debug++ < 35) {
 		printf("[Tex coord calc #%d] glyph %u, entry (%.1f,%.1f) size (%.1f,%.1f), atlas dim (%d,%d) @ %p -> coords (%.4f,%.4f)-(%.4f,%.4f)\n",
 			coord_debug, glyph_index,
 			entry->x, entry->y, entry->w, entry->h,
-			fs->atlasManager->width, fs->atlasManager->height, (void*)fs->atlasManager,
+			atlas->width, atlas->height, (void*)atlas,
 			entry->s0, entry->t0, entry->s1, entry->t1);
 	}
 	entry->advanceX = (float)slot->advance.x / 64.0f;
@@ -420,8 +423,8 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	// Apply UV inset to prevent linear filtering from sampling adjacent glyphs
 	// With linear filtering, sampling at edges blends with neighboring texels
 	// Inset by 0.5 pixels to stay within glyph bounds
-	float uvInsetX = 0.5f / (float)fs->atlasManager->width;
-	float uvInsetY = 0.5f / (float)fs->atlasManager->height;
+	float uvInsetX = 0.5f / (float)atlas->width;
+	float uvInsetY = 0.5f / (float)atlas->height;
 	entry->s0 += uvInsetX;
 	entry->t0 += uvInsetY;
 	entry->s1 -= uvInsetX;
@@ -444,7 +447,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	quad->generation = entry->generation;
 
 	// Upload bitmap data to atlas
-	if (fs->atlasManager->textureCallback && gw > 0 && gh > 0) {
+	if (atlas->textureCallback && gw > 0 && gh > 0) {
 		int padded_w = gw + 2;
 		int padded_h = gh + 2;
 
@@ -465,8 +468,8 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 					printf("[Atlas RGBA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
 						upload_debug_color, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
 				}
-				fs->atlasManager->textureCallback(
-					fs->atlasManager->textureUserdata,
+				atlas->textureCallback(
+					atlas->textureUserdata,
 					(int)ax, (int)ay,
 					padded_w, padded_h,
 					data,
@@ -492,8 +495,8 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 					printf("[Atlas ALPHA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
 						upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
 				}
-				fs->atlasManager->textureCallback(
-					fs->atlasManager->textureUserdata,
+				atlas->textureCallback(
+					atlas->textureUserdata,
 					(int)ax, (int)ay,
 					padded_w, padded_h,
 					data,

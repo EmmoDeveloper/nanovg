@@ -102,7 +102,8 @@ struct NVGFontSystem {
 	NVGFont fonts[NVG_FONT_MAX_FONTS];
 	int nfonts;
 	NVGGlyphCache* glyphCache;
-	NVGAtlasManager* atlasManager;
+	NVGAtlasManager* atlasManagerALPHA;  // ALPHA atlas for grayscale glyphs
+	NVGAtlasManager* atlasManagerRGBA;   // RGBA atlas for color emoji
 	NVGFontState state;
 	NVGTextShapingState shapingState;
 	NVGOTFeature features[32];
