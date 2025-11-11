@@ -1,8 +1,10 @@
 #include "nvg_font.h"
 #include "nvg_font_internal.h"
+#include "nvg_font_colr.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <freetype/ftoutln.h>
 
 // Internal helpers
 // Skyline-based atlas packing (adapted from fontstash.h)
@@ -200,6 +202,24 @@ float nvgFontGetKerning(NVGFontSystem* fs, int fontId, unsigned int left_glyph, 
 	return (float)kerning.x / 64.0f;
 }
 
+// Check if glyph has COLR data
+// NOTE: This function receives the FONT (not just face) so it can check the hasCOLR flag
+// The hasCOLR flag is set at font load time, before any size is set on the face
+static int nvg__hasColorLayers(NVGFontSystem* fs, int fontId, FT_Face face, unsigned int glyph_index) {
+	(void)face;  // Unused
+	(void)glyph_index;  // Unused
+
+	// First check if font has COLR capability at all (checked at load time)
+	if (!fs->fonts[fontId].hasCOLR) return 0;
+
+	// Font has COLR capability. Since FT_Get_Color_Glyph_Paint doesn't work reliably
+	// in FreeType 2.14.1 (always returns 0), we rely on the hasCOLR flag set at load time.
+	// Cairo will handle the actual COLR rendering automatically via cairo_show_glyphs().
+	// If a glyph doesn't have COLR data, Cairo will render it as grayscale, which we can
+	// detect and handle appropriately.
+	return 1;
+}
+
 int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, unsigned int codepoint,
                        float x, float y, NVGCachedGlyph* quad) {
 	if (!fs || fontId < 0 || fontId >= fs->nfonts || !quad) return 0;
@@ -253,9 +273,14 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 
 	if (glyph_index == 0) return 0;
 
+	// IMPORTANT: Check for COLR data BEFORE setting size!
+	// FT_Set_Char_Size and FT_Set_Pixel_Sizes both break FT_Get_Color_Glyph_Paint
+	int isColor = nvg__hasColorLayers(fs, fontId, face, glyph_index);
+
+	// Now set size for rendering
 	FT_Set_Pixel_Sizes(face, 0, (FT_UInt)fs->state.size);
 
-	// Re-apply variation coordinates after FT_Set_Pixel_Sizes (which may reset them)
+	// Re-apply variation coordinates after setting size (which may reset them)
 	if (fs->fonts[fontId].varCoordsCount > 0) {
 		FT_Fixed* ft_coords = (FT_Fixed*)malloc(sizeof(FT_Fixed) * fs->fonts[fontId].varCoordsCount);
 		if (ft_coords) {
@@ -267,33 +292,102 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 		}
 	}
 
-	FT_Int32 load_flags = FT_LOAD_RENDER;
-	if (!fs->state.hinting) {
-		load_flags |= FT_LOAD_NO_HINTING;
+	static int color_check_count = 0;
+	if (color_check_count++ < 10 || glyph_index >= 2340) {
+		printf("[nvgFontRenderGlyph] glyph %u: FT_HAS_COLOR(face)=%d, nvg__hasColorLayers returned %d\n",
+		       glyph_index, FT_HAS_COLOR(face) ? 1 : 0, isColor);
 	}
-	if (FT_Load_Glyph(face, glyph_index, load_flags)) {
-		return 0;
+
+	int gw, gh;
+	unsigned char* rgba_data = NULL;
+
+	// Store bearing info for COLR glyphs
+	float colr_bearingX = 0.0f;
+	float colr_bearingY = 0.0f;
+
+	if (isColor) {
+		// Render COLR glyph using Cairo
+		// Load glyph to get advance
+		if (FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT | FT_LOAD_NO_SVG)) {
+			return 0;
+		}
+
+		FT_GlyphSlot slot = face->glyph;
+		int advance = (int)(slot->metrics.horiAdvance / 64);
+
+		// Compute the actual bounding box using FreeType's clip box API
+		FT_ClipBox clip_box;
+		FT_Bool has_clip_box = FT_Get_Color_Glyph_ClipBox(face, glyph_index, &clip_box);
+
+		printf("[nvgFontRenderGlyph] FT_Get_Color_Glyph_ClipBox returned: %d\n", has_clip_box);
+
+		if (has_clip_box) {
+			// Successfully got the clip box - this gives us the actual bounding box
+			// Convert from 26.6 fixed point to pixels and add padding
+			// Use floor for min and ceil for max to ensure we don't clip any pixels
+			int xMin = (int)floor(clip_box.bottom_left.x / 64.0);
+			int yMin = (int)floor(clip_box.bottom_left.y / 64.0);
+			int xMax = (int)ceil(clip_box.top_right.x / 64.0);
+			int yMax = (int)ceil(clip_box.top_right.y / 64.0);
+
+			// Add 2 pixels padding on all sides to ensure no clipping
+			xMin -= 2;
+			yMin -= 2;
+			xMax += 2;
+			yMax += 2;
+
+			gw = xMax - xMin;
+			gh = yMax - yMin;
+			colr_bearingX = (float)xMin;
+			colr_bearingY = (float)yMax;  // Distance from baseline to top
+
+			printf("[nvgFontRenderGlyph] COLR clip box (with padding): (%d,%d)-(%d,%d) -> size %dx%d bearing(%.1f,%.1f)\n",
+			       xMin, yMin, xMax, yMax, gw, gh, colr_bearingX, colr_bearingY);
+		} else {
+			// Clip box not available, use font metrics with extra padding
+			// Add 10% padding to ensure we capture the full glyph
+			int ascent = (int)(face->size->metrics.ascender / 64);
+			int descent = (int)(-face->size->metrics.descender / 64);
+			gw = (int)(advance * 1.1f);
+			gh = (int)((ascent + descent) * 1.1f);
+			colr_bearingX = (float)(gw - advance) / 2.0f;  // Center horizontally
+			colr_bearingY = (float)ascent + (float)(gh - (ascent + descent)) / 2.0f;  // Center vertically
+			printf("[nvgFontRenderGlyph] COLR fallback (no clip box) with padding: advance=%d ascent=%d descent=%d -> %dx%d bearing(%.1f,%.1f)\n",
+			       advance, ascent, descent, gw, gh, colr_bearingX, colr_bearingY);
+		}
+
+		if (!nvg__renderCOLRGlyph(fs, face, glyph_index, gw, gh, &rgba_data, colr_bearingX, colr_bearingY)) {
+			// Fallback to regular rendering if COLR fails
+			isColor = 0;
+			free(rgba_data);
+			rgba_data = NULL;
+		}
+	}
+
+	if (!isColor) {
+		// Regular grayscale rendering
+		FT_Int32 load_flags = FT_LOAD_RENDER;
+		if (!fs->state.hinting) {
+			load_flags |= FT_LOAD_NO_HINTING;
+		}
+		if (FT_Load_Glyph(face, glyph_index, load_flags)) {
+			return 0;
+		}
+
+		FT_GlyphSlot slot = face->glyph;
+		if (slot->format != FT_GLYPH_FORMAT_BITMAP) {
+			return 0;
+		}
+
+		// Allocate space in atlas
+		gw = (int)slot->bitmap.width;
+		gh = (int)slot->bitmap.rows;
+	} else {
+		// For COLR, we already have gw/gh from metrics
 	}
 
 	FT_GlyphSlot slot = face->glyph;
-	if (slot->format != FT_GLYPH_FORMAT_BITMAP) {
-		return 0;
-	}
 
-	// Allocate space in atlas
-	int gw = (int)slot->bitmap.width;
-	int gh = (int)slot->bitmap.rows;
-
-	// Debug: check first few bytes
-	static int first_glyph = 1;
-	if (first_glyph && gw > 0 && gh > 0) {
-		printf("[nvgFontRenderGlyph] First glyph: width=%d height=%d, first 10 bytes: ", gw, gh);
-		for (int i = 0; i < 10 && i < gw * gh; i++) {
-			printf("%d ", slot->bitmap.buffer[i]);
-		}
-		printf("\n");
-		first_glyph = 0;
-	}
 	int ax, ay;
 	if (!nvg__allocAtlasNode(fs->atlasManager, gw + 2, gh + 2, &ax, &ay)) {
 		// Atlas full - could trigger resize or defrag here
@@ -307,13 +401,14 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	entry->size = fs->state.size;
 	entry->hinting = fs->state.hinting;
 	entry->varStateId = varStateId;
+	entry->isColor = isColor;
+	entry->atlasIndex = isColor ? 1 : 0;  // RGBA atlas for color, ALPHA atlas for grayscale
 
 	static int cache_miss_count = 0;
 	if (cache_miss_count++ < 50 || glyph_index == 36) {  // 36 = 'A' glyph
-		printf("[nvgFontRenderGlyph] Cache MISS for glyph %u (fontId=%d, size=%.1f), atlas region (%d,%d) size (%d,%d) [COORDS NOT YET CALCULATED]\n",
-			glyph_index, fontId, fs->state.size, ax, ay, gw+2, gh+2);
+		printf("[nvgFontRenderGlyph] Cache MISS for glyph %u (fontId=%d, size=%.1f), %s, atlas region (%d,%d) size (%d,%d) [COORDS NOT YET CALCULATED]\n",
+			glyph_index, fontId, fs->state.size, isColor ? "COLOR" : "ALPHA", ax, ay, gw+2, gh+2);
 	}
-	entry->atlasIndex = 0;
 	entry->x = (float)(ax + 1);
 	entry->y = (float)(ay + 1);
 	entry->w = (float)gw;
@@ -332,8 +427,14 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 			entry->s0, entry->t0, entry->s1, entry->t1);
 	}
 	entry->advanceX = (float)slot->advance.x / 64.0f;
-	entry->bearingX = (float)slot->bitmap_left;
-	entry->bearingY = (float)slot->bitmap_top;
+	// For COLR glyphs, use metrics-based bearings; for bitmap glyphs, use bitmap_left/top
+	if (isColor) {
+		entry->bearingX = colr_bearingX;
+		entry->bearingY = colr_bearingY;
+	} else {
+		entry->bearingX = (float)slot->bitmap_left;
+		entry->bearingY = (float)slot->bitmap_top;
+	}
 
 	// Apply UV inset to prevent linear filtering from sampling adjacent glyphs
 	// With linear filtering, sampling at edges blends with neighboring texels
@@ -361,38 +462,64 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	quad->atlasIndex = entry->atlasIndex;
 	quad->generation = entry->generation;
 
-	// Upload bitmap data to atlas (grayscale format - FreeType outputs 1 byte per pixel)
-	// Atlas allocated (gw+2) × (gh+2) for 1-pixel padding, so upload with padding cleared
+	// Upload bitmap data to atlas
 	if (fs->atlasManager->textureCallback && gw > 0 && gh > 0) {
-		int pitch = abs(slot->bitmap.pitch);
 		int padded_w = gw + 2;
 		int padded_h = gh + 2;
 
-		// Allocate padded buffer and clear it (zero padding prevents texture bleeding)
-		unsigned char* data = (unsigned char*)calloc(padded_w * padded_h, 1);
-		if (data) {
-			// Copy glyph data to center of padded buffer (leaving 1px border of zeros)
-			for (int y = 0; y < gh; y++) {
-				memcpy(data + (y + 1) * padded_w + 1,
-				       slot->bitmap.buffer + y * pitch,
-				       gw);
-			}
+		if (isColor && rgba_data) {
+			// Upload RGBA color emoji
+			int bytes_per_pixel = 4;
+			unsigned char* data = (unsigned char*)calloc(padded_w * padded_h * bytes_per_pixel, 1);
+			if (data) {
+				// Copy RGBA glyph data to center of padded buffer
+				for (int y = 0; y < gh; y++) {
+					memcpy(data + ((y + 1) * padded_w + 1) * bytes_per_pixel,
+					       rgba_data + y * gw * bytes_per_pixel,
+					       gw * bytes_per_pixel);
+				}
 
-			// Upload entire padded region starting at allocated atlas position
-			static int upload_debug = 0;
-			if (upload_debug++ < 30) {
-				printf("[Atlas upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
-					upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+				static int upload_debug_color = 0;
+				if (upload_debug_color++ < 10) {
+					printf("[Atlas RGBA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
+						upload_debug_color, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+				}
+				fs->atlasManager->textureCallback(
+					fs->atlasManager->textureUserdata,
+					(int)ax, (int)ay,
+					padded_w, padded_h,
+					data,
+					1  // atlasIndex = 1 for RGBA
+				);
+				free(data);
 			}
-			fs->atlasManager->textureCallback(
-				fs->atlasManager->textureUserdata,
-				(int)ax,  // Upload to allocated position (not entry->x which has +1 offset)
-				(int)ay,
-				padded_w,
-				padded_h,
-				data
-			);
-			free(data);
+			free(rgba_data);
+		} else {
+			// Upload grayscale bitmap
+			int pitch = abs(slot->bitmap.pitch);
+			unsigned char* data = (unsigned char*)calloc(padded_w * padded_h, 1);
+			if (data) {
+				// Copy glyph data to center of padded buffer (leaving 1px border of zeros)
+				for (int y = 0; y < gh; y++) {
+					memcpy(data + (y + 1) * padded_w + 1,
+					       slot->bitmap.buffer + y * pitch,
+					       gw);
+				}
+
+				static int upload_debug = 0;
+				if (upload_debug++ < 30) {
+					printf("[Atlas ALPHA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
+						upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+				}
+				fs->atlasManager->textureCallback(
+					fs->atlasManager->textureUserdata,
+					(int)ax, (int)ay,
+					padded_w, padded_h,
+					data,
+					0  // atlasIndex = 0 for ALPHA
+				);
+				free(data);
+			}
 		}
 	}
 

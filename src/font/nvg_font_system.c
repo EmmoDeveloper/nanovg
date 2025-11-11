@@ -1,5 +1,6 @@
 #include "nvg_font.h"
 #include "nvg_font_internal.h"
+#include "nvg_font_colr.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -70,6 +71,9 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 	fs->shapingState.bidi_enabled = 1;
 	fs->shapingState.base_dir = FRIBIDI_TYPE_ON;
 
+	// Initialize Cairo for COLR emoji rendering
+	nvg__initCairoState(fs);
+
 	return fs;
 }
 
@@ -94,6 +98,9 @@ void nvgFontDestroy(NVGFontSystem* fs) {
 		hb_buffer_destroy(fs->shapingState.hb_buffer);
 	}
 
+	// Destroy Cairo state
+	nvg__destroyCairoState(fs);
+
 	// Free atlas manager
 	if (fs->atlasManager) {
 		if (fs->atlasManager->nodes) {
@@ -113,7 +120,7 @@ void nvgFontDestroy(NVGFontSystem* fs) {
 	free(fs);
 }
 
-void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data), void* userdata) {
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex), void* userdata) {
 	if (!fs || !fs->atlasManager) return;
 	fs->atlasManager->textureCallback = callback;
 	fs->atlasManager->textureUserdata = userdata;
@@ -138,6 +145,13 @@ int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path) {
 		return -1;
 	}
 
+	// CRITICAL: Detect if font has COLR data NOW, before any size is set
+	// Once FT_Set_Pixel_Sizes is called, FT_Get_Color_Glyph_Paint stops working
+	int hasCOLR = FT_HAS_COLOR(face) ? 1 : 0;
+	if (hasCOLR) {
+		printf("[nvgFontAddFont] Font '%s' has COLR color tables\n", name);
+	}
+
 	// Create HarfBuzz font
 	hb_font_t* hb_font = hb_ft_font_create(face, NULL);
 	if (!hb_font) {
@@ -158,6 +172,7 @@ int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path) {
 	fs->fonts[idx].msdfMode = 0;
 	fs->fonts[idx].varStateId = 0;  // Initial variation state
 	fs->fonts[idx].varCoordsCount = 0;  // No variation coordinates yet
+	fs->fonts[idx].hasCOLR = hasCOLR;  // Store COLR capability
 	fs->nfonts++;
 
 	return idx;
@@ -180,6 +195,12 @@ int nvgFontAddFontMem(NVGFontSystem* fs, const char* name, unsigned char* data, 
 		return -1;
 	}
 
+	// CRITICAL: Detect if font has COLR data NOW, before any size is set
+	int hasCOLR = FT_HAS_COLOR(face) ? 1 : 0;
+	if (hasCOLR) {
+		printf("[nvgFontAddFontMem] Font '%s' has COLR color tables\n", name);
+	}
+
 	// Create HarfBuzz font
 	hb_font_t* hb_font = hb_ft_font_create(face, NULL);
 	if (!hb_font) {
@@ -200,6 +221,7 @@ int nvgFontAddFontMem(NVGFontSystem* fs, const char* name, unsigned char* data, 
 	fs->fonts[idx].msdfMode = 0;
 	fs->fonts[idx].varStateId = 0;  // Initial variation state
 	fs->fonts[idx].varCoordsCount = 0;  // No variation coordinates yet
+	fs->fonts[idx].hasCOLR = hasCOLR;  // Store COLR capability
 	fs->nfonts++;
 
 	return idx;

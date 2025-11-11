@@ -135,8 +135,10 @@ struct NVGcontext {
 	float fringeWidth;
 	float devicePxRatio;
 	NVGFontSystem* fs;
-	int fontImages[NVG_MAX_FONTIMAGES];
+	int fontImages[NVG_MAX_FONTIMAGES];        // ALPHA atlas textures
+	int fontImagesRGBA[NVG_MAX_FONTIMAGES];    // RGBA atlas textures for color emoji
 	int fontImageIdx;
+	int fontImageIdxRGBA;
 	int drawCallCount;
 	int fillTriCount;
 	int strokeTriCount;
@@ -296,7 +298,7 @@ static NVGstate* nvg__getState(NVGcontext* ctx)
 }
 
 // Forward declaration for texture callback
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data);
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex);
 
 NVGcontext* nvgCreateInternal(NVGparams* params)
 {
@@ -306,8 +308,10 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 	memset(ctx, 0, sizeof(NVGcontext));
 
 	ctx->params = *params;
-	for (i = 0; i < NVG_MAX_FONTIMAGES; i++)
+	for (i = 0; i < NVG_MAX_FONTIMAGES; i++) {
 		ctx->fontImages[i] = 0;
+		ctx->fontImagesRGBA[i] = 0;
+	}
 
 	ctx->commands = (float*)malloc(sizeof(float)*NVG_INIT_COMMANDS_SIZE);
 	if (!ctx->commands) goto error;
@@ -345,6 +349,11 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 	if (ctx->fontImages[0] == 0) goto error;
 	ctx->fontImageIdx = 0;
 
+	// Create RGBA atlas for color emoji
+	ctx->fontImagesRGBA[0] = ctx->params.renderCreateTexture(ctx->params.userPtr, NVG_TEXTURE_RGBA, atlasSize, atlasSize, 0, NULL);
+	if (ctx->fontImagesRGBA[0] == 0) goto error;
+	ctx->fontImageIdxRGBA = 0;
+
 	return ctx;
 
 error:
@@ -371,6 +380,10 @@ void nvgDeleteInternal(NVGcontext* ctx)
 		if (ctx->fontImages[i] != 0) {
 			nvgDeleteImage(ctx, ctx->fontImages[i]);
 			ctx->fontImages[i] = 0;
+		}
+		if (ctx->fontImagesRGBA[i] != 0) {
+			nvgDeleteImage(ctx, ctx->fontImagesRGBA[i]);
+			ctx->fontImagesRGBA[i] = 0;
 		}
 	}
 
@@ -2434,16 +2447,27 @@ static float nvg__getFontScale(NVGstate* state)
 }
 
 // Texture upload callback for nvg_freetype
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data)
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex)
 {
 	NVGcontext* ctx = (NVGcontext*)uptr;
-	int fontImage = ctx->fontImages[ctx->fontImageIdx];
-	printf("[nvg__textureUpdate] fontImageIdx=%d, fontImage=%d, updating region (%d,%d) %dx%d\n",
-		ctx->fontImageIdx, fontImage, x, y, w, h);
+	int fontImage;
+
+	if (atlasIndex == 1) {
+		// RGBA atlas for color emoji
+		fontImage = ctx->fontImagesRGBA[ctx->fontImageIdxRGBA];
+		printf("[nvg__textureUpdate] RGBA atlas: fontImageIdxRGBA=%d, fontImage=%d, updating region (%d,%d) %dx%d\n",
+			ctx->fontImageIdxRGBA, fontImage, x, y, w, h);
+	} else {
+		// ALPHA atlas for grayscale text
+		fontImage = ctx->fontImages[ctx->fontImageIdx];
+		printf("[nvg__textureUpdate] ALPHA atlas: fontImageIdx=%d, fontImage=%d, updating region (%d,%d) %dx%d\n",
+			ctx->fontImageIdx, fontImage, x, y, w, h);
+	}
+
 	if (fontImage != 0) {
 		ctx->params.renderUpdateTexture(ctx->params.userPtr, fontImage, x, y, w, h, data);
 	} else {
-		printf("[nvg__textureUpdate] ERROR: fontImage is 0!\n");
+		printf("[nvg__textureUpdate] ERROR: fontImage is 0 for atlasIndex=%d!\n", atlasIndex);
 	}
 }
 
@@ -2479,19 +2503,30 @@ static int nvg__allocTextAtlas(NVGcontext* ctx)
 	return 1;
 }
 
-static void nvg__renderText(NVGcontext* ctx, NVGvertex* verts, int nverts)
+static void nvg__renderText(NVGcontext* ctx, NVGvertex* verts, int nverts, int atlasIndex)
 {
 	NVGstate* state = nvg__getState(ctx);
 	NVGpaint paint = state->fill;
 
-	// Render triangles.
-	paint.image = ctx->fontImages[ctx->fontImageIdx];
-	printf("[nvg__renderText] Using fontImageIdx=%d, fontImage=%d, nverts=%d\n",
-		ctx->fontImageIdx, paint.image, nverts);
-
-	// Apply global alpha
-	paint.innerColor.a *= state->alpha;
-	paint.outerColor.a *= state->alpha;
+	// Render triangles - select correct atlas based on glyph type.
+	if (atlasIndex == 1) {
+		// RGBA atlas for color emoji
+		paint.image = ctx->fontImagesRGBA[ctx->fontImageIdxRGBA];
+		printf("[nvg__renderText] Using RGBA atlas: fontImageIdxRGBA=%d, fontImage=%d, nverts=%d\n",
+			ctx->fontImageIdxRGBA, paint.image, nverts);
+		// For color emoji, use white as inner color so the emoji colors show through
+		// Only preserve the alpha channel for opacity control
+		float alpha = paint.innerColor.a * state->alpha;
+		paint.innerColor = nvgRGBAf(1.0f, 1.0f, 1.0f, alpha);
+	} else {
+		// ALPHA atlas for regular text
+		paint.image = ctx->fontImages[ctx->fontImageIdx];
+		printf("[nvg__renderText] Using ALPHA atlas: fontImageIdx=%d, fontImage=%d, nverts=%d\n",
+			ctx->fontImageIdx, paint.image, nverts);
+		// Apply global alpha
+		paint.innerColor.a *= state->alpha;
+		paint.outerColor.a *= state->alpha;
+	}
 
 	ctx->params.renderTriangles(ctx->params.userPtr, &paint, state->compositeOperation, &state->scissor, verts, nverts, ctx->fringeWidth);
 
@@ -2540,12 +2575,29 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 	if (verts == NULL) return x;
 
 	nvgFontShapedTextIterInit(ctx->fs, &iter, x*scale, y*scale, string, end, 1, NULL);
+
+	int currentAtlasIndex = -1;  // Track current atlas
+	int batchStartVert = 0;       // Start of current batch
+
 	static int glyph_dbg = 0;
 	while (nvgFontShapedTextIterNext(ctx->fs, &iter, &q)) {
 		if (glyph_dbg++ == 0) {
 			printf("[nvgText] First glyph quad: x0=%.1f y0=%.1f x1=%.1f y1=%.1f, scale=%.2f invscale=%.2f\n",
 				q.x0, q.y0, q.x1, q.y1, scale, invscale);
 		}
+
+		// Check if we need to flush the current batch due to atlas change
+		if (currentAtlasIndex != -1 && q.atlasIndex != currentAtlasIndex) {
+			// Flush current batch with its atlas
+			nvg__flushTextTexture(ctx);
+			int batchVerts = nverts - batchStartVert;
+			if (batchVerts > 0) {
+				nvg__renderText(ctx, verts + batchStartVert, batchVerts, currentAtlasIndex);
+			}
+			batchStartVert = nverts;
+		}
+		currentAtlasIndex = q.atlasIndex;
+
 		float c[4*2];
 		if(isFlipped) {
 			float tmp;
@@ -2563,8 +2615,8 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 			static int vert_debug = 0;
 			// Only log 48px glyphs from the test strings (not title or footer)
 			if (state->fontSize > 40.0f && vert_debug++ < 100) {
-				printf("[nvgText VERT #%d] glyph %u at 48px: uv=(%.4f,%.4f)-(%.4f,%.4f)\n",
-					vert_debug, q.codepoint, q.s0, q.t0, q.s1, q.t1);
+				printf("[nvgText VERT #%d] glyph %u at 48px: uv=(%.4f,%.4f)-(%.4f,%.4f) atlasIdx=%d\n",
+					vert_debug, q.codepoint, q.s0, q.t0, q.s1, q.t1, q.atlasIndex);
 			}
 			nvg__vset(&verts[nverts], c[0], c[1], q.s0, q.t0); nverts++;
 			nvg__vset(&verts[nverts], c[4], c[5], q.s1, q.t1); nverts++;
@@ -2579,12 +2631,16 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 
 	nvg__flushTextTexture(ctx);
 
-	// Print first few chars for identification
-	char preview[20] = {0};
-	int preview_len = (end - string) < 10 ? (end - string) : 10;
-	memcpy(preview, string, preview_len);
-	printf("[nvgText] About to render text '%s': nverts=%d\n", preview, nverts);
-	nvg__renderText(ctx, verts, nverts);
+	// Render final batch
+	int finalBatchVerts = nverts - batchStartVert;
+	if (finalBatchVerts > 0) {
+		char preview[20] = {0};
+		int preview_len = (end - string) < 10 ? (end - string) : 10;
+		memcpy(preview, string, preview_len);
+		printf("[nvgText] Rendering final batch '%s': nverts=%d, atlasIndex=%d\n",
+		       preview, finalBatchVerts, currentAtlasIndex);
+		nvg__renderText(ctx, verts + batchStartVert, finalBatchVerts, currentAtlasIndex);
+	}
 
 	return iter.x / scale;
 }
@@ -3155,7 +3211,7 @@ float nvgRenderGlyph(NVGcontext* ctx, unsigned int codepoint, float x, float y)
 	nvg__vset(&verts[nverts], c[6], c[7], quad.s0, quad.t1); nverts++;
 	nvg__vset(&verts[nverts], c[4], c[5], quad.s1, quad.t1); nverts++;
 
-	nvg__renderText(ctx, verts, nverts);
+	nvg__renderText(ctx, verts, nverts, quad.atlasIndex);
 
 	return quad.advanceX * invscale;
 }

@@ -6,7 +6,7 @@
 // Font system lifecycle
 NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight);
 void nvgFontDestroy(NVGFontSystem* fs);
-void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data), void* userdata);
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex), void* userdata);
 
 // Font loading
 int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path);

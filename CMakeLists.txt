@@ -33,7 +33,7 @@ set(FREETYPE_INCLUDE_DIRS "${FREETYPE_DIR}/include")
 set(FREETYPE_LIBRARIES "${FREETYPE_DIR}/objs/.libs/libfreetype.so")
 
 # Cairo
-set(CAIRO_INCLUDE_DIRS "${CAIRO_DIR}/src")
+set(CAIRO_INCLUDE_DIRS "${CAIRO_DIR}/src" "${CAIRO_DIR}/builddir/src")
 set(CAIRO_LIBRARIES "${CAIRO_DIR}/builddir/src/libcairo.so")
 
 # HarfBuzz
@@ -54,18 +54,21 @@ add_library(nanovg_font STATIC
 	src/font/nvg_font_glyph.c
 	src/font/nvg_font_shaping.c
 	src/font/nvg_font_info.c
+	src/font/nvg_font_colr.c
 )
 
 target_include_directories(nanovg_font PUBLIC
 	${CMAKE_SOURCE_DIR}/src
 	${CMAKE_SOURCE_DIR}/src/font
 	${FREETYPE_INCLUDE_DIRS}
+	${CAIRO_INCLUDE_DIRS}
 	${HARFBUZZ_INCLUDE_DIRS}
 	${FRIBIDI_INCLUDE_DIRS}
 )
 
 target_link_libraries(nanovg_font PUBLIC
 	${FREETYPE_LIBRARIES}
+	${CAIRO_LIBRARIES}
 	${HARFBUZZ_LIBRARIES}
 	${FRIBIDI_LIBRARIES}
 )

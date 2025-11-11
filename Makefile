@@ -5,6 +5,7 @@ CFLAGS := -std=c11 -Wall -Wextra -O2 -g
 INCLUDES := -I./src -I./src/font -I./tests \
 	-I/opt/freetype/include \
 	-I/opt/freetype/cairo/src \
+	-I/opt/freetype/cairo/builddir/src \
 	-I/work/java/ai-ide-jvm/harfbuzz/src \
 	-I/opt/fribidi/lib \
 	-I/opt/fribidi/build/lib \
@@ -49,7 +50,8 @@ $(TEST_SCREENDUMP_DIR):
 
 # Font system
 FONT_OBJS := $(BUILD_DIR)/nvg_font_system.o $(BUILD_DIR)/nvg_font_glyph.o \
-             $(BUILD_DIR)/nvg_font_shaping.o $(BUILD_DIR)/nvg_font_info.o
+             $(BUILD_DIR)/nvg_font_shaping.o $(BUILD_DIR)/nvg_font_info.o \
+             $(BUILD_DIR)/nvg_font_colr.o
 
 # NanoVG Vulkan backend
 NVG_VK_OBJS := $(BUILD_DIR)/nvg_vk_context.o $(BUILD_DIR)/nvg_vk_buffer.o \
@@ -114,6 +116,10 @@ $(BUILD_DIR)/nvg_font_shaping.o: src/font/nvg_font_shaping.c src/font/nvg_font.h
 
 $(BUILD_DIR)/nvg_font_info.o: src/font/nvg_font_info.c src/font/nvg_font.h src/font/nvg_font_internal.h | $(BUILD_DIR)
 	@echo "Compiling nvg_font_info.c..."
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/nvg_font_colr.o: src/font/nvg_font_colr.c src/font/nvg_font_colr.h src/font/nvg_font_internal.h | $(BUILD_DIR)
+	@echo "Compiling nvg_font_colr.c..."
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(BUILD_DIR)/vk_shader.o: src/vulkan/vk_shader.c src/vulkan/vk_shader.h | $(BUILD_DIR)

@@ -6,9 +6,12 @@
 #include FT_FREETYPE_H
 #include FT_ADVANCES_H
 #include FT_MULTIPLE_MASTERS_H
+#include FT_COLOR_H
 #include <hb.h>
 #include <hb-ft.h>
 #include <fribidi.h>
+#include <cairo.h>
+#include <cairo-ft.h>
 
 // Internal helpers
 int nvg__findFontForCodepoint(NVGFontSystem* fs, int baseFontId, unsigned int codepoint);
@@ -27,6 +30,7 @@ struct NVGFont {
 	unsigned int varStateId;  // Increments when variation coordinates change
 	float varCoords[NVG_FONT_MAX_VAR_AXES];  // Current variation coordinates
 	unsigned int varCoordsCount;  // Number of active variation coordinates
+	int hasCOLR;  // 1 if font has COLR color tables, 0 otherwise
 };
 
 // Glyph cache entry
@@ -36,7 +40,8 @@ typedef struct {
 	float size;
 	int hinting;              // Hinting mode
 	unsigned int varStateId;  // Variation state ID (for variable fonts)
-	int atlasIndex;
+	int atlasIndex;           // 0=ALPHA atlas, 1=RGBA atlas
+	int isColor;              // 1 if COLR/color emoji, 0 if grayscale
 	float x, y, w, h;
 	float s0, t0, s1, t1;
 	float advanceX;
@@ -66,7 +71,7 @@ struct NVGAtlasManager {
 	int nnodes;
 	int cnodes;
 	int atlasCount;
-	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data);
+	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex);
 	void* textureUserdata;
 };
 
@@ -83,6 +88,14 @@ typedef struct {
 	int enabled;
 } NVGOTFeature;
 
+// Cairo state for COLR emoji rendering
+typedef struct {
+	cairo_surface_t* surface;
+	cairo_t* cr;
+	int surfaceWidth;
+	int surfaceHeight;
+} NVGCairoState;
+
 // Main font system
 struct NVGFontSystem {
 	FT_Library ftLibrary;
@@ -94,6 +107,7 @@ struct NVGFontSystem {
 	NVGTextShapingState shapingState;
 	NVGOTFeature features[32];
 	int nfeatures;
+	NVGCairoState cairoState;  // For COLR emoji rendering
 };
 
 #endif // NVG_FONT_INTERNAL_H
