@@ -114,6 +114,8 @@ struct NVGFontSystem {
 	int nfeatures;
 	NVGCairoState cairoState;  // For COLR emoji rendering
 	NVGShapedTextCache* shapedTextCache;  // Shaped text cache (Phase 14.2)
+	void* gpuRasterizer;  // NVGFontGpuRasterizer* (opaque, Phase 14.4)
+	int gpuRasterEnabled;  // GPU rasterization toggle
 };
 
 #endif // NVG_FONT_INTERNAL_H
