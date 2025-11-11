@@ -7,6 +7,7 @@
 NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight);
 void nvgFontDestroy(NVGFontSystem* fs);
 void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex), void* userdata);
+void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, int atlasIndex, int* newWidth, int* newHeight), void* userdata);
 
 // Font loading
 int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path);

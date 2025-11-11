@@ -145,6 +145,10 @@ struct NVGcontext {
 	int textTriCount;
 };
 
+// Forward declarations for font system callbacks
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex);
+static int nvg__atlasGrow(void* uptr, int atlasIndex, int* newWidth, int* newHeight);
+
 static float nvg__sqrtf(float a) { return sqrtf(a); }
 static float nvg__modf(float a, float b) { return fmodf(a, b); }
 static float nvg__sinf(float a) { return sinf(a); }
@@ -336,6 +340,9 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 
 	// Set texture upload callback
 	nvgFontSetTextureCallback(ctx->fs, nvg__textureUpdate, ctx);
+
+	// Set atlas growth callback
+	nvgFontSetAtlasGrowCallback(ctx->fs, nvg__atlasGrow, ctx);
 
 	// Notify backend that font system has been created (for virtual atlas integration)
 	if (ctx->params.renderFontSystemCreated) {
@@ -2494,6 +2501,65 @@ static int nvg__allocTextAtlas(NVGcontext* ctx)
 	}
 	++ctx->fontImageIdx;
 	nvgFontResetAtlas(ctx->fs, iw, ih);
+	return 1;
+}
+
+// Atlas growth callback for font system
+static int nvg__atlasGrow(void* uptr, int atlasIndex, int* newWidth, int* newHeight)
+{
+	NVGcontext* ctx = (NVGcontext*)uptr;
+	int iw, ih;
+
+	nvg__flushTextTexture(ctx);
+
+	if (atlasIndex == 1) {
+		// RGBA atlas for color emoji
+		if (ctx->fontImageIdxRGBA >= NVG_MAX_FONTIMAGES-1)
+			return 0;
+
+		// if next fontImage already has a texture
+		if (ctx->fontImagesRGBA[ctx->fontImageIdxRGBA+1] != 0) {
+			nvgImageSize(ctx, ctx->fontImagesRGBA[ctx->fontImageIdxRGBA+1], &iw, &ih);
+		} else {
+			// calculate the new font image size and create it
+			nvgImageSize(ctx, ctx->fontImagesRGBA[ctx->fontImageIdxRGBA], &iw, &ih);
+			if (iw > ih)
+				ih *= 2;
+			else
+				iw *= 2;
+			if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
+				iw = ih = NVG_MAX_FONTIMAGE_SIZE;
+			ctx->fontImagesRGBA[ctx->fontImageIdxRGBA+1] = ctx->params.renderCreateTexture(ctx->params.userPtr, NVG_TEXTURE_RGBA, iw, ih, 0, NULL);
+		}
+		++ctx->fontImageIdxRGBA;
+	} else {
+		// ALPHA atlas for grayscale text
+		if (ctx->fontImageIdx >= NVG_MAX_FONTIMAGES-1)
+			return 0;
+
+		// if next fontImage already has a texture
+		if (ctx->fontImages[ctx->fontImageIdx+1] != 0) {
+			nvgImageSize(ctx, ctx->fontImages[ctx->fontImageIdx+1], &iw, &ih);
+		} else {
+			// calculate the new font image size and create it
+			nvgImageSize(ctx, ctx->fontImages[ctx->fontImageIdx], &iw, &ih);
+			if (iw > ih)
+				ih *= 2;
+			else
+				iw *= 2;
+			if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
+				iw = ih = NVG_MAX_FONTIMAGE_SIZE;
+			int texType = ctx->params.msdfText ? NVG_TEXTURE_MSDF : NVG_TEXTURE_ALPHA;
+			ctx->fontImages[ctx->fontImageIdx+1] = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, iw, ih, 0, NULL);
+		}
+		++ctx->fontImageIdx;
+	}
+
+	nvgFontResetAtlas(ctx->fs, iw, ih);
+
+	if (newWidth) *newWidth = iw;
+	if (newHeight) *newHeight = ih;
+
 	return 1;
 }
 

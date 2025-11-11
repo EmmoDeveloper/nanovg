@@ -376,11 +376,27 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 
 	// Select atlas manager based on glyph type
 	NVGAtlasManager* atlas = isColor ? fs->atlasManagerRGBA : fs->atlasManagerALPHA;
+	int atlasIdx = isColor ? 1 : 0;
 
 	int ax, ay;
 	if (!nvg__allocAtlasNode(atlas, gw + 2, gh + 2, &ax, &ay)) {
-		// Atlas full - could trigger resize or defrag here
-		return 0;
+		// Atlas full - try to grow atlas
+		if (atlas->growCallback) {
+			int newWidth = 0, newHeight = 0;
+			if (atlas->growCallback(atlas->growUserdata, atlasIdx, &newWidth, &newHeight)) {
+				// Atlas was grown, try allocation again
+				if (!nvg__allocAtlasNode(atlas, gw + 2, gh + 2, &ax, &ay)) {
+					// Still failed after growth
+					return 0;
+				}
+			} else {
+				// Growth failed
+				return 0;
+			}
+		} else {
+			// No growth callback set
+			return 0;
+		}
 	}
 
 	// Create cache entry

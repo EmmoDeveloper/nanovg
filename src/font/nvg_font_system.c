@@ -168,6 +168,18 @@ void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, i
 	}
 }
 
+void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, int atlasIndex, int* newWidth, int* newHeight), void* userdata) {
+	if (!fs) return;
+	if (fs->atlasManagerALPHA) {
+		fs->atlasManagerALPHA->growCallback = callback;
+		fs->atlasManagerALPHA->growUserdata = userdata;
+	}
+	if (fs->atlasManagerRGBA) {
+		fs->atlasManagerRGBA->growCallback = callback;
+		fs->atlasManagerRGBA->growUserdata = userdata;
+	}
+}
+
 // Font loading
 
 int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path) {

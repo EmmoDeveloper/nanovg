@@ -73,6 +73,9 @@ struct NVGAtlasManager {
 	int atlasCount;
 	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex);
 	void* textureUserdata;
+	// Atlas growth callback - returns 1 if new atlas was allocated, 0 if failed
+	int (*growCallback)(void* uptr, int atlasIndex, int* newWidth, int* newHeight);
+	void* growUserdata;
 };
 
 // HarfBuzz/FriBidi state
