@@ -3,6 +3,7 @@
 
 #include "nvg_font_types.h"
 #include "nvg_font_gpu_types.h"
+#include "nvg_font.h"  // For NVGRasterMode enum
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
@@ -42,5 +43,15 @@ int nvgFont_RasterizeGlyphGPU(NVGFontSystem* fs, FT_Face face,
 int nvgFont_ExtractOutline(FT_Face face, unsigned int glyphIndex,
                             NVGGpuGlyphData* glyphData,
                             int width, int height);
+
+// Flush all queued GPU rasterization jobs
+// Records compute commands into the provided command buffer
+// Should be called BEFORE the render pass begins
+// cmdBuffer: VkCommandBuffer to record commands into
+// Returns number of jobs flushed
+int nvgFont_FlushGpuRasterJobs(NVGFontSystem* fs, void* cmdBuffer);
+
+// Set rasterization mode (internal use)
+void nvgFont_SetGpuRasterizerMode(NVGFontSystem* fs, NVGRasterMode mode);
 
 #endif // NVG_FONT_GPU_RASTER_H

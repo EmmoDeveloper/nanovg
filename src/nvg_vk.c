@@ -25,6 +25,7 @@
 #include "vulkan/nvg_vk_types.h"
 #include "vulkan/nvg_vk_color_space_ubo.h"
 #include "vulkan/nvg_vk_color_space.h"
+#include "font/nvg_font.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +40,7 @@ typedef struct NVGVkBackend {
 	uint32_t framebufferHeight;
 	int pipelinesCreated;
 	int colorSpaceUBOCreated;
+	void* fontSystem;  // NVGFontSystem pointer
 } NVGVkBackend;
 
 // Forward declarations of callback functions
@@ -192,6 +194,11 @@ static void nvgvk__renderCancel(void* uptr)
 static void nvgvk__renderFlush(void* uptr)
 {
 	NVGVkBackend* backend = (NVGVkBackend*)uptr;
+
+	// Flush any pending GPU glyph rasterization jobs before rendering
+	if (backend->fontSystem) {
+		nvgFont_FlushGpuRasterJobs(backend->fontSystem, backend->vk.commandBuffer);
+	}
 
 	// Create pipelines if not created yet
 	if (!backend->pipelinesCreated) {
@@ -556,9 +563,8 @@ void nvgVkSetToneMapping(NVGcontext* ctx, int enabled)
 
 static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)
 {
-	// Font system integration will be added in Phase 2
-	(void)uptr;
-	(void)fontSystem;
+	NVGVkBackend* backend = (NVGVkBackend*)uptr;
+	backend->fontSystem = fontSystem;
 }
 
 void nvgVkDumpAtlasTextureByIndex(NVGcontext* ctx, int textureIndex, const char* filename)

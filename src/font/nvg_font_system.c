@@ -444,8 +444,13 @@ void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 }
 
 // GPU rasterization (Phase 14.4)
-int nvgFont_EnableGpuRasterization(NVGFontSystem* fs, void* vkContext) {
-	if (!fs || !vkContext) return 0;
+int nvgFont_SetRasterMode(NVGFontSystem* fs, NVGRasterMode mode, void* vkContext) {
+	if (!fs) return 0;
+
+	// For GPU or AUTO mode, we need a Vulkan context
+	if ((mode == NVG_RASTER_GPU || mode == NVG_RASTER_AUTO) && !vkContext) {
+		return 0;
+	}
 
 	// Initialize with default parameters
 	NVGGpuRasterParams params = {
@@ -455,12 +460,31 @@ int nvgFont_EnableGpuRasterization(NVGFontSystem* fs, void* vkContext) {
 		.maxContoursPerGlyph = 32
 	};
 
-	if (nvgFont_InitGpuRasterizer(fs, vkContext, &params)) {
+	if (mode == NVG_RASTER_CPU) {
+		// Disable GPU rasterization
+		fs->gpuRasterEnabled = 0;
+		nvgFont_DestroyGpuRasterizer(fs);
+		return 1;
+	} else {
+		// Initialize GPU rasterizer if not already initialized
+		if (!fs->gpuRasterizer) {
+			if (!nvgFont_InitGpuRasterizer(fs, vkContext, &params)) {
+				return 0;
+			}
+		}
+
+		// Set the mode in the rasterizer
+		nvgFont_SetGpuRasterizerMode(fs, mode);
 		fs->gpuRasterEnabled = 1;
 		return 1;
 	}
 
 	return 0;
+}
+
+int nvgFont_EnableGpuRasterization(NVGFontSystem* fs, void* vkContext) {
+	// Deprecated: use nvgFont_SetRasterMode instead
+	return nvgFont_SetRasterMode(fs, NVG_RASTER_GPU, vkContext);
 }
 
 void nvgFont_DisableGpuRasterization(NVGFontSystem* fs) {

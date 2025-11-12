@@ -29,8 +29,8 @@ int main(void) {
 	NVGFontSystem* fs = (NVGFontSystem*)nvgGetFontSystem(vg);
 	void* vkContext = nvgInternalParams(vg)->userPtr;
 
-	if (nvgFont_EnableGpuRasterization(fs, vkContext)) {
-		printf("GPU rasterization enabled\n");
+	if (nvgFont_SetRasterMode(fs, NVG_RASTER_GPU, vkContext)) {
+		printf("GPU rasterization enabled (FORCED mode)\n");
 	} else {
 		printf("Failed to enable GPU rasterization\n");
 		nvgDeleteVk(vg);
@@ -49,6 +49,40 @@ int main(void) {
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	vkBeginCommandBuffer(cmd, &beginInfo);
 
+	// PASS 1: Determine what glyphs are needed by calling nvgText
+	// This will queue up GPU rasterization jobs
+	nvgBeginFrame(vg, 1200, 900, 1.0f);
+	nvgFontFace(vg, "sans");
+	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
+
+	float y = 100;
+	nvgFontSize(vg, 24);
+	nvgText(vg, 50, y, "Size 24: The quick brown fox jumps over the lazy dog", NULL);
+	y += 50;
+
+	nvgFontSize(vg, 32);
+	nvgText(vg, 50, y, "Size 32: The quick brown fox jumps over", NULL);
+	y += 60;
+
+	nvgFontSize(vg, 48);
+	nvgText(vg, 50, y, "Size 48: The quick brown fox", NULL);
+	y += 80;
+
+	nvgFontSize(vg, 64);
+	nvgText(vg, 50, y, "Size 64: Quick fox", NULL);
+	y += 100;
+
+	nvgFontSize(vg, 96);
+	nvgText(vg, 50, y, "Size 96: Fox", NULL);
+
+	nvgEndFrame(vg);
+
+	// Flush all GPU rasterization jobs to the command buffer
+	printf("=== Flushing GPU jobs before render pass ===\n");
+	int flushed = nvgFont_FlushGpuRasterJobs(fs, cmd);
+	printf("=== Flushed %d jobs ===\n", flushed);
+
+	// Now begin the render pass and render the text
 	VkRenderPassBeginInfo renderPassInfo = {0};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	renderPassInfo.renderPass = winCtx->renderPass;
@@ -67,12 +101,13 @@ int main(void) {
 
 	nvgVkBeginRenderPass(vg, &renderPassInfo, viewport, scissor);
 
+	// PASS 2: Actually render the text (glyphs are already rasterized)
 	nvgBeginFrame(vg, 1200, 900, 1.0f);
 
 	nvgFontFace(vg, "sans");
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 
-	float y = 100;
+	y = 100;
 	nvgFontSize(vg, 24);
 	nvgText(vg, 50, y, "Size 24: The quick brown fox jumps over the lazy dog", NULL);
 	y += 50;

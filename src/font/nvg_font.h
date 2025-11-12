@@ -56,8 +56,16 @@ void nvgFontSetKerning(NVGFontSystem* fs, int enabled);
 void nvgFontSetTextDirection(NVGFontSystem* fs, int direction);
 
 // GPU rasterization (Phase 14.4)
-int nvgFont_EnableGpuRasterization(NVGFontSystem* fs, void* vkContext);
+typedef enum NVGRasterMode {
+	NVG_RASTER_CPU = 0,   // Force CPU rasterization
+	NVG_RASTER_GPU = 1,   // Force GPU rasterization
+	NVG_RASTER_AUTO = 2   // Automatic selection based on glyph size/complexity
+} NVGRasterMode;
+
+int nvgFont_SetRasterMode(NVGFontSystem* fs, NVGRasterMode mode, void* vkContext);
+int nvgFont_EnableGpuRasterization(NVGFontSystem* fs, void* vkContext);  // Deprecated: use nvgFont_SetRasterMode
 void nvgFont_DisableGpuRasterization(NVGFontSystem* fs);
+int nvgFont_FlushGpuRasterJobs(NVGFontSystem* fs, void* cmdBuffer);
 
 // Font information
 const char* nvgFont__GetFamilyName(NVGFontSystem* fs, int fontId);

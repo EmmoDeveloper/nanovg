@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+rm -rf build
+find screendumps -mindepth 1 ! -name ".keep" -exec rm -rf {} +

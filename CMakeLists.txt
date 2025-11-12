@@ -48,34 +48,7 @@ set(FRIBIDI_LIBRARIES "${FRIBIDI_DIR}/build/lib/libfribidi.so")
 set(GLFW_INCLUDE_DIRS "${GLFW_DIR}/include")
 set(GLFW_LIBRARIES "${GLFW_DIR}/build/src/libglfw3.a")
 
-# Font system library
-add_library(nanovg_font STATIC
-	src/font/nvg_font_system.c
-	src/font/nvg_font_glyph.c
-	src/font/nvg_font_shaping.c
-	src/font/nvg_font_info.c
-	src/font/nvg_font_colr.c
-	src/font/nvg_font_shape_cache.c
-	src/font/nvg_font_gpu_raster.c
-)
-
-target_include_directories(nanovg_font PUBLIC
-	${CMAKE_SOURCE_DIR}/src
-	${CMAKE_SOURCE_DIR}/src/font
-	${FREETYPE_INCLUDE_DIRS}
-	${CAIRO_INCLUDE_DIRS}
-	${HARFBUZZ_INCLUDE_DIRS}
-	${FRIBIDI_INCLUDE_DIRS}
-)
-
-target_link_libraries(nanovg_font PUBLIC
-	${FREETYPE_LIBRARIES}
-	${CAIRO_LIBRARIES}
-	${HARFBUZZ_LIBRARIES}
-	${FRIBIDI_LIBRARIES}
-)
-
-# Vulkan backend library
+# Vulkan backend library (must be defined before nanovg_font)
 add_library(nanovg_vulkan STATIC
 	src/vulkan/vk_shader.c
 	src/vulkan/nvg_vk_context.c
@@ -99,7 +72,36 @@ target_include_directories(nanovg_vulkan PUBLIC
 
 target_link_libraries(nanovg_vulkan PUBLIC
 	${Vulkan_LIBRARIES}
-	nanovg_font
+)
+
+# Font system library
+add_library(nanovg_font STATIC
+	src/font/nvg_font_system.c
+	src/font/nvg_font_glyph.c
+	src/font/nvg_font_shaping.c
+	src/font/nvg_font_info.c
+	src/font/nvg_font_colr.c
+	src/font/nvg_font_shape_cache.c
+	src/font/nvg_font_gpu_raster.c
+)
+
+target_include_directories(nanovg_font PUBLIC
+	${CMAKE_SOURCE_DIR}/src
+	${CMAKE_SOURCE_DIR}/src/font
+	${CMAKE_SOURCE_DIR}/src/vulkan
+	${FREETYPE_INCLUDE_DIRS}
+	${CAIRO_INCLUDE_DIRS}
+	${HARFBUZZ_INCLUDE_DIRS}
+	${FRIBIDI_INCLUDE_DIRS}
+	${Vulkan_INCLUDE_DIRS}
+)
+
+target_link_libraries(nanovg_font PUBLIC
+	nanovg_vulkan
+	${FREETYPE_LIBRARIES}
+	${CAIRO_LIBRARIES}
+	${HARFBUZZ_LIBRARIES}
+	${FRIBIDI_LIBRARIES}
 )
 
 # NanoVG core library
@@ -142,6 +144,9 @@ target_link_libraries(test_utils PUBLIC
 	Threads::Threads
 )
 
+# Enable CTest support
+enable_testing()
+
 # Function to add a test executable
 function(add_nanovg_test TEST_NAME)
 	add_executable(${TEST_NAME} tests/${TEST_NAME}.c)
@@ -162,6 +167,16 @@ function(add_nanovg_test TEST_NAME)
 	set_target_properties(${TEST_NAME} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 	)
+
+	# Register with CTest - use absolute path to test executable
+	add_test(NAME ${TEST_NAME}
+		COMMAND ${CMAKE_BINARY_DIR}/${TEST_NAME}
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+	)
+	set_tests_properties(${TEST_NAME} PROPERTIES
+		TIMEOUT 30
+		ENVIRONMENT "VK_INSTANCE_LAYERS=;VK_LAYER_PATH="
+	)
 endfunction()
 
 # Discover and add all test files
@@ -181,29 +196,19 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
 	endif()
 endforeach()
 
-# Custom target to run all tests
-add_custom_target(test_all
-	COMMAND ${CMAKE_COMMAND} -E echo "=== Running all tests ==="
-	WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+# Custom clean-all target (removes entire build directory contents)
+add_custom_target(clean-all
+	COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/CMakeFiles
+	COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/CMakeCache.txt
+	COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/cmake_install.cmake
+	COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/Makefile
+	COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/compile_commands.json
+	COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/*.a
+	COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/test_*
+	COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_BINARY_DIR}/CTestTestfile.cmake
+	COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/Testing
+	COMMENT "Cleaning all build files"
 )
-
-# Add individual test run targets
-foreach(TEST_SOURCE ${TEST_SOURCES})
-	list(FIND EXCLUDED_TESTS ${TEST_SOURCE} IS_EXCLUDED)
-	if(IS_EXCLUDED EQUAL -1)
-		get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)
-		add_custom_target(run_${TEST_NAME}
-			COMMAND ${CMAKE_COMMAND} -E env
-				"VK_INSTANCE_LAYERS="
-				"VK_LAYER_PATH="
-				timeout 30 $<TARGET_FILE:${TEST_NAME}> || true
-			DEPENDS ${TEST_NAME}
-			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-			COMMENT "Running ${TEST_NAME}..."
-		)
-		add_dependencies(test_all run_${TEST_NAME})
-	endif()
-endforeach()
 
 # Print configuration summary
 message(STATUS "")
