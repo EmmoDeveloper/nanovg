@@ -1,3 +1,6 @@
 #!/bin/bash
 set -e
 ctest --preset=default
+for f in screendumps/*.ppm; do
+    convert "$f" "${f%.ppm}.png"
+done
