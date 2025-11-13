@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
-project(NanoVG C)
+project(NanoVG C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Build type
@@ -12,6 +14,9 @@ endif()
 
 # Compiler flags
 add_compile_options(-Wall -Wextra -O2 -g)
+
+# Enable testing
+enable_testing()
 
 # Screenshot output directory - in project root
 set(SCREENDUMP_DIR "${CMAKE_SOURCE_DIR}/screendumps")
@@ -176,6 +181,16 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
 	if(IS_EXCLUDED EQUAL -1)
 		get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)
 		add_nanovg_test(${TEST_NAME})
+
+		# Register with CTest
+		add_test(
+			NAME ${TEST_NAME}
+			COMMAND ${CMAKE_COMMAND} -E env
+				"VK_INSTANCE_LAYERS="
+				"VK_LAYER_PATH="
+				timeout 30 $<TARGET_FILE:${TEST_NAME}>
+			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+		)
 	endif()
 endforeach()
 
@@ -202,6 +217,12 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
 		add_dependencies(test_all run_${TEST_NAME})
 	endif()
 endforeach()
+
+# Image analyzer utility (C++)
+add_executable(image_analyzer tests/image_analyzer.cpp)
+set_target_properties(image_analyzer PROPERTIES
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
 
 # Print configuration summary
 message(STATUS "")

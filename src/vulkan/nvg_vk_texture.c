@@ -9,7 +9,7 @@
 VkFormat nvgvk__get_vk_format(int type)
 {
 	if (type == NVG_TEXTURE_RGBA || type == 3) {  // RGBA or MSDF
-		return VK_FORMAT_R8G8B8A8_UNORM;
+		return VK_FORMAT_B8G8R8A8_UNORM;
 	}
 	return VK_FORMAT_R8_UNORM;  // ALPHA
 }
