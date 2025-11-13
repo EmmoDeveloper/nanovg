@@ -474,7 +474,122 @@ static int nvg__renderPaint(NVGFontSystem* fs, FT_Face face, FT_OpaquePaint* opa
 			break;
 		}
 
-		// TODO: Implement other paint formats (sweep gradient, translate, scale, rotate, skew, etc.)
+		case FT_COLR_PAINTFORMAT_TRANSLATE: {
+			// Apply translation transform
+			cairo_save(cr);
+			cairo_translate(cr,
+			                paint.u.translate.dx / 65536.0,
+			                paint.u.translate.dy / 65536.0);
+			nvg__renderPaint(fs, face, &paint.u.translate.paint);
+			cairo_restore(cr);
+			break;
+		}
+
+		case FT_COLR_PAINTFORMAT_SCALE: {
+			// Apply scale transform
+			cairo_save(cr);
+			// Scale around center point
+			cairo_translate(cr,
+			                paint.u.scale.center_x / 65536.0,
+			                paint.u.scale.center_y / 65536.0);
+			cairo_scale(cr,
+			            paint.u.scale.scale_x / 65536.0,
+			            paint.u.scale.scale_y / 65536.0);
+			cairo_translate(cr,
+			                -(paint.u.scale.center_x / 65536.0),
+			                -(paint.u.scale.center_y / 65536.0));
+			nvg__renderPaint(fs, face, &paint.u.scale.paint);
+			cairo_restore(cr);
+			break;
+		}
+
+		case FT_COLR_PAINTFORMAT_ROTATE: {
+			// Apply rotation transform
+			float angle_radians = (paint.u.rotate.angle / 65536.0) * (M_PI / 180.0);
+			cairo_save(cr);
+			// Rotate around center point
+			cairo_translate(cr,
+			                paint.u.rotate.center_x / 65536.0,
+			                paint.u.rotate.center_y / 65536.0);
+			cairo_rotate(cr, angle_radians);
+			cairo_translate(cr,
+			                -(paint.u.rotate.center_x / 65536.0),
+			                -(paint.u.rotate.center_y / 65536.0));
+			nvg__renderPaint(fs, face, &paint.u.rotate.paint);
+			cairo_restore(cr);
+			break;
+		}
+
+		case FT_COLR_PAINTFORMAT_SKEW: {
+			// Apply skew transform
+			float x_skew_radians = (paint.u.skew.x_skew_angle / 65536.0) * (M_PI / 180.0);
+			float y_skew_radians = (paint.u.skew.y_skew_angle / 65536.0) * (M_PI / 180.0);
+
+			cairo_matrix_t skew_matrix;
+			cairo_matrix_init(&skew_matrix,
+			                  1.0, tan(y_skew_radians),
+			                  tan(x_skew_radians), 1.0,
+			                  0.0, 0.0);
+
+			cairo_save(cr);
+			// Skew around center point
+			cairo_translate(cr,
+			                paint.u.skew.center_x / 65536.0,
+			                paint.u.skew.center_y / 65536.0);
+			cairo_transform(cr, &skew_matrix);
+			cairo_translate(cr,
+			                -(paint.u.skew.center_x / 65536.0),
+			                -(paint.u.skew.center_y / 65536.0));
+			nvg__renderPaint(fs, face, &paint.u.skew.paint);
+			cairo_restore(cr);
+			break;
+		}
+
+		case FT_COLR_PAINTFORMAT_SWEEP_GRADIENT: {
+			// Sweep (conic) gradient
+			FT_ColorLine* colorline = &paint.u.sweep_gradient.colorline;
+
+			// Cairo doesn't have native conic gradients, so we approximate with a radial gradient
+			// For production use, consider using a custom shader or mesh pattern for true conic gradients
+
+			float center_x = paint.u.sweep_gradient.center.x / 65536.0;
+			float center_y = paint.u.sweep_gradient.center.y / 65536.0;
+
+			// Use radial gradient as approximation
+			cairo_pattern_t* pattern = cairo_pattern_create_radial(
+				center_x, center_y, 0.0,
+				center_x, center_y, 100.0);
+
+			// Add color stops using iterator
+			FT_ColorStop stop;
+			FT_ColorStopIterator iterator = colorline->color_stop_iterator;
+			while (FT_Get_Colorline_Stops(face, &stop, &iterator)) {
+				FT_Color color;
+				if (!nvg__resolveColorIndex(face, stop.color, &color)) {
+					cairo_pattern_destroy(pattern);
+					return 0;
+				}
+				cairo_pattern_add_color_stop_rgba(pattern,
+				                                   stop.stop_offset / 65536.0,
+				                                   color.red / 255.0,
+				                                   color.green / 255.0,
+				                                   color.blue / 255.0,
+				                                   color.alpha / 255.0);
+			}
+
+			// Set extend mode
+			switch (colorline->extend) {
+				case FT_COLR_PAINT_EXTEND_PAD:     cairo_pattern_set_extend(pattern, CAIRO_EXTEND_PAD); break;
+				case FT_COLR_PAINT_EXTEND_REPEAT:  cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REPEAT); break;
+				case FT_COLR_PAINT_EXTEND_REFLECT: cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REFLECT); break;
+			}
+
+			cairo_set_source(cr, pattern);
+			cairo_paint(cr);
+			cairo_pattern_destroy(pattern);
+			break;
+		}
+
 		default:
 			// Unsupported paint format - return success anyway to allow fallback
 			return 1;

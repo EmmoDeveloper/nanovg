@@ -1,6 +1,7 @@
 #include "nvg_font.h"
 #include "nvg_font_internal.h"
 #include "nvg_font_colr.h"
+#include "../vknvg_msdf.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -357,24 +358,50 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 		}
 	}
 
+	// Check if MSDF mode is enabled for this font
+	int useMSDF = (fs->fonts[fontId].msdfMode > 0);
+
 	if (!isColor) {
-		// Regular grayscale rendering
-		FT_Int32 load_flags = FT_LOAD_RENDER;
-		if (!fs->state.hinting) {
-			load_flags |= FT_LOAD_NO_HINTING;
-		}
-		if (FT_Load_Glyph(face, glyph_index, load_flags)) {
-			return 0;
-		}
+		// Check if we should generate MSDF/SDF
+		if (useMSDF) {
+			// Load glyph outline for distance field generation
+			FT_Int32 load_flags = FT_LOAD_NO_BITMAP;
+			if (!fs->state.hinting) {
+				load_flags |= FT_LOAD_NO_HINTING;
+			}
+			if (FT_Load_Glyph(face, glyph_index, load_flags)) {
+				return 0;
+			}
 
-		FT_GlyphSlot slot = face->glyph;
-		if (slot->format != FT_GLYPH_FORMAT_BITMAP) {
-			return 0;
-		}
+			FT_GlyphSlot slot = face->glyph;
+			if (slot->format != FT_GLYPH_FORMAT_OUTLINE) {
+				return 0;
+			}
 
-		// Allocate space in atlas
-		gw = (int)slot->bitmap.width;
-		gh = (int)slot->bitmap.rows;
+			// Calculate MSDF dimensions (larger than glyph for distance field range)
+			// Use 64x64 as base size with distance field range
+			int msdfRange = 16;  // pixels
+			gw = 64;
+			gh = 64;
+		} else {
+			// Regular grayscale rendering
+			FT_Int32 load_flags = FT_LOAD_RENDER;
+			if (!fs->state.hinting) {
+				load_flags |= FT_LOAD_NO_HINTING;
+			}
+			if (FT_Load_Glyph(face, glyph_index, load_flags)) {
+				return 0;
+			}
+
+			FT_GlyphSlot slot = face->glyph;
+			if (slot->format != FT_GLYPH_FORMAT_BITMAP) {
+				return 0;
+			}
+
+			// Allocate space in atlas
+			gw = (int)slot->bitmap.width;
+			gh = (int)slot->bitmap.rows;
+		}
 	} else {
 		// For COLR, we already have gw/gh from metrics
 	}
@@ -382,11 +409,12 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	FT_GlyphSlot slot = face->glyph;
 
 	// Determine color spaces and format
-	// TODO: Get actual color spaces from Vulkan color space configuration
-	// For now, use sRGB as default for both source and destination
+	// Source color space: sRGB for COLR emoji (Cairo outputs sRGB), no color space for grayscale
+	// Destination color space: Use the target color space configured for the font system
 	VkColorSpaceKHR srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	VkColorSpaceKHR dstColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	VkFormat format = isColor ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM;
+	VkColorSpaceKHR dstColorSpace = fs->targetColorSpace;
+	// MSDF uses RGB format (3 channels), regular grayscale uses single channel
+	VkFormat format = isColor ? VK_FORMAT_R8G8B8A8_UNORM : (useMSDF ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM);
 
 	int ax, ay;
 	if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, gw + 2, gh + 2, &ax, &ay)) {
@@ -498,6 +526,44 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 				free(data);
 			}
 			free(rgba_data);
+		} else if (useMSDF) {
+			// Generate and upload MSDF
+			int bytes_per_pixel = (fs->fonts[fontId].msdfMode == 2) ? 4 : 1;  // MSDF=RGB(4), SDF=ALPHA(1)
+			unsigned char* msdf_data = (unsigned char*)calloc(gw * gh * bytes_per_pixel, 1);
+
+			if (msdf_data) {
+				// Set up MSDF generation parameters
+				VKNVGmsdfParams params;
+				params.width = gw;
+				params.height = gh;
+				params.stride = gw * bytes_per_pixel;
+				params.range = 16.0f;  // Distance field range in pixels
+				params.scale = 1.0f;
+				params.offsetX = 0;
+				params.offsetY = 0;
+
+				// Generate MSDF or SDF
+				if (fs->fonts[fontId].msdfMode == 2) {
+					vknvg__generateMSDF(slot, msdf_data, &params);
+				} else {
+					vknvg__generateSDF(slot, msdf_data, &params);
+				}
+
+				// Create padded buffer
+				unsigned char* data = (unsigned char*)calloc(padded_w * padded_h * bytes_per_pixel, 1);
+				if (data) {
+					// Copy MSDF data to center of padded buffer
+					for (int y = 0; y < gh; y++) {
+						memcpy(data + ((y + 1) * padded_w + 1) * bytes_per_pixel,
+						       msdf_data + y * gw * bytes_per_pixel,
+						       gw * bytes_per_pixel);
+					}
+
+					nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
+					free(data);
+				}
+				free(msdf_data);
+			}
 		} else {
 			// Upload grayscale bitmap
 			int pitch = abs(slot->bitmap.pitch);

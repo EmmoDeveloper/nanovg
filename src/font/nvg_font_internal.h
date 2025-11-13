@@ -126,6 +126,7 @@ struct NVGFontSystem {
 	int nfeatures;
 	NVGCairoState cairoState;  // For COLR emoji rendering
 	NVGShapedTextCache* shapedTextCache;  // Shaped text cache (Phase 14.2)
+	VkColorSpaceKHR targetColorSpace;  // Target swapchain color space for rendering
 };
 
 #endif // NVG_FONT_INTERNAL_H

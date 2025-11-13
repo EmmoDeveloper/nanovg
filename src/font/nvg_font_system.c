@@ -204,6 +204,9 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 		return NULL;
 	}
 
+	// Initialize target color space to sRGB (default)
+	fs->targetColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+
 	return fs;
 }
 
@@ -267,6 +270,11 @@ void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, 
 	if (!fs || !fs->atlasManager) return;
 	fs->atlasManager->growCallback = callback;
 	fs->atlasManager->growUserdata = userdata;
+}
+
+void nvgFontSetColorSpace(NVGFontSystem* fs, VkColorSpaceKHR colorSpace) {
+	if (!fs) return;
+	fs->targetColorSpace = colorSpace;
 }
 
 // Font loading

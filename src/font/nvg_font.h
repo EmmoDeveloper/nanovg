@@ -10,6 +10,9 @@ void nvgFontDestroy(NVGFontSystem* fs);
 void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format), void* userdata);
 void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight), void* userdata);
 
+// Color space configuration
+void nvgFontSetColorSpace(NVGFontSystem* fs, VkColorSpaceKHR colorSpace);
+
 // Font loading
 int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path);
 int nvgFontAddFontMem(NVGFontSystem* fs, const char* name, unsigned char* data, int ndata, int freeData);

@@ -346,6 +346,11 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 	// Set atlas growth callback
 	nvgFontSetAtlasGrowCallback(ctx->fs, nvg__atlasGrow, ctx);
 
+	// Set target color space if provided by backend
+	if (params->colorSpace != 0) {
+		nvgFontSetColorSpace(ctx->fs, (VkColorSpaceKHR)params->colorSpace);
+	}
+
 	// Notify backend that font system has been created (for virtual atlas integration)
 	if (ctx->params.renderFontSystemCreated) {
 		ctx->params.renderFontSystemCreated(ctx->params.userPtr, ctx->fs);

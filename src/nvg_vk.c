@@ -23,6 +23,7 @@
 #include "vulkan/nvg_vk_pipeline.h"
 #include "vulkan/nvg_vk_render.h"
 #include "vulkan/nvg_vk_types.h"
+#include "font/nvg_font.h"
 #include "vulkan/nvg_vk_color_space_ubo.h"
 #include "vulkan/nvg_vk_color_space.h"
 #include <stdlib.h>
@@ -102,6 +103,8 @@ NVGcontext* nvgCreateVk(VkDevice device, VkPhysicalDevice physicalDevice,
 	params.userPtr = backend;
 	params.edgeAntiAlias = flags & NVG_ANTIALIAS ? 1 : 0;
 	params.msdfText = flags & (1 << 13) ? 1 : 0;  // NVG_MSDF_TEXT flag
+	// Pass swapchain color space for text rendering (will be set after color space initialization)
+	params.colorSpace = 0;  // Will be updated in renderCreate callback
 
 	ctx = nvgCreateInternal(&params);
 	if (ctx == NULL) {
@@ -556,9 +559,14 @@ void nvgVkSetToneMapping(NVGcontext* ctx, int enabled)
 
 static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)
 {
-	// Font system integration will be added in Phase 2
-	(void)uptr;
-	(void)fontSystem;
+	NVGVkBackend* backend = (NVGVkBackend*)uptr;
+	if (!backend || !fontSystem) return;
+
+	// Set target color space for font rendering if available
+	if (backend->vk.colorSpace) {
+		NVGVkColorSpace* cs = (NVGVkColorSpace*)backend->vk.colorSpace;
+		nvgFontSetColorSpace((NVGFontSystem*)fontSystem, cs->swapchainColorSpace);
+	}
 }
 
 void nvgVkDumpAtlasTextureByIndex(NVGcontext* ctx, int textureIndex, const char* filename)
