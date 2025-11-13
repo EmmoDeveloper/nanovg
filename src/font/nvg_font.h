@@ -2,12 +2,13 @@
 #define NVG_FONT_H
 
 #include "nvg_font_types.h"
+#include <vulkan/vulkan.h>
 
 // Font system lifecycle
 NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight);
 void nvgFontDestroy(NVGFontSystem* fs);
-void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex), void* userdata);
-void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, int atlasIndex, int* newWidth, int* newHeight), void* userdata);
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format), void* userdata);
+void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight), void* userdata);
 
 // Font loading
 int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path);
@@ -24,7 +25,6 @@ void nvgFontSetBlur(NVGFontSystem* fs, float blur);
 void nvgFontSetAlign(NVGFontSystem* fs, int align);
 void nvgFontSetFontMSDF(NVGFontSystem* fs, int font, int msdfMode);
 void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height);
-void nvgFontResetAtlasByIndex(NVGFontSystem* fs, int atlasIndex, int width, int height);
 
 // Text layout and iteration
 void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, float y,

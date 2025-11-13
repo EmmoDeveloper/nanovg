@@ -12,6 +12,7 @@
 #include <fribidi.h>
 #include <cairo.h>
 #include <cairo-ft.h>
+#include <vulkan/vulkan.h>
 #include "nvg_font_shape_cache.h"
 
 // Internal helpers
@@ -41,8 +42,9 @@ typedef struct {
 	float size;
 	int hinting;              // Hinting mode
 	unsigned int varStateId;  // Variation state ID (for variable fonts)
-	int atlasIndex;           // 0=ALPHA atlas, 1=RGBA atlas
-	int isColor;              // 1 if COLR/color emoji, 0 if grayscale
+	VkColorSpaceKHR srcColorSpace;  // Source color space
+	VkColorSpaceKHR dstColorSpace;  // Destination color space
+	VkFormat format;          // Vulkan format this glyph is stored in
 	float x, y, w, h;
 	float s0, t0, s1, t1;
 	float advanceX;
@@ -64,18 +66,29 @@ typedef struct NVGAtlasNode {
 	short x, y, width;
 } NVGAtlasNode;
 
-// Atlas manager
-struct NVGAtlasManager {
+// Maximum number of atlas formats supported
+#define NVG_MAX_ATLAS_FORMATS 16
+
+// Individual atlas storage
+typedef struct NVGAtlas {
+	VkColorSpaceKHR srcColorSpace;
+	VkColorSpaceKHR dstColorSpace;
+	VkFormat format;
 	int width;
 	int height;
 	NVGAtlasNode* nodes;
 	int nnodes;
 	int cnodes;
+	int active;
+} NVGAtlas;
+
+// Atlas manager - service desk for multiple atlases indexed by color space
+struct NVGAtlasManager {
+	NVGAtlas atlases[NVG_MAX_ATLAS_FORMATS];
 	int atlasCount;
-	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex);
+	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
 	void* textureUserdata;
-	// Atlas growth callback - returns 1 if new atlas was allocated, 0 if failed
-	int (*growCallback)(void* uptr, int atlasIndex, int* newWidth, int* newHeight);
+	int (*growCallback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight);
 	void* growUserdata;
 };
 
@@ -106,8 +119,7 @@ struct NVGFontSystem {
 	NVGFont fonts[NVG_FONT_MAX_FONTS];
 	int nfonts;
 	NVGGlyphCache* glyphCache;
-	NVGAtlasManager* atlasManagerALPHA;  // ALPHA atlas for grayscale glyphs
-	NVGAtlasManager* atlasManagerRGBA;   // RGBA atlas for color emoji
+	NVGAtlasManager* atlasManager;  // Single atlas manager servicing all atlas types
 	NVGFontState state;
 	NVGTextShapingState shapingState;
 	NVGOTFeature features[32];

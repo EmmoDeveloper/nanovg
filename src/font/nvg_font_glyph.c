@@ -6,10 +6,16 @@
 #include <math.h>
 #include <freetype/ftoutln.h>
 
+// Forward declarations from nvg_font_system.c
+int nvgAtlasAlloc(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int w, int h, int* x, int* y);
+void nvgAtlasUpdate(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int x, int y, int w, int h, const unsigned char* data);
+int nvgAtlasGrow(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight);
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
+
 // Internal helpers
 // Skyline-based atlas packing (adapted from fontstash.h)
 
-static int nvg__atlasInsertNode(NVGAtlasManager* atlas, int idx, int x, int y, int w)
+static int nvg__atlasInsertNode(NVGAtlas* atlas, int idx, int x, int y, int w)
 {
 	int i;
 	if (atlas->nnodes + 1 > atlas->cnodes) {
@@ -27,7 +33,7 @@ static int nvg__atlasInsertNode(NVGAtlasManager* atlas, int idx, int x, int y, i
 	return 1;
 }
 
-static void nvg__atlasRemoveNode(NVGAtlasManager* atlas, int idx)
+static void nvg__atlasRemoveNode(NVGAtlas* atlas, int idx)
 {
 	int i;
 	if (atlas->nnodes == 0) return;
@@ -36,7 +42,7 @@ static void nvg__atlasRemoveNode(NVGAtlasManager* atlas, int idx)
 	atlas->nnodes--;
 }
 
-static int nvg__atlasAddSkylineLevel(NVGAtlasManager* atlas, int idx, int x, int y, int w, int h)
+static int nvg__atlasAddSkylineLevel(NVGAtlas* atlas, int idx, int x, int y, int w, int h)
 {
 	int i;
 
@@ -73,7 +79,7 @@ static int nvg__atlasAddSkylineLevel(NVGAtlasManager* atlas, int idx, int x, int
 	return 1;
 }
 
-static int nvg__atlasRectFits(NVGAtlasManager* atlas, int i, int w, int h)
+static int nvg__atlasRectFits(NVGAtlas* atlas, int i, int w, int h)
 {
 	// Check if there is enough space at the location of skyline span 'i'
 	int x = atlas->nodes[i].x;
@@ -93,7 +99,7 @@ static int nvg__atlasRectFits(NVGAtlasManager* atlas, int i, int w, int h)
 	return y;
 }
 
-static int nvg__allocAtlasNode(NVGAtlasManager* atlas, int w, int h, int* x, int* y)
+int nvg__allocAtlasNode(NVGAtlas* atlas, int w, int h, int* x, int* y)
 {
 	int besth = atlas->height, bestw = atlas->width, besti = -1;
 	int bestx = -1, besty = -1, i;
@@ -240,7 +246,8 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 		quad->advanceX = entry->advanceX;
 		quad->bearingX = entry->bearingX;
 		quad->bearingY = entry->bearingY;
-		quad->atlasIndex = entry->atlasIndex;
+		// Map format to legacy atlasIndex (0=ALPHA, 1=RGBA)
+		quad->atlasIndex = (entry->format == VK_FORMAT_R8G8B8A8_UNORM) ? 1 : 0;
 		quad->generation = entry->generation;
 		return 1;
 	}
@@ -374,30 +381,32 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 
 	FT_GlyphSlot slot = face->glyph;
 
-	// Select atlas manager based on glyph type
-	NVGAtlasManager* atlas = isColor ? fs->atlasManagerRGBA : fs->atlasManagerALPHA;
-	int atlasIdx = isColor ? 1 : 0;
+	// Determine color spaces and format
+	// TODO: Get actual color spaces from Vulkan color space configuration
+	// For now, use sRGB as default for both source and destination
+	VkColorSpaceKHR srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	VkColorSpaceKHR dstColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	VkFormat format = isColor ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM;
 
 	int ax, ay;
-	if (!nvg__allocAtlasNode(atlas, gw + 2, gh + 2, &ax, &ay)) {
+	if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, gw + 2, gh + 2, &ax, &ay)) {
 		// Atlas full - try to grow atlas
-		if (atlas->growCallback) {
-			int newWidth = 0, newHeight = 0;
-			if (atlas->growCallback(atlas->growUserdata, atlasIdx, &newWidth, &newHeight)) {
-				// Atlas was grown, try allocation again
-				if (!nvg__allocAtlasNode(atlas, gw + 2, gh + 2, &ax, &ay)) {
-					// Still failed after growth
-					return 0;
-				}
-			} else {
-				// Growth failed
+		int newWidth = 0, newHeight = 0;
+		if (nvgAtlasGrow(fs->atlasManager, srcColorSpace, dstColorSpace, format, &newWidth, &newHeight)) {
+			// Atlas was grown, try allocation again
+			if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, gw + 2, gh + 2, &ax, &ay)) {
+				// Still failed after growth
 				return 0;
 			}
 		} else {
-			// No growth callback set
+			// Growth failed
 			return 0;
 		}
 	}
+
+	// Get atlas for dimensions (use format-aware lookup to distinguish ALPHA vs RGBA with same color spaces)
+	NVGAtlas* atlas = nvg__getAtlas(fs->atlasManager, srcColorSpace, dstColorSpace, format);
+	if (!atlas) return 0;
 
 	// Create cache entry
 	entry = nvg__allocGlyph(fs->glyphCache);
@@ -406,8 +415,9 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	entry->size = fs->state.size;
 	entry->hinting = fs->state.hinting;
 	entry->varStateId = varStateId;
-	entry->isColor = isColor;
-	entry->atlasIndex = isColor ? 1 : 0;  // RGBA atlas for color, ALPHA atlas for grayscale
+	entry->srcColorSpace = srcColorSpace;
+	entry->dstColorSpace = dstColorSpace;
+	entry->format = format;
 
 	entry->x = (float)(ax + 1);
 	entry->y = (float)(ay + 1);
@@ -459,11 +469,11 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	quad->advanceX = entry->advanceX;
 	quad->bearingX = entry->bearingX;
 	quad->bearingY = entry->bearingY;
-	quad->atlasIndex = entry->atlasIndex;
+	quad->atlasIndex = isColor ? 1 : 0;
 	quad->generation = entry->generation;
 
 	// Upload bitmap data to atlas
-	if (atlas->textureCallback && gw > 0 && gh > 0) {
+	if (gw > 0 && gh > 0) {
 		int padded_w = gw + 2;
 		int padded_h = gh + 2;
 
@@ -484,13 +494,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 					printf("[Atlas RGBA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
 						upload_debug_color, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
 				}
-				atlas->textureCallback(
-					atlas->textureUserdata,
-					(int)ax, (int)ay,
-					padded_w, padded_h,
-					data,
-					1  // atlasIndex = 1 for RGBA
-				);
+				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
 				free(data);
 			}
 			free(rgba_data);
@@ -511,13 +515,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 					printf("[Atlas ALPHA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
 						upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
 				}
-				atlas->textureCallback(
-					atlas->textureUserdata,
-					(int)ax, (int)ay,
-					padded_w, padded_h,
-					data,
-					0  // atlasIndex = 0 for ALPHA
-				);
+				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
 				free(data);
 			}
 		}

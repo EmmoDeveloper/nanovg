@@ -146,8 +146,10 @@ struct NVGcontext {
 };
 
 // Forward declarations for font system callbacks
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex);
-static int nvg__atlasGrow(void* uptr, int atlasIndex, int* newWidth, int* newHeight);
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
+void nvgAtlasReset(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int width, int height);
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
+static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight);
 
 static float nvg__sqrtf(float a) { return sqrtf(a); }
 static float nvg__modf(float a, float b) { return fmodf(a, b); }
@@ -302,7 +304,7 @@ static NVGstate* nvg__getState(NVGcontext* ctx)
 }
 
 // Forward declaration for texture callback
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex);
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
 
 NVGcontext* nvgCreateInternal(NVGparams* params)
 {
@@ -2454,12 +2456,13 @@ static float nvg__getFontScale(NVGstate* state)
 }
 
 // Texture upload callback for nvg_freetype
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, int atlasIndex)
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format)
 {
 	NVGcontext* ctx = (NVGcontext*)uptr;
 	int fontImage;
+	int isRGBA = (format == VK_FORMAT_R8G8B8A8_UNORM);
 
-	if (atlasIndex == 1) {
+	if (isRGBA) {
 		// RGBA atlas for color emoji
 		fontImage = ctx->fontImagesRGBA[ctx->fontImageIdxRGBA];
 	} else {
@@ -2505,14 +2508,15 @@ static int nvg__allocTextAtlas(NVGcontext* ctx)
 }
 
 // Atlas growth callback for font system
-static int nvg__atlasGrow(void* uptr, int atlasIndex, int* newWidth, int* newHeight)
+static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight)
 {
 	NVGcontext* ctx = (NVGcontext*)uptr;
 	int iw, ih;
+	int isRGBA = (format == VK_FORMAT_R8G8B8A8_UNORM);
 
 	nvg__flushTextTexture(ctx);
 
-	if (atlasIndex == 1) {
+	if (isRGBA) {
 		// RGBA atlas for color emoji
 		if (ctx->fontImageIdxRGBA >= NVG_MAX_FONTIMAGES-1)
 			return 0;
@@ -2555,7 +2559,8 @@ static int nvg__atlasGrow(void* uptr, int atlasIndex, int* newWidth, int* newHei
 		++ctx->fontImageIdx;
 	}
 
-	nvgFontResetAtlasByIndex(ctx->fs, atlasIndex, iw, ih);
+	// Reset the specific atlas that was grown
+	nvgAtlasReset(ctx->fs->atlasManager, srcColorSpace, dstColorSpace, format, iw, ih);
 
 	if (newWidth) *newWidth = iw;
 	if (newHeight) *newHeight = ih;
