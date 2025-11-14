@@ -2433,6 +2433,11 @@ void nvgTextAlign(NVGcontext* ctx, int align)
 	state->textAlign = align;
 }
 
+void nvgTextSubpixelMode(NVGcontext* ctx, int mode)
+{
+	nvgFontSetSubpixelMode(ctx->fs, mode);
+}
+
 void nvgFontFaceId(NVGcontext* ctx, int font)
 {
 	NVGstate* state = nvg__getState(ctx);

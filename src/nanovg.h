@@ -620,6 +620,9 @@ void nvgTextLineHeight(NVGcontext* ctx, float lineHeight);
 // Sets the text align of current text style, see NVGalign for options.
 void nvgTextAlign(NVGcontext* ctx, int align);
 
+// Sets the subpixel rendering mode. 0=none, 1=RGB, 2=BGR, 3=VRGB, 4=VBGR.
+void nvgTextSubpixelMode(NVGcontext* ctx, int mode);
+
 // Sets the font face based on specified id of current text style.
 void nvgFontFaceId(NVGcontext* ctx, int font);
 

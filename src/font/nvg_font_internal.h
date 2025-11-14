@@ -41,6 +41,7 @@ typedef struct {
 	int fontId;
 	float size;
 	int hinting;              // Hinting mode
+	int subpixelMode;         // Subpixel rendering mode (critical for cache correctness)
 	unsigned int varStateId;  // Variation state ID (for variable fonts)
 	VkColorSpaceKHR srcColorSpace;  // Source color space
 	VkColorSpaceKHR dstColorSpace;  // Destination color space

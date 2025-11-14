@@ -51,6 +51,15 @@ typedef struct {
 	void* cachedShaping;  // Opaque pointer to NVGShapedTextEntry (NULL if using shared buffer)
 } NVGTextIter;
 
+// Subpixel rendering modes
+typedef enum {
+	NVG_SUBPIXEL_NONE = 0,      // No subpixel rendering (grayscale)
+	NVG_SUBPIXEL_RGB = 1,       // LCD RGB horizontal
+	NVG_SUBPIXEL_BGR = 2,       // LCD BGR horizontal
+	NVG_SUBPIXEL_VRGB = 3,      // LCD RGB vertical
+	NVG_SUBPIXEL_VBGR = 4       // LCD BGR vertical
+} NVGSubpixelMode;
+
 // Font rendering state
 typedef struct {
 	int fontId;
@@ -60,6 +69,7 @@ typedef struct {
 	int align;
 	int hinting;
 	int kerningEnabled;
+	NVGSubpixelMode subpixelMode;
 } NVGFontState;
 
 // Variable font axis

@@ -57,6 +57,7 @@ void nvgFontResetFeatures(NVGFontSystem* fs);
 void nvgFontSetHinting(NVGFontSystem* fs, int hinting);
 void nvgFontSetKerning(NVGFontSystem* fs, int enabled);
 void nvgFontSetTextDirection(NVGFontSystem* fs, int direction);
+void nvgFontSetSubpixelMode(NVGFontSystem* fs, int mode);  // NVGSubpixelMode
 
 // Font information
 const char* nvgFont__GetFamilyName(NVGFontSystem* fs, int fontId);

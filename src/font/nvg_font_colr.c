@@ -1,6 +1,11 @@
 #include "nvg_font_colr.h"
 #include <string.h>
+#define _USE_MATH_DEFINES
 #include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 // Helper function to resolve FT_ColorIndex to FT_Color
 static int nvg__resolveColorIndex(FT_Face face, FT_ColorIndex color_index, FT_Color* out_color) {

@@ -182,6 +182,7 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 	fs->state.align = 0;
 	fs->state.hinting = 1;
 	fs->state.kerningEnabled = 1;
+	fs->state.subpixelMode = NVG_SUBPIXEL_NONE;
 	fs->shapingState.bidi_enabled = 1;
 	fs->shapingState.base_dir = FRIBIDI_TYPE_ON;
 
@@ -477,4 +478,9 @@ void nvgFontResetAtlas(NVGFontSystem* fs, int width, int height) {
 			atlas->nodes[0].width = (short)width;
 		}
 	}
+}
+
+void nvgFontSetSubpixelMode(NVGFontSystem* fs, int mode) {
+	if (!fs) return;
+	fs->state.subpixelMode = (NVGSubpixelMode)mode;
 }

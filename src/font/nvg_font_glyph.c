@@ -6,6 +6,7 @@
 #include <string.h>
 #include <math.h>
 #include <freetype/ftoutln.h>
+#include <freetype/ftlcdfil.h>
 
 // Forward declarations from nvg_font_system.c
 int nvgAtlasAlloc(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int w, int h, int* x, int* y);
@@ -132,12 +133,13 @@ int nvg__allocAtlasNode(NVGAtlas* atlas, int w, int h, int* x, int* y)
 	return 1;
 }
 
-static NVGGlyphCacheEntry* nvg__findGlyph(NVGGlyphCache* cache, unsigned int glyphIndex, int fontId, float size, unsigned int varStateId) {
+static NVGGlyphCacheEntry* nvg__findGlyph(NVGGlyphCache* cache, unsigned int glyphIndex, int fontId, float size, unsigned int varStateId, int hinting, int subpixelMode) {
 	for (int i = 0; i < cache->count; i++) {
 		NVGGlyphCacheEntry* entry = &cache->entries[i];
 		if (entry->valid && entry->glyphIndex == glyphIndex &&
 			entry->fontId == fontId && fabsf(entry->size - size) < 0.01f &&
-			entry->varStateId == varStateId) {
+			entry->varStateId == varStateId && entry->hinting == hinting &&
+			entry->subpixelMode == subpixelMode) {
 			return entry;
 		}
 	}
@@ -231,9 +233,9 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
                        float x, float y, NVGCachedGlyph* quad) {
 	if (!fs || fontId < 0 || fontId >= fs->nfonts || !quad) return 0;
 
-	// Check cache first (use glyph_index as the key)
+	// Check cache first (use glyph_index, hinting, and subpixel mode as the key)
 	unsigned int varStateId = fs->fonts[fontId].varStateId;
-	NVGGlyphCacheEntry* entry = nvg__findGlyph(fs->glyphCache, glyph_index, fontId, fs->state.size, varStateId);
+	NVGGlyphCacheEntry* entry = nvg__findGlyph(fs->glyphCache, glyph_index, fontId, fs->state.size, varStateId, fs->state.hinting, fs->state.subpixelMode);
 	if (entry) {
 		quad->codepoint = codepoint;
 		quad->x0 = x + entry->bearingX;
@@ -384,11 +386,30 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 			gw = 64;
 			gh = 64;
 		} else {
-			// Regular grayscale rendering
+			// Regular grayscale or LCD subpixel rendering
 			FT_Int32 load_flags = FT_LOAD_RENDER;
 			if (!fs->state.hinting) {
 				load_flags |= FT_LOAD_NO_HINTING;
 			}
+
+			// Set LCD filter and target for subpixel rendering
+			if (fs->state.subpixelMode != NVG_SUBPIXEL_NONE) {
+				FT_Library_SetLcdFilter(fs->ftLibrary, FT_LCD_FILTER_DEFAULT);
+
+				switch (fs->state.subpixelMode) {
+					case NVG_SUBPIXEL_RGB:
+					case NVG_SUBPIXEL_BGR:
+						load_flags |= FT_LOAD_TARGET_LCD;
+						break;
+					case NVG_SUBPIXEL_VRGB:
+					case NVG_SUBPIXEL_VBGR:
+						load_flags |= FT_LOAD_TARGET_LCD_V;
+						break;
+					default:
+						break;
+				}
+			}
+
 			if (FT_Load_Glyph(face, glyph_index, load_flags)) {
 				return 0;
 			}
@@ -399,8 +420,19 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 			}
 
 			// Allocate space in atlas
+			// For LCD rendering, bitmap width is 3x wider (RGB subpixels)
 			gw = (int)slot->bitmap.width;
 			gh = (int)slot->bitmap.rows;
+
+			// For horizontal LCD, width is already 3x, divide by 3 for logical width
+			// For vertical LCD, height is 3x
+			if (fs->state.subpixelMode == NVG_SUBPIXEL_RGB || fs->state.subpixelMode == NVG_SUBPIXEL_BGR) {
+				// Horizontal LCD - width is 3x
+				gw = gw / 3;
+			} else if (fs->state.subpixelMode == NVG_SUBPIXEL_VRGB || fs->state.subpixelMode == NVG_SUBPIXEL_VBGR) {
+				// Vertical LCD - height is 3x
+				gh = gh / 3;
+			}
 		}
 	} else {
 		// For COLR, we already have gw/gh from metrics
@@ -409,12 +441,31 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	FT_GlyphSlot slot = face->glyph;
 
 	// Determine color spaces and format
-	// Source color space: sRGB for COLR emoji (Cairo outputs sRGB), no color space for grayscale
-	// Destination color space: Use the target color space configured for the font system
-	VkColorSpaceKHR srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	// Color spaces distinguish different atlas types:
+	// - COLR emoji: sRGB source (Cairo outputs sRGB)
+	// - LCD subpixel: No color space (linear RGB subpixels, not sRGB)
+	// - MSDF: No color space (distance field)
+	// - Grayscale: No color space (single channel alpha)
+	int useSubpixel = (fs->state.subpixelMode != NVG_SUBPIXEL_NONE && !isColor && !useMSDF);
+
+	VkColorSpaceKHR srcColorSpace;
+	if (isColor) {
+		// COLR emoji uses sRGB (Cairo outputs sRGB)
+		srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	} else {
+		// LCD, MSDF, and grayscale use no color space (linear/raw data)
+		srcColorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR;  // Use as "no color space" marker
+	}
 	VkColorSpaceKHR dstColorSpace = fs->targetColorSpace;
-	// MSDF uses RGB format (3 channels), regular grayscale uses single channel
-	VkFormat format = isColor ? VK_FORMAT_R8G8B8A8_UNORM : (useMSDF ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM);
+
+	// Determine format based on rendering mode:
+	// - COLR emoji: RGBA (4 channels)
+	// - MSDF: RGBA (4 channels for multi-channel distance field)
+	// - LCD subpixel: RGBA (3 RGB channels + alpha, stored as RGBA)
+	// - Grayscale: ALPHA (1 channel)
+	VkFormat format = isColor ? VK_FORMAT_R8G8B8A8_UNORM :
+	                  (useMSDF ? VK_FORMAT_R8G8B8A8_UNORM :
+	                  (useSubpixel ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM));
 
 	int ax, ay;
 	if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, gw + 2, gh + 2, &ax, &ay)) {
@@ -442,6 +493,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	entry->fontId = fontId;
 	entry->size = fs->state.size;
 	entry->hinting = fs->state.hinting;
+	entry->subpixelMode = fs->state.subpixelMode;
 	entry->varStateId = varStateId;
 	entry->srcColorSpace = srcColorSpace;
 	entry->dstColorSpace = dstColorSpace;
@@ -497,7 +549,8 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	quad->advanceX = entry->advanceX;
 	quad->bearingX = entry->bearingX;
 	quad->bearingY = entry->bearingY;
-	quad->atlasIndex = isColor ? 1 : 0;
+	// Map format to legacy atlasIndex (0=ALPHA, 1=RGBA)
+	quad->atlasIndex = (format == VK_FORMAT_R8G8B8A8_UNORM) ? 1 : 0;
 	quad->generation = entry->generation;
 
 	// Upload bitmap data to atlas
@@ -563,6 +616,56 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 					free(data);
 				}
 				free(msdf_data);
+			}
+		} else if (fs->state.subpixelMode != NVG_SUBPIXEL_NONE) {
+			// Upload LCD subpixel bitmap (3 bytes per pixel RGB -> 4 bytes RGBA)
+			int pitch = abs(slot->bitmap.pitch);
+			unsigned char* data = (unsigned char*)calloc(padded_w * padded_h * 4, 1);
+			if (data) {
+				// Copy LCD RGB data to center of padded buffer as RGBA (leaving 1px border)
+				for (int y = 0; y < gh; y++) {
+					unsigned char* src = slot->bitmap.buffer + y * pitch;
+					unsigned char* dst = data + ((y + 1) * padded_w + 1) * 4;
+
+					for (int x = 0; x < gw; x++) {
+						// For horizontal LCD, bitmap has 3x width in bytes
+						// For vertical LCD, bitmap has 3x height
+						int src_offset;
+						if (fs->state.subpixelMode == NVG_SUBPIXEL_RGB || fs->state.subpixelMode == NVG_SUBPIXEL_BGR) {
+							// Horizontal LCD: each pixel has 3 subpixels side-by-side
+							src_offset = x * 3;
+						} else {
+							// Vertical LCD: subpixels are stacked vertically
+							// Each logical pixel still has RGB components in sequence
+							src_offset = x * 3;
+						}
+
+						unsigned char r = src[src_offset + 0];
+						unsigned char g = src[src_offset + 1];
+						unsigned char b = src[src_offset + 2];
+
+						// Handle BGR vs RGB ordering
+						if (fs->state.subpixelMode == NVG_SUBPIXEL_BGR || fs->state.subpixelMode == NVG_SUBPIXEL_VBGR) {
+							// BGR modes - swap red and blue
+							unsigned char tmp = r;
+							r = b;
+							b = tmp;
+						}
+
+						dst[x * 4 + 0] = r;
+						dst[x * 4 + 1] = g;
+						dst[x * 4 + 2] = b;
+						dst[x * 4 + 3] = 255;  // Full opacity
+					}
+				}
+
+				static int lcd_debug = 0;
+				if (lcd_debug++ < 30) {
+					printf("[Atlas LCD upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
+						lcd_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+				}
+				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
+				free(data);
 			}
 		} else {
 			// Upload grayscale bitmap
