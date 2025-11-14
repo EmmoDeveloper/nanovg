@@ -656,17 +656,28 @@ void nvgvk_set_custom_color_space(NVGVkColorSpace* cs, int srcTransfer, int dstT
 {
 	if (!cs) return;
 
-	// For custom color spaces, we need to store the transfer functions and primaries
-	// and compute the conversion matrix
-	// This is more complex and requires extending the NVGVkColorSpace structure
-	// For now, we'll use the primaries to select a base color space
-	(void)srcTransfer;
-	(void)dstTransfer;
-	(void)srcPrimaries;
-	(void)dstPrimaries;
+	// Map transfer function indices to NVGVkTransferFunctionID
+	cs->conversionPath.srcTransferID = nvgvk__map_nvg_transfer(srcTransfer);
+	cs->conversionPath.dstTransferID = nvgvk__map_nvg_transfer(dstTransfer);
 
-	// TODO: Implement custom color space support
-	// This would require storing source/dest transfer and primaries separately
+	// Map primaries indices to NVGVkColorPrimaries
+	const NVGVkColorPrimaries* srcPrim = nvgvk__get_primaries_from_nvg_space(srcPrimaries);
+	const NVGVkColorPrimaries* dstPrim = nvgvk__get_primaries_from_nvg_space(dstPrimaries);
+
+	// Compute gamut conversion matrix using quaternion-based interpolation
+	// This provides better numerical stability than direct matrix computation
+	NVGVkMat3 directMatrix;
+	nvgvk_primaries_conversion_matrix(srcPrim, dstPrim, &directMatrix);
+
+	// Decompose into rotation + scale for stable representation
+	NVGVkMat3Decomposed decomposed;
+	nvgvk_mat3_decompose(&directMatrix, &decomposed);
+
+	// Recompose to ensure orthogonality (removes numerical errors)
+	nvgvk_mat3_compose(&decomposed, &cs->conversionPath.gamutMatrix);
+
+	// Set HDR scale to 1.0 by default (no scaling)
+	cs->conversionPath.hdrScale = 1.0f;
 }
 
 void nvgvk_set_hdr_scale(NVGVkColorSpace* cs, float scale)

@@ -28,12 +28,6 @@ typedef struct NVGVkColorSpaceDesc {
 	float maxLuminance;			// Max luminance in cd/m² (nits)
 	int isHDR;				// 1 if HDR, 0 if SDR
 	int isLinear;				// 1 if linear, 0 if gamma-corrected
-
-	// Transformation data
-	NVGVkTransferFunctionID transferID;	// Transfer function for shader
-	const NVGVkColorPrimaries* colorPrimaries;  // Primaries definition
-	NVGVkMat3 toXYZ;			// RGB → CIE XYZ
-	NVGVkMat3 fromXYZ;			// CIE XYZ → RGB
 } NVGVkColorSpaceDesc;
 
 // Color space conversion path (runtime configuration)

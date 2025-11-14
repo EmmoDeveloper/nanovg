@@ -9,6 +9,17 @@ typedef struct {
 	float m[9];  // [0..2] = row 0, [3..5] = row 1, [6..8] = row 2
 } NVGVkMat3;
 
+// Quaternion for rotation representation (w, x, y, z)
+typedef struct {
+	float w, x, y, z;
+} NVGVkQuat;
+
+// Decomposed 3x3 matrix: rotation + scale
+typedef struct {
+	NVGVkQuat rotation;  // Rotation as quaternion
+	float scale[3];      // Per-axis scale factors
+} NVGVkMat3Decomposed;
+
 // CIE 1931 xy chromaticity coordinates
 typedef struct {
 	float x, y;
@@ -43,5 +54,20 @@ void nvgvk_xyz_to_primaries_matrix(const NVGVkColorPrimaries* primaries, NVGVkMa
 void nvgvk_primaries_conversion_matrix(const NVGVkColorPrimaries* src,
                                        const NVGVkColorPrimaries* dst,
                                        NVGVkMat3* matrix);
+
+// Quaternion operations
+void nvgvk_quat_identity(NVGVkQuat* q);
+void nvgvk_quat_multiply(const NVGVkQuat* a, const NVGVkQuat* b, NVGVkQuat* result);
+void nvgvk_quat_normalize(NVGVkQuat* q);
+void nvgvk_quat_slerp(const NVGVkQuat* a, const NVGVkQuat* b, float t, NVGVkQuat* result);
+void nvgvk_quat_to_mat3(const NVGVkQuat* q, NVGVkMat3* m);
+void nvgvk_quat_from_mat3(const NVGVkMat3* m, NVGVkQuat* q);
+
+// Matrix decomposition (polar decomposition into rotation + scale)
+void nvgvk_mat3_decompose(const NVGVkMat3* m, NVGVkMat3Decomposed* decomposed);
+void nvgvk_mat3_compose(const NVGVkMat3Decomposed* decomposed, NVGVkMat3* m);
+
+// Interpolate between two matrices using quaternion SLERP for rotation
+void nvgvk_mat3_interpolate(const NVGVkMat3* a, const NVGVkMat3* b, float t, NVGVkMat3* result);
 
 #endif // NVG_VK_COLOR_SPACE_MATH_H
