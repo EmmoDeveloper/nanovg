@@ -129,7 +129,7 @@ int main(void) {
 	nvgEndFrame(vg);
 
 	// Dump atlas texture for debugging
-	nvgVkDumpAtlasTexture(vg, "screendumps/atlas_dump.ppm");
+	nvgVkDumpAtlasTexture(vg, "screendumps/atlas_dump.png");
 
 	vkCmdEndRenderPass(cmd);
 	vkEndCommandBuffer(cmd);
@@ -151,7 +151,7 @@ int main(void) {
 	vkQueueSubmit(winCtx->graphicsQueue, 1, &submitInfo, winCtx->inFlightFences[winCtx->currentFrame]);
 	vkWaitForFences(winCtx->device, 1, &winCtx->inFlightFences[winCtx->currentFrame], VK_TRUE, UINT64_MAX);
 
-	window_save_screenshot(winCtx, imageIndex, "screendumps/visual_bounds_test.ppm");
+	window_save_screenshot(winCtx, imageIndex, "screendumps/visual_bounds_test.png");
 
 	nvgDeleteVk(vg);
 	window_destroy_context(winCtx);

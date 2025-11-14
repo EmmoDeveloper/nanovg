@@ -145,7 +145,7 @@ int main(void) {
 	vkQueueWaitIdle(winCtx->presentQueue);
 
 	// Save screenshot
-	window_save_screenshot(winCtx, imageIndex, "screendumps/test_subpixel_rendering.ppm");
+	window_save_screenshot(winCtx, imageIndex, "screendumps/test_subpixel_rendering.png");
 	printf("\nScreenshot saved to screendumps/test_subpixel_rendering.ppm\n");
 	printf("Compare the three sections to see which subpixel mode looks best on your display.\n");
 

@@ -114,7 +114,7 @@ int main(void) {
 	vkQueueSubmit(winCtx->graphicsQueue, 1, &submitInfo, winCtx->inFlightFences[winCtx->currentFrame]);
 	vkWaitForFences(winCtx->device, 1, &winCtx->inFlightFences[winCtx->currentFrame], VK_TRUE, UINT64_MAX);
 
-	window_save_screenshot(winCtx, imageIndex, "screendumps/kerning_off.ppm");
+	window_save_screenshot(winCtx, imageIndex, "screendumps/kerning_off.png");
 	printf("Saved: kerning_off.ppm\n");
 
 	nvgDeleteVk(vg);

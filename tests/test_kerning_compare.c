@@ -142,7 +142,7 @@ int main(void) {
 	vkQueueSubmit(winCtx->graphicsQueue, 1, &submitInfo, winCtx->inFlightFences[winCtx->currentFrame]);
 	vkWaitForFences(winCtx->device, 1, &winCtx->inFlightFences[winCtx->currentFrame], VK_TRUE, UINT64_MAX);
 
-	window_save_screenshot(winCtx, imageIndex, "screendumps/kerning_comparison.ppm");
+	window_save_screenshot(winCtx, imageIndex, "screendumps/kerning_comparison.png");
 	printf("Saved: kerning_comparison.ppm\n");
 
 	nvgDeleteVk(vg);

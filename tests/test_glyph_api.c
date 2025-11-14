@@ -215,7 +215,7 @@ int main(void) {
 	vkQueueSubmit(winCtx->graphicsQueue, 1, &submitInfo, winCtx->inFlightFences[winCtx->currentFrame]);
 	vkWaitForFences(winCtx->device, 1, &winCtx->inFlightFences[winCtx->currentFrame], VK_TRUE, UINT64_MAX);
 
-	window_save_screenshot(winCtx, imageIndex, "screendumps/glyph_api_test.ppm");
+	window_save_screenshot(winCtx, imageIndex, "screendumps/glyph_api_test.png");
 
 	nvgDeleteVk(vg);
 	window_destroy_context(winCtx);

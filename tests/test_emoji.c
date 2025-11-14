@@ -123,7 +123,7 @@ int main(void) {
 
 	// Save screenshot
 	printf("Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "screendumps/emoji_test.ppm")) {
+	if (window_save_screenshot(winCtx, imageIndex, "screendumps/emoji_test.png")) {
 		printf("Screenshot saved to screendumps/emoji_test.ppm\n");
 	} else {
 		printf("Failed to save screenshot\n");

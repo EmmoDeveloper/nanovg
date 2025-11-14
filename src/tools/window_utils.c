@@ -1331,24 +1331,32 @@ int window_save_screenshot(WindowVulkanContext* ctx, uint32_t imageIndex, const 
 		return 0;
 	}
 
-	// Write PNG file
-	FILE* file = fopen(filename, "wb");
+	// Determine output format and temp file
+	int isPng = strstr(filename, ".png") != NULL;
+	char tempPpm[512];
+	const char* outputFile = filename;
+
+	if (isPng) {
+		snprintf(tempPpm, sizeof(tempPpm), "%.*s.ppm", (int)(strlen(filename) - 4), filename);
+		outputFile = tempPpm;
+	}
+
+	// Write PPM file
+	FILE* file = fopen(outputFile, "wb");
 	if (!file) {
-		fprintf(stderr, "Failed to open file for writing: %s\n", filename);
+		fprintf(stderr, "Failed to open file for writing: %s\n", outputFile);
 		vkUnmapMemory(ctx->device, dstImageMemory);
 		vkDestroyImage(ctx->device, dstImage, NULL);
 		vkFreeMemory(ctx->device, dstImageMemory, NULL);
 		return 0;
 	}
 
-	// Simple PPM format instead of PNG (easier to implement safely)
 	fprintf(file, "P6\n%u %u\n255\n", width, height);
 
 	const uint8_t* imageData = (const uint8_t*)data;
 	for (uint32_t y = 0; y < height; y++) {
 		const uint8_t* row = imageData + layout.offset + y * layout.rowPitch;
 		for (uint32_t x = 0; x < width; x++) {
-			// Assuming BGRA format, write RGB
 			fputc(row[x * 4 + 2], file); // R
 			fputc(row[x * 4 + 1], file); // G
 			fputc(row[x * 4 + 0], file); // B
@@ -1359,6 +1367,16 @@ int window_save_screenshot(WindowVulkanContext* ctx, uint32_t imageIndex, const 
 	vkUnmapMemory(ctx->device, dstImageMemory);
 	vkDestroyImage(ctx->device, dstImage, NULL);
 	vkFreeMemory(ctx->device, dstImageMemory, NULL);
+
+	// Convert to PNG if needed
+	if (isPng) {
+		char cmd[1024];
+		snprintf(cmd, sizeof(cmd), "convert %s %s && rm %s", tempPpm, filename, tempPpm);
+		if (system(cmd) != 0) {
+			fprintf(stderr, "Failed to convert to PNG: %s\n", filename);
+			return 0;
+		}
+	}
 
 	printf("Screenshot saved to %s\n", filename);
 	return 1;
