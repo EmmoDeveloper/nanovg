@@ -465,14 +465,17 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	int useSubpixel = (fs->state.subpixelMode != NVG_SUBPIXEL_NONE && !isColor && !useMSDF);
 
 	VkColorSpaceKHR srcColorSpace;
+	VkColorSpaceKHR dstColorSpace;
 	if (isColor) {
 		// COLR emoji uses sRGB (Cairo outputs sRGB)
 		srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+		dstColorSpace = fs->targetColorSpace;
 	} else {
-		// LCD, MSDF, and grayscale use no color space (linear/raw data)
-		srcColorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR;  // Use as "no color space" marker
+		// LCD, MSDF, and grayscale: intensity/coverage values, no color space conversion
+		// Use sRGB as placeholder since format distinguishes them (VK_FORMAT_R8_UNORM vs VK_FORMAT_R8G8B8A8_UNORM)
+		srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+		dstColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 	}
-	VkColorSpaceKHR dstColorSpace = fs->targetColorSpace;
 
 	// Determine format based on rendering mode:
 	// - COLR emoji: RGBA (4 channels)

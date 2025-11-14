@@ -58,9 +58,11 @@ int main(void) {
 	renderPassInfo.renderPass = winCtx->renderPass;
 	renderPassInfo.framebuffer = winCtx->framebuffers[imageIndex];
 	renderPassInfo.renderArea.extent = winCtx->swapchainExtent;
-	VkClearValue clearColor = {{{0.15f, 0.15f, 0.15f, 1.0f}}};
-	renderPassInfo.clearValueCount = 1;
-	renderPassInfo.pClearValues = &clearColor;
+	VkClearValue clearValues[2];
+	clearValues[0].color = (VkClearColorValue){{1.0f, 1.0f, 1.0f, 1.0f}};
+	clearValues[1].depthStencil = (VkClearDepthStencilValue){1.0f, 0};
+	renderPassInfo.clearValueCount = 2;
+	renderPassInfo.pClearValues = clearValues;
 
 	vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
