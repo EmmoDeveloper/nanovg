@@ -271,13 +271,20 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 	NVGVkPipelineType pipelineType = NVGVK_PIPELINE_SIMPLE;
 	if (call->image > 0) {
 		int texId = call->image - 1;
-		// Check if texture is MSDF type (type 3 = NVG_TEXTURE_MSDF)
-		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES && vk->textures[texId].type == 3) {
-			printf("[MSDF] Using MSDF pipeline for texture %d (type=%d)\n", call->image, vk->textures[texId].type);
-			pipelineType = NVGVK_PIPELINE_TEXT_MSDF;
+		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES) {
+			int texType = vk->textures[texId].type;
+			// Check texture type: 3 = MSDF, 4 = LCD subpixel
+			if (texType == 3) {
+				printf("[MSDF] Using MSDF pipeline for texture %d (type=%d)\n", call->image, texType);
+				pipelineType = NVGVK_PIPELINE_TEXT_MSDF;
+			} else if (texType == 4) {
+				printf("[LCD] Using TEXT_SUBPIXEL pipeline for texture %d (type=%d)\n", call->image, texType);
+				pipelineType = NVGVK_PIPELINE_TEXT_SUBPIXEL;
+			} else {
+				printf("[MSDF] Using IMG pipeline for texture %d (type=%d)\n", call->image, texType);
+				pipelineType = NVGVK_PIPELINE_IMG;
+			}
 		} else {
-			printf("[MSDF] Using IMG pipeline for texture %d (type=%d)\n", call->image,
-			       (texId >= 0 && texId < NVGVK_MAX_TEXTURES) ? vk->textures[texId].type : -1);
 			pipelineType = NVGVK_PIPELINE_IMG;
 		}
 	}

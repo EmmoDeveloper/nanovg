@@ -24,7 +24,7 @@ typedef struct NVGVkShaderSet NVGVkShaderSet;
 #define NVGVK_MAX_CALLS 1024
 #define NVGVK_INITIAL_VERTEX_COUNT 4096
 #define NVGVK_INITIAL_INDEX_COUNT 8192
-#define NVGVK_PIPELINE_COUNT 8
+#define NVGVK_PIPELINE_COUNT 9
 
 // Texture structure
 struct NVGVkTexture {

@@ -46,6 +46,7 @@ static void nvg__buildShapeKey(NVGFontSystem* fs, NVGShapeKey* key,
 	key->fontId = fs->state.fontId;
 	key->size = fs->state.size;
 	key->hinting = fs->state.hinting;
+	key->subpixelMode = fs->state.subpixelMode;
 	key->varStateId = (fs->state.fontId >= 0 && fs->state.fontId < fs->nfonts) ?
 	                  fs->fonts[fs->state.fontId].varStateId : 0;
 
@@ -91,6 +92,12 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 		NVGShapeKey queryKey;
 		nvg__buildShapeKey(fs, &queryKey, string, end, bidi);
 
+		static int shape_lookup = 0;
+		if (shape_lookup++ < 10) {
+			printf("[Shape cache lookup #%d] text='%.30s', subpixel=%d\n",
+				shape_lookup, string, queryKey.subpixelMode);
+		}
+
 		NVGShapedTextEntry* cached = nvgShapeCache_lookup(fs->shapedTextCache, &queryKey);
 
 		// Free the temporary text allocation (key was for lookup only)
@@ -101,10 +108,18 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 
 		if (cached) {
 			// Cache HIT - use cached shaped result
+			static int shape_hit = 0;
+			if (shape_hit++ < 10) {
+				printf("[Shape cache HIT #%d]\n", shape_hit);
+			}
 			iter->cachedShaping = cached;
 			return;
 		}
 		// Cache MISS - continue with shaping below
+		static int shape_miss = 0;
+		if (shape_miss++ < 10) {
+			printf("[Shape cache MISS #%d] will shape text\n", shape_miss);
+		}
 	}
 
 	// Determine text direction

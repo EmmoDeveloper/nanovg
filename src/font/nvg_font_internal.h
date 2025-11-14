@@ -75,8 +75,10 @@ typedef struct NVGAtlas {
 	VkColorSpaceKHR srcColorSpace;
 	VkColorSpaceKHR dstColorSpace;
 	VkFormat format;
+	int subpixelMode;        // Subpixel rendering mode (part of composite key)
 	int width;
 	int height;
+	int textureId;           // GPU texture ID for this atlas
 	NVGAtlasNode* nodes;
 	int nnodes;
 	int cnodes;
@@ -87,9 +89,11 @@ typedef struct NVGAtlas {
 struct NVGAtlasManager {
 	NVGAtlas atlases[NVG_MAX_ATLAS_FORMATS];
 	int atlasCount;
-	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
+	int defaultAtlasWidth;
+	int defaultAtlasHeight;
+	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
 	void* textureUserdata;
-	int (*growCallback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight);
+	int (*growCallback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight);
 	void* growUserdata;
 };
 

@@ -7,8 +7,8 @@
 // Font system lifecycle
 NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight);
 void nvgFontDestroy(NVGFontSystem* fs);
-void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format), void* userdata);
-void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight), void* userdata);
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode), void* userdata);
+void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight), void* userdata);
 
 // Color space configuration
 void nvgFontSetColorSpace(NVGFontSystem* fs, VkColorSpaceKHR colorSpace);
@@ -58,6 +58,10 @@ void nvgFontSetHinting(NVGFontSystem* fs, int hinting);
 void nvgFontSetKerning(NVGFontSystem* fs, int enabled);
 void nvgFontSetTextDirection(NVGFontSystem* fs, int direction);
 void nvgFontSetSubpixelMode(NVGFontSystem* fs, int mode);  // NVGSubpixelMode
+
+// Atlas management
+int nvgFontGetAtlasTexture(NVGFontSystem* fs, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
+void nvgFontSetAtlasTexture(NVGFontSystem* fs, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int textureId);
 
 // Font information
 const char* nvgFont__GetFamilyName(NVGFontSystem* fs, int fontId);

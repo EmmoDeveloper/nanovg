@@ -9,10 +9,10 @@
 #include <freetype/ftlcdfil.h>
 
 // Forward declarations from nvg_font_system.c
-int nvgAtlasAlloc(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int w, int h, int* x, int* y);
-void nvgAtlasUpdate(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int x, int y, int w, int h, const unsigned char* data);
-int nvgAtlasGrow(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight);
-NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
+int nvgAtlasAlloc(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int w, int h, int* x, int* y);
+void nvgAtlasUpdate(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int x, int y, int w, int h, const unsigned char* data);
+int nvgAtlasGrow(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight);
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
 
 // Internal helpers
 // Skyline-based atlas packing (adapted from fontstash.h)
@@ -231,12 +231,21 @@ static int nvg__hasColorLayers(NVGFontSystem* fs, int fontId, FT_Face face, unsi
 
 int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, unsigned int codepoint,
                        float x, float y, NVGCachedGlyph* quad) {
+	static int total_calls = 0;
+	total_calls++;
+	printf("[RENDER_CALL #%d] glyph %u, subpixel=%d\n", total_calls, glyph_index, fs ? fs->state.subpixelMode : -1);
+
 	if (!fs || fontId < 0 || fontId >= fs->nfonts || !quad) return 0;
 
 	// Check cache first (use glyph_index, hinting, and subpixel mode as the key)
 	unsigned int varStateId = fs->fonts[fontId].varStateId;
 	NVGGlyphCacheEntry* entry = nvg__findGlyph(fs->glyphCache, glyph_index, fontId, fs->state.size, varStateId, fs->state.hinting, fs->state.subpixelMode);
 	if (entry) {
+		static int cache_hit_debug = 0;
+		if (cache_hit_debug++ < 20) {
+			printf("[Cache HIT #%d] glyph %u: UVs (%.4f,%.4f)-(%.4f,%.4f)\n",
+				cache_hit_debug, glyph_index, entry->s0, entry->t0, entry->s1, entry->t1);
+		}
 		quad->codepoint = codepoint;
 		quad->x0 = x + entry->bearingX;
 		quad->y0 = y - entry->bearingY;
@@ -249,10 +258,17 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 		quad->advanceX = entry->advanceX;
 		quad->bearingX = entry->bearingX;
 		quad->bearingY = entry->bearingY;
-		// Map format to legacy atlasIndex (0=ALPHA, 1=RGBA)
-		quad->atlasIndex = (entry->format == VK_FORMAT_R8G8B8A8_UNORM) ? 1 : 0;
+		quad->srcColorSpace = entry->srcColorSpace;
+		quad->dstColorSpace = entry->dstColorSpace;
+		quad->format = entry->format;
+		quad->subpixelMode = entry->subpixelMode;
 		quad->generation = entry->generation;
 		return 1;
+	} else {
+		static int cache_miss_debug = 0;
+		if (cache_miss_debug++ < 20) {
+			printf("[Cache MISS #%d] glyph %u will be rendered\n", cache_miss_debug, glyph_index);
+		}
 	}
 
 	// Render glyph (glyph_index is already a FreeType glyph index from HarfBuzz)
@@ -467,25 +483,40 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	                  (useMSDF ? VK_FORMAT_R8G8B8A8_UNORM :
 	                  (useSubpixel ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM));
 
+	static int alloc_debug = 0;
+	if (alloc_debug++ < 20) {
+		printf("[Glyph %u] gw=%d, gh=%d, srcCS=%u, dstCS=%u, fmt=%u\n",
+			glyph_index, gw, gh, srcColorSpace, dstColorSpace, format);
+	}
+
 	int ax, ay;
-	if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, gw + 2, gh + 2, &ax, &ay)) {
+	int subpixelMode = fs->state.subpixelMode;
+	if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, gw + 2, gh + 2, &ax, &ay)) {
 		// Atlas full - try to grow atlas
+		printf("[nvgFontRenderGlyph] Atlas alloc failed for glyph %u (%dx%d), srcCS=%u, dstCS=%u, fmt=%u, subpixel=%d - trying to grow\n",
+			glyph_index, gw + 2, gh + 2, srcColorSpace, dstColorSpace, format, subpixelMode);
 		int newWidth = 0, newHeight = 0;
-		if (nvgAtlasGrow(fs->atlasManager, srcColorSpace, dstColorSpace, format, &newWidth, &newHeight)) {
+		if (nvgAtlasGrow(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, &newWidth, &newHeight)) {
 			// Atlas was grown, try allocation again
-			if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, gw + 2, gh + 2, &ax, &ay)) {
+			if (!nvgAtlasAlloc(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, gw + 2, gh + 2, &ax, &ay)) {
 				// Still failed after growth
+				printf("[nvgFontRenderGlyph] ERROR: Atlas alloc still failed after growth!\n");
 				return 0;
 			}
 		} else {
 			// Growth failed
+			printf("[nvgFontRenderGlyph] ERROR: Atlas grow failed!\n");
 			return 0;
 		}
 	}
 
 	// Get atlas for dimensions (use format-aware lookup to distinguish ALPHA vs RGBA with same color spaces)
-	NVGAtlas* atlas = nvg__getAtlas(fs->atlasManager, srcColorSpace, dstColorSpace, format);
-	if (!atlas) return 0;
+	NVGAtlas* atlas = nvg__getAtlas(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode);
+	if (!atlas) {
+		printf("[nvgFontRenderGlyph] ERROR: nvg__getAtlas returned NULL after allocation! srcCS=%u, dstCS=%u, fmt=%u\n",
+			srcColorSpace, dstColorSpace, format);
+		return 0;
+	}
 
 	// Create cache entry
 	entry = nvg__allocGlyph(fs->glyphCache);
@@ -495,9 +526,16 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	entry->hinting = fs->state.hinting;
 	entry->subpixelMode = fs->state.subpixelMode;
 	entry->varStateId = varStateId;
+
+	static int entry_debug = 0;
+	if (entry_debug++ < 10) {
+		printf("[Cache entry created #%d] glyph %u, subpixelMode=%d\n",
+			entry_debug, glyph_index, entry->subpixelMode);
+	}
 	entry->srcColorSpace = srcColorSpace;
 	entry->dstColorSpace = dstColorSpace;
 	entry->format = format;
+	entry->subpixelMode = subpixelMode;
 
 	entry->x = (float)(ax + 1);
 	entry->y = (float)(ay + 1);
@@ -549,8 +587,10 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	quad->advanceX = entry->advanceX;
 	quad->bearingX = entry->bearingX;
 	quad->bearingY = entry->bearingY;
-	// Map format to legacy atlasIndex (0=ALPHA, 1=RGBA)
-	quad->atlasIndex = (format == VK_FORMAT_R8G8B8A8_UNORM) ? 1 : 0;
+	quad->srcColorSpace = srcColorSpace;
+	quad->dstColorSpace = dstColorSpace;
+	quad->format = format;
+	quad->subpixelMode = subpixelMode;
 	quad->generation = entry->generation;
 
 	// Upload bitmap data to atlas
@@ -575,7 +615,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 					printf("[Atlas RGBA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
 						upload_debug_color, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
 				}
-				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
+				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, (int)ax, (int)ay, padded_w, padded_h, data);
 				free(data);
 			}
 			free(rgba_data);
@@ -612,7 +652,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 						       gw * bytes_per_pixel);
 					}
 
-					nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
+					nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, (int)ax, (int)ay, padded_w, padded_h, data);
 					free(data);
 				}
 				free(msdf_data);
@@ -622,7 +662,23 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 			int pitch = abs(slot->bitmap.pitch);
 			unsigned char* data = (unsigned char*)calloc(padded_w * padded_h * 4, 1);
 			if (data) {
-				// Copy LCD RGB data to center of padded buffer as RGBA (leaving 1px border)
+				// DEBUG: Print bitmap info and sample bytes from middle of glyph
+			printf("[LCD] glyph %u: pixel_mode=%d, width=%d, rows=%d, pitch=%d\n",
+				glyph_index, slot->bitmap.pixel_mode, slot->bitmap.width, slot->bitmap.rows, pitch);
+			if (slot->bitmap.buffer && slot->bitmap.rows > 5) {
+				int mid_row = slot->bitmap.rows / 2;
+				int mid_col = slot->bitmap.width / 2;
+				if (mid_col >= 3) {
+					mid_col = (mid_col / 3) * 3;  // Align to pixel boundary
+					printf("[LCD] Mid glyph (row=%d, col=%d): bytes %d %d %d\n",
+						mid_row, mid_col,
+						slot->bitmap.buffer[mid_row*pitch+mid_col],
+						slot->bitmap.buffer[mid_row*pitch+mid_col+1],
+						slot->bitmap.buffer[mid_row*pitch+mid_col+2]);
+				}
+			}
+
+			// Copy LCD RGB data to center of padded buffer as RGBA (leaving 1px border)
 				for (int y = 0; y < gh; y++) {
 					unsigned char* src = slot->bitmap.buffer + y * pitch;
 					unsigned char* dst = data + ((y + 1) * padded_w + 1) * 4;
@@ -660,11 +716,14 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 				}
 
 				static int lcd_debug = 0;
-				if (lcd_debug++ < 30) {
-					printf("[Atlas LCD upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
-						lcd_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+				if (lcd_debug++ < 3) {
+					printf("[Atlas LCD upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding) subpixel=%d\n",
+						lcd_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh, fs->state.subpixelMode);
+					// Debug: print first few pixels
+					printf("[LCD DEBUG] First pixel RGB: (%d,%d,%d), bitmap.pixel_mode=%d, bitmap.width=%d\n",
+						data[4], data[5], data[6], slot->bitmap.pixel_mode, slot->bitmap.width);
 				}
-				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
+				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, (int)ax, (int)ay, padded_w, padded_h, data);
 				free(data);
 			}
 		} else {
@@ -684,10 +743,14 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 					printf("[Atlas ALPHA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
 						upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
 				}
-				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, (int)ax, (int)ay, padded_w, padded_h, data);
+				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, (int)ax, (int)ay, padded_w, padded_h, data);
 				free(data);
 			}
 		}
+	}
+
+	if (total_calls == 150) {
+		printf("[FINAL] Total nvgFontRenderGlyph calls: %d\n", total_calls);
 	}
 
 	return 1;

@@ -11,6 +11,7 @@ typedef struct {
 	int fontId;                    // Font ID
 	float size;                    // Font size
 	int hinting;                   // Hinting mode
+	int subpixelMode;              // Subpixel rendering mode
 	unsigned int varStateId;       // Variable font state ID
 
 	// OpenType features (sorted by tag for consistent hashing)

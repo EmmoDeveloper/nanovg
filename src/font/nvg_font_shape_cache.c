@@ -25,6 +25,9 @@ uint32_t nvgShapeCache_hash(const NVGShapeKey* key) {
 	hash ^= (uint32_t)key->hinting;
 	hash *= 16777619u;
 
+	hash ^= (uint32_t)key->subpixelMode;
+	hash *= 16777619u;
+
 	hash ^= key->varStateId;
 	hash *= 16777619u;
 
@@ -57,6 +60,7 @@ int nvgShapeCache_compareKeys(const NVGShapeKey* a, const NVGShapeKey* b) {
 	if (a->fontId != b->fontId) return 0;
 	if (a->size != b->size) return 0;  // Exact float comparison OK here
 	if (a->hinting != b->hinting) return 0;
+	if (a->subpixelMode != b->subpixelMode) return 0;
 	if (a->varStateId != b->varStateId) return 0;
 	if (a->kerningEnabled != b->kerningEnabled) return 0;
 	if (a->bidiEnabled != b->bidiEnabled) return 0;

@@ -146,10 +146,10 @@ struct NVGcontext {
 };
 
 // Forward declarations for font system callbacks
-NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
-void nvgAtlasReset(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int width, int height);
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
-static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight);
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
+void nvgAtlasReset(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int width, int height);
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
+static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight);
 
 static float nvg__sqrtf(float a) { return sqrtf(a); }
 static float nvg__modf(float a, float b) { return fmodf(a, b); }
@@ -304,7 +304,7 @@ static NVGstate* nvg__getState(NVGcontext* ctx)
 }
 
 // Forward declaration for texture callback
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format);
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
 
 NVGcontext* nvgCreateInternal(NVGparams* params)
 {
@@ -2435,6 +2435,7 @@ void nvgTextAlign(NVGcontext* ctx, int align)
 
 void nvgTextSubpixelMode(NVGcontext* ctx, int mode)
 {
+	printf("[nvgTextSubpixelMode] Called with mode=%d\n", mode);
 	nvgFontSetSubpixelMode(ctx->fs, mode);
 }
 
@@ -2466,22 +2467,49 @@ static float nvg__getFontScale(NVGstate* state)
 }
 
 // Texture upload callback for nvg_freetype
-static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format)
+static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode)
 {
 	NVGcontext* ctx = (NVGcontext*)uptr;
-	int fontImage;
-	int isRGBA = (format == VK_FORMAT_R8G8B8A8_UNORM);
 
-	if (isRGBA) {
-		// RGBA atlas for color emoji
-		fontImage = ctx->fontImagesRGBA[ctx->fontImageIdxRGBA];
-	} else {
-		// ALPHA atlas for grayscale text
-		fontImage = ctx->fontImages[ctx->fontImageIdx];
+	// Get texture ID for this atlas
+	int textureId = nvgFontGetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode);
+
+	// If texture doesn't exist yet, create it
+	if (textureId == 0) {
+		int atlasWidth = 0, atlasHeight = 0;
+		nvgAtlasGetSize(ctx->fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, &atlasWidth, &atlasHeight);
+
+		printf("[nvg__textureUpdate] Creating texture for atlas: src=%u dst=%u format=%u subpixel=%d size=%dx%d\n",
+		       srcColorSpace, dstColorSpace, format, subpixelMode, atlasWidth, atlasHeight);
+
+		if (atlasWidth == 0 || atlasHeight == 0) {
+			printf("[nvg__textureUpdate] ERROR: Atlas has invalid size!\n");
+			return;
+		}
+
+		// Determine texture type based on format and subpixel mode
+		int texType;
+		if (format == VK_FORMAT_R8G8B8A8_UNORM && subpixelMode != 0) {
+			// LCD subpixel rendering
+			texType = NVG_TEXTURE_LCD_SUBPIXEL;
+		} else if (format == VK_FORMAT_R8G8B8A8_UNORM) {
+			// Regular RGBA (emoji, MSDF, etc.)
+			texType = NVG_TEXTURE_RGBA;
+		} else {
+			// Grayscale alpha
+			texType = NVG_TEXTURE_ALPHA;
+		}
+
+		textureId = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, atlasWidth, atlasHeight, 0, NULL);
+
+		printf("[nvg__textureUpdate] Created texture ID %d\n", textureId);
+
+		// Store texture ID in atlas
+		nvgFontSetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode, textureId);
 	}
 
-	if (fontImage != 0) {
-		ctx->params.renderUpdateTexture(ctx->params.userPtr, fontImage, x, y, w, h, data);
+	if (textureId != 0) {
+		ctx->params.renderUpdateTexture(ctx->params.userPtr, textureId, x, y, w, h, data);
 	}
 }
 
@@ -2518,59 +2546,44 @@ static int nvg__allocTextAtlas(NVGcontext* ctx)
 }
 
 // Atlas growth callback for font system
-static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int* newWidth, int* newHeight)
+static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight)
 {
 	NVGcontext* ctx = (NVGcontext*)uptr;
 	int iw, ih;
-	int isRGBA = (format == VK_FORMAT_R8G8B8A8_UNORM);
 
 	nvg__flushTextTexture(ctx);
 
-	if (isRGBA) {
-		// RGBA atlas for color emoji
-		if (ctx->fontImageIdxRGBA >= NVG_MAX_FONTIMAGES-1)
-			return 0;
-
-		// if next fontImage already has a texture
-		if (ctx->fontImagesRGBA[ctx->fontImageIdxRGBA+1] != 0) {
-			nvgImageSize(ctx, ctx->fontImagesRGBA[ctx->fontImageIdxRGBA+1], &iw, &ih);
-		} else {
-			// calculate the new font image size and create it
-			nvgImageSize(ctx, ctx->fontImagesRGBA[ctx->fontImageIdxRGBA], &iw, &ih);
-			if (iw > ih)
-				ih *= 2;
-			else
-				iw *= 2;
-			if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
-				iw = ih = NVG_MAX_FONTIMAGE_SIZE;
-			ctx->fontImagesRGBA[ctx->fontImageIdxRGBA+1] = ctx->params.renderCreateTexture(ctx->params.userPtr, NVG_TEXTURE_RGBA, iw, ih, 0, NULL);
-		}
-		++ctx->fontImageIdxRGBA;
-	} else {
-		// ALPHA atlas for grayscale text
-		if (ctx->fontImageIdx >= NVG_MAX_FONTIMAGES-1)
-			return 0;
-
-		// if next fontImage already has a texture
-		if (ctx->fontImages[ctx->fontImageIdx+1] != 0) {
-			nvgImageSize(ctx, ctx->fontImages[ctx->fontImageIdx+1], &iw, &ih);
-		} else {
-			// calculate the new font image size and create it
-			nvgImageSize(ctx, ctx->fontImages[ctx->fontImageIdx], &iw, &ih);
-			if (iw > ih)
-				ih *= 2;
-			else
-				iw *= 2;
-			if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
-				iw = ih = NVG_MAX_FONTIMAGE_SIZE;
-			int texType = ctx->params.msdfText ? NVG_TEXTURE_MSDF : NVG_TEXTURE_ALPHA;
-			ctx->fontImages[ctx->fontImageIdx+1] = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, iw, ih, 0, NULL);
-		}
-		++ctx->fontImageIdx;
+	// Get current atlas texture
+	int currentTextureId = nvgFontGetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode);
+	if (currentTextureId == 0) {
+		// No texture yet, should not happen
+		return 0;
 	}
 
+	// Get current size and calculate new size
+	nvgImageSize(ctx, currentTextureId, &iw, &ih);
+	if (iw > ih)
+		ih *= 2;
+	else
+		iw *= 2;
+	if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
+		iw = ih = NVG_MAX_FONTIMAGE_SIZE;
+
+	// Create new larger texture
+	int texType = (format == VK_FORMAT_R8G8B8A8_UNORM) ? NVG_TEXTURE_RGBA : NVG_TEXTURE_ALPHA;
+	int newTextureId = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, iw, ih, 0, NULL);
+	if (newTextureId == 0) {
+		return 0;
+	}
+
+	// Delete old texture
+	nvgDeleteImage(ctx, currentTextureId);
+
+	// Store new texture ID in atlas
+	nvgFontSetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode, newTextureId);
+
 	// Reset the specific atlas that was grown
-	nvgAtlasReset(ctx->fs->atlasManager, srcColorSpace, dstColorSpace, format, iw, ih);
+	nvgAtlasReset(ctx->fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, iw, ih);
 
 	if (newWidth) *newWidth = iw;
 	if (newHeight) *newHeight = ih;
@@ -2578,23 +2591,28 @@ static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpac
 	return 1;
 }
 
-static void nvg__renderText(NVGcontext* ctx, NVGvertex* verts, int nverts, int atlasIndex)
+static void nvg__renderText(NVGcontext* ctx, NVGvertex* verts, int nverts, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode)
 {
 	NVGstate* state = nvg__getState(ctx);
 	NVGpaint paint = state->fill;
 
-	// Render triangles - select correct atlas based on glyph type.
-	if (atlasIndex == 1) {
-		// RGBA atlas for color emoji
-		paint.image = ctx->fontImagesRGBA[ctx->fontImageIdxRGBA];
-		// For color emoji, use white as inner color so the emoji colors show through
-		// Only preserve the alpha channel for opacity control
+	// Look up texture for this atlas
+	int textureId = nvgFontGetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode);
+	paint.image = textureId;
+
+	static int render_call_count = 0;
+	render_call_count++;
+	if (render_call_count <= 10 || textureId == 0) {
+		printf("[nvg__renderText #%d] nverts=%d, src=%u dst=%u fmt=%u subpixel=%d, textureId=%d\n",
+		       render_call_count, nverts, srcColorSpace, dstColorSpace, format, subpixelMode, textureId);
+	}
+
+	// For COLR emoji (sRGB source), use white as inner color so the emoji colors show through
+	if (srcColorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 		float alpha = paint.innerColor.a * state->alpha;
 		paint.innerColor = nvgRGBAf(1.0f, 1.0f, 1.0f, alpha);
 	} else {
-		// ALPHA atlas for regular text
-		paint.image = ctx->fontImages[ctx->fontImageIdx];
-		// Apply global alpha
+		// Apply global alpha for non-color glyphs
 		paint.innerColor.a *= state->alpha;
 		paint.outerColor.a *= state->alpha;
 	}
@@ -2641,21 +2659,43 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 
 	nvgFontShapedTextIterInit(ctx->fs, &iter, x*scale, y*scale, string, end, 1, NULL);
 
-	int currentAtlasIndex = -1;  // Track current atlas
+	// Track current atlas for batching
+	VkColorSpaceKHR currentSrcColorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR;
+	VkColorSpaceKHR currentDstColorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR;
+	VkFormat currentFormat = VK_FORMAT_UNDEFINED;
+	int currentSubpixelMode = 0;
+	int firstGlyph = 1;
 	int batchStartVert = 0;       // Start of current batch
 
 	while (nvgFontShapedTextIterNext(ctx->fs, &iter, &q)) {
 		// Check if we need to flush the current batch due to atlas change
-		if (currentAtlasIndex != -1 && q.atlasIndex != currentAtlasIndex) {
+		if (!firstGlyph && (q.srcColorSpace != currentSrcColorSpace ||
+		                     q.dstColorSpace != currentDstColorSpace ||
+		                     q.format != currentFormat ||
+		                     q.subpixelMode != currentSubpixelMode)) {
 			// Flush current batch with its atlas
 			nvg__flushTextTexture(ctx);
 			int batchVerts = nverts - batchStartVert;
 			if (batchVerts > 0) {
-				nvg__renderText(ctx, verts + batchStartVert, batchVerts, currentAtlasIndex);
+				static int batch_count = 0;
+				if (batch_count++ < 10) {
+					printf("[nvgText] Atlas change detected, flushing batch\n");
+				}
+				nvg__renderText(ctx, verts + batchStartVert, batchVerts, currentSrcColorSpace, currentDstColorSpace, currentFormat, currentSubpixelMode);
 			}
 			batchStartVert = nverts;
 		}
-		currentAtlasIndex = q.atlasIndex;
+
+		static int glyph_count = 0;
+		if (glyph_count++ < 10) {
+			printf("[nvgText] Glyph: src=%u dst=%u fmt=%u subpixel=%d\n", q.srcColorSpace, q.dstColorSpace, q.format, q.subpixelMode);
+		}
+
+		currentSrcColorSpace = q.srcColorSpace;
+		currentDstColorSpace = q.dstColorSpace;
+		currentFormat = q.format;
+		currentSubpixelMode = q.subpixelMode;
+		firstGlyph = 0;
 
 		float c[4*2];
 		if(isFlipped) {
@@ -2686,8 +2726,8 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 
 	// Render final batch
 	int finalBatchVerts = nverts - batchStartVert;
-	if (finalBatchVerts > 0) {
-		nvg__renderText(ctx, verts + batchStartVert, finalBatchVerts, currentAtlasIndex);
+	if (finalBatchVerts > 0 && !firstGlyph) {
+		nvg__renderText(ctx, verts + batchStartVert, finalBatchVerts, currentSrcColorSpace, currentDstColorSpace, currentFormat, currentSubpixelMode);
 	}
 
 	return iter.x / scale;
@@ -3259,7 +3299,7 @@ float nvgRenderGlyph(NVGcontext* ctx, unsigned int codepoint, float x, float y)
 	nvg__vset(&verts[nverts], c[6], c[7], quad.s0, quad.t1); nverts++;
 	nvg__vset(&verts[nverts], c[4], c[5], quad.s1, quad.t1); nverts++;
 
-	nvg__renderText(ctx, verts, nverts, quad.atlasIndex);
+	nvg__renderText(ctx, verts, nverts, quad.srcColorSpace, quad.dstColorSpace, quad.format, quad.subpixelMode);
 
 	return quad.advanceX * invscale;
 }
