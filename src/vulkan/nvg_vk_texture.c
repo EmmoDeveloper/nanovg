@@ -8,7 +8,10 @@
 // Helper: Get Vulkan format from texture type
 VkFormat nvgvk__get_vk_format(int type)
 {
-	if (type == NVG_TEXTURE_RGBA || type == 3) {  // RGBA or MSDF
+	if (type == NVG_TEXTURE_LCD_SUBPIXEL) {  // LCD subpixel - use RGB order
+		return VK_FORMAT_R8G8B8A8_UNORM;
+	}
+	if (type == NVG_TEXTURE_RGBA || type == NVG_TEXTURE_MSDF) {  // RGBA or MSDF - use BGR for compatibility
 		return VK_FORMAT_B8G8R8A8_UNORM;
 	}
 	return VK_FORMAT_R8_UNORM;  // ALPHA
@@ -363,7 +366,7 @@ int nvgvk_update_texture(void* userPtr, int image, int x, int y,
 		return 0;
 	}
 
-	int bytesPerPixel = (tex->type == NVG_TEXTURE_RGBA || tex->type == 3) ? 4 : 1;  // RGBA/MSDF=4, ALPHA=1
+	int bytesPerPixel = (tex->type == NVG_TEXTURE_RGBA || tex->type == NVG_TEXTURE_MSDF || tex->type == NVG_TEXTURE_LCD_SUBPIXEL) ? 4 : 1;
 	VkDeviceSize dataSize = w * h * bytesPerPixel;
 
 	// Create staging buffer

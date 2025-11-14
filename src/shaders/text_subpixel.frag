@@ -26,6 +26,15 @@ void main() {
 	// Sample the LCD texture - RGB channels contain subpixel coverage
 	vec4 texColor = texture(texSampler, fragTexCoord);
 
-	// DEBUG: Output just blue channel to see if data is there
-	outColor = vec4(vec3(texColor.b), 1.0);
+	// Extract RGB subpixel coverage values
+	vec3 coverage = texColor.rgb;
+
+	// Apply text color to each subpixel channel
+	vec3 rgb = coverage * frag.innerCol.rgb;
+
+	// Use average coverage as overall alpha
+	float alpha = (coverage.r + coverage.g + coverage.b) * 0.333 * frag.innerCol.a;
+
+	// Output premultiplied color for proper blending
+	outColor = vec4(rgb, alpha);
 }

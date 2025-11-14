@@ -128,6 +128,45 @@ target_link_libraries(nanovg PUBLIC
 	${CAIRO_LIBRARIES}
 )
 
+# Display detection dependencies (Linux only)
+if(UNIX AND NOT APPLE)
+	find_package(PkgConfig QUIET)
+	if(PKG_CONFIG_FOUND)
+		pkg_check_modules(WAYLAND_CLIENT wayland-client)
+		pkg_check_modules(X11 x11 xrandr)
+		pkg_check_modules(FONTCONFIG fontconfig)
+	endif()
+endif()
+
+# Display detection library
+add_library(display_detection STATIC
+	src/tools/display_detection.c
+)
+
+target_include_directories(display_detection PUBLIC
+	${CMAKE_SOURCE_DIR}/src/tools
+)
+
+if(UNIX AND NOT APPLE)
+	if(WAYLAND_CLIENT_FOUND)
+		target_include_directories(display_detection PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS})
+		target_link_libraries(display_detection PRIVATE ${WAYLAND_CLIENT_LIBRARIES})
+		target_compile_definitions(display_detection PRIVATE HAVE_WAYLAND)
+	endif()
+
+	if(X11_FOUND)
+		target_include_directories(display_detection PRIVATE ${X11_INCLUDE_DIRS})
+		target_link_libraries(display_detection PRIVATE ${X11_LIBRARIES})
+		target_compile_definitions(display_detection PRIVATE HAVE_X11)
+	endif()
+
+	if(FONTCONFIG_FOUND)
+		target_include_directories(display_detection PRIVATE ${FONTCONFIG_INCLUDE_DIRS})
+		target_link_libraries(display_detection PRIVATE ${FONTCONFIG_LIBRARIES})
+		target_compile_definitions(display_detection PRIVATE HAVE_FONTCONFIG)
+	endif()
+endif()
+
 # Test utilities library
 add_library(test_utils STATIC
 	src/tools/window_utils.c
@@ -143,6 +182,7 @@ target_include_directories(test_utils PUBLIC
 target_link_libraries(test_utils PUBLIC
 	${Vulkan_LIBRARIES}
 	${GLFW_LIBRARIES}
+	display_detection
 	Threads::Threads
 )
 
