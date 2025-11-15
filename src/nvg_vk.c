@@ -48,6 +48,7 @@ static int nvgvk__renderCreateTexture(void* uptr, int type, int w, int h, int im
 static int nvgvk__renderDeleteTexture(void* uptr, int image);
 static int nvgvk__renderUpdateTexture(void* uptr, int image, int x, int y, int w, int h, const unsigned char* data);
 static int nvgvk__renderGetTextureSize(void* uptr, int image, int* w, int* h);
+static int nvgvk__renderCopyTexture(void* uptr, int srcImage, int dstImage, int srcX, int srcY, int dstX, int dstY, int w, int h);
 static void nvgvk__renderViewport(void* uptr, float width, float height, float devicePixelRatio);
 static void nvgvk__renderCancel(void* uptr);
 static void nvgvk__renderFlush(void* uptr);
@@ -92,6 +93,7 @@ NVGcontext* nvgCreateVk(VkDevice device, VkPhysicalDevice physicalDevice,
 	params.renderDeleteTexture = nvgvk__renderDeleteTexture;
 	params.renderUpdateTexture = nvgvk__renderUpdateTexture;
 	params.renderGetTextureSize = nvgvk__renderGetTextureSize;
+	params.renderCopyTexture = nvgvk__renderCopyTexture;
 	params.renderViewport = nvgvk__renderViewport;
 	params.renderCancel = nvgvk__renderCancel;
 	params.renderFlush = nvgvk__renderFlush;
@@ -178,6 +180,12 @@ static int nvgvk__renderGetTextureSize(void* uptr, int image, int* w, int* h)
 {
 	NVGVkBackend* backend = (NVGVkBackend*)uptr;
 	return nvgvk_get_texture_size(&backend->vk, image, w, h);
+}
+
+static int nvgvk__renderCopyTexture(void* uptr, int srcImage, int dstImage, int srcX, int srcY, int dstX, int dstY, int w, int h)
+{
+	NVGVkBackend* backend = (NVGVkBackend*)uptr;
+	return nvgvk_copy_texture(&backend->vk, srcImage, dstImage, srcX, srcY, dstX, dstY, w, h);
 }
 
 static void nvgvk__renderViewport(void* uptr, float width, float height, float devicePixelRatio)

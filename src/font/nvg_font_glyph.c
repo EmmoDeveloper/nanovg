@@ -294,7 +294,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 
 	// IMPORTANT: Check for COLR data BEFORE setting size!
 	// FT_Set_Char_Size and FT_Set_Pixel_Sizes both break FT_Get_Color_Glyph_Paint
-	int isColor = nvg__hasColorLayers(fs, fontId, face, glyph_index);
+	int isCOLREmoji = nvg__hasColorLayers(fs, fontId, face, glyph_index);
 
 	// Now set size for rendering
 	FT_Set_Pixel_Sizes(face, 0, (FT_UInt)fs->state.size);
@@ -314,7 +314,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	static int color_check_count = 0;
 	if (color_check_count++ < 10 || glyph_index >= 2340) {
 		printf("[nvgFontRenderGlyph] glyph %u: FT_HAS_COLOR(face)=%d, nvg__hasColorLayers returned %d\n",
-		       glyph_index, FT_HAS_COLOR(face) ? 1 : 0, isColor);
+		       glyph_index, FT_HAS_COLOR(face) ? 1 : 0, isCOLREmoji);
 	}
 
 	int gw, gh;
@@ -324,7 +324,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	float colr_bearingX = 0.0f;
 	float colr_bearingY = 0.0f;
 
-	if (isColor) {
+	if (isCOLREmoji) {
 		// Render COLR glyph using Cairo
 		// Load glyph to get advance
 		if (FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT | FT_LOAD_NO_SVG)) {
@@ -370,7 +370,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 
 		if (!nvg__renderCOLRGlyph(fs, face, glyph_index, gw, gh, &rgba_data, colr_bearingX, colr_bearingY)) {
 			// Fallback to regular rendering if COLR fails
-			isColor = 0;
+			isCOLREmoji = 0;
 			free(rgba_data);
 			rgba_data = NULL;
 		}
@@ -379,7 +379,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	// Check if MSDF mode is enabled for this font
 	int useMSDF = (fs->fonts[fontId].msdfMode > 0);
 
-	if (!isColor) {
+	if (!isCOLREmoji) {
 		// Check if we should generate MSDF/SDF
 		if (useMSDF) {
 			// Load glyph outline for distance field generation
@@ -462,19 +462,19 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	// - LCD subpixel: No color space (linear RGB subpixels, not sRGB)
 	// - MSDF: No color space (distance field)
 	// - Grayscale: No color space (single channel alpha)
-	int useSubpixel = (fs->state.subpixelMode != NVG_SUBPIXEL_NONE && !isColor && !useMSDF);
+	int useSubpixel = (fs->state.subpixelMode != NVG_SUBPIXEL_NONE && !isCOLREmoji && !useMSDF);
 
 	VkColorSpaceKHR srcColorSpace;
 	VkColorSpaceKHR dstColorSpace;
-	if (isColor) {
+	if (isCOLREmoji) {
 		// COLR emoji uses sRGB (Cairo outputs sRGB)
 		srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 		dstColorSpace = fs->targetColorSpace;
 	} else {
 		// LCD, MSDF, and grayscale: intensity/coverage values, no color space conversion
-		// Use sRGB as placeholder since format distinguishes them (VK_FORMAT_R8_UNORM vs VK_FORMAT_R8G8B8A8_UNORM)
-		srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		dstColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+		// Use (VkColorSpaceKHR)-1 as sentinel to indicate "no color space"
+		srcColorSpace = (VkColorSpaceKHR)-1;
+		dstColorSpace = (VkColorSpaceKHR)-1;
 	}
 
 	// Determine format based on rendering mode:
@@ -482,7 +482,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	// - MSDF: RGBA (4 channels for multi-channel distance field)
 	// - LCD subpixel: RGBA (3 RGB channels + alpha, stored as RGBA)
 	// - Grayscale: ALPHA (1 channel)
-	VkFormat format = isColor ? VK_FORMAT_R8G8B8A8_UNORM :
+	VkFormat format = isCOLREmoji ? VK_FORMAT_R8G8B8A8_UNORM :
 	                  (useMSDF ? VK_FORMAT_R8G8B8A8_UNORM :
 	                  (useSubpixel ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM));
 
@@ -559,7 +559,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	}
 	entry->advanceX = (float)slot->advance.x / 64.0f;
 	// For COLR glyphs, use metrics-based bearings; for bitmap glyphs, use bitmap_left/top
-	if (isColor) {
+	if (isCOLREmoji) {
 		entry->bearingX = colr_bearingX;
 		entry->bearingY = colr_bearingY;
 	} else {
@@ -601,7 +601,7 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 		int padded_w = gw + 2;
 		int padded_h = gh + 2;
 
-		if (isColor && rgba_data) {
+		if (isCOLREmoji && rgba_data) {
 			// Upload RGBA color emoji
 			int bytes_per_pixel = 4;
 			unsigned char* data = (unsigned char*)calloc(padded_w * padded_h * bytes_per_pixel, 1);
@@ -742,9 +742,25 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 				}
 
 				static int upload_debug = 0;
-				if (upload_debug++ < 30) {
+				if (upload_debug++ < 3) {
 					printf("[Atlas ALPHA upload #%d] glyph %u to (%d,%d) size %dx%d (glyph %dx%d + 2px padding)\n",
 						upload_debug, glyph_index, ax, ay, padded_w, padded_h, gw, gh);
+					if (gw > 5 && gh > 5) {
+						int mid_y = gh / 2 + 1;  // +1 for padding
+						int mid_x = gw / 2 + 1;  // +1 for padding
+						printf("[ALPHA DEBUG] Mid pixel [%d,%d]: %d, Corner [1,1]: %d, raw bitmap [%d,%d]: %d\n",
+							mid_y, mid_x, data[mid_y * padded_w + mid_x],
+							data[1 * padded_w + 1],
+							gh/2, gw/2, slot->bitmap.buffer[(gh/2)*pitch + (gw/2)]);
+						// Print a small section of the bitmap
+						printf("[BITMAP DUMP] First 5x5 pixels:\n");
+						for (int y = 0; y < 5 && y < gh; y++) {
+							for (int x = 0; x < 5 && x < gw; x++) {
+								printf("%3d ", slot->bitmap.buffer[y*pitch + x]);
+							}
+							printf("\n");
+						}
+					}
 				}
 				nvgAtlasUpdate(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, (int)ax, (int)ay, padded_w, padded_h, data);
 				free(data);

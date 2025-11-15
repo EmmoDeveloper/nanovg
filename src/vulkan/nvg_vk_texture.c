@@ -233,7 +233,7 @@ int nvgvk_create_texture(void* userPtr, int type, int w, int h,
 	imageInfo.arrayLayers = 1;
 	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	if (vkCreateImage(vk->device, &imageInfo, NULL, &tex->image) != VK_SUCCESS) {
@@ -545,5 +545,195 @@ int nvgvk_get_texture_size(void* userPtr, int image, int* w, int* h)
 
 	if (w) *w = tex->width;
 	if (h) *h = tex->height;
+	return 1;
+}
+
+int nvgvk_copy_texture(void* userPtr, int srcImage, int dstImage,
+                       int srcX, int srcY, int dstX, int dstY, int w, int h)
+{
+	NVGVkContext* vk = (NVGVkContext*)userPtr;
+	// Convert from 1-based to 0-based
+	int srcId = srcImage - 1;
+	int dstId = dstImage - 1;
+
+	if (!vk || srcId < 0 || srcId >= NVGVK_MAX_TEXTURES ||
+	    dstId < 0 || dstId >= NVGVK_MAX_TEXTURES) {
+		return 0;
+	}
+
+	NVGVkTexture* srcTex = &vk->textures[srcId];
+	NVGVkTexture* dstTex = &vk->textures[dstId];
+
+	if (srcTex->image == VK_NULL_HANDLE || dstTex->image == VK_NULL_HANDLE) {
+		return 0;
+	}
+
+	// Save render pass state if active
+	int wasInRenderPass = vk->inRenderPass;
+	VkRenderPass savedRenderPass = VK_NULL_HANDLE;
+	VkFramebuffer savedFramebuffer = VK_NULL_HANDLE;
+
+	if (wasInRenderPass) {
+		savedRenderPass = vk->activeRenderPass;
+		savedFramebuffer = vk->activeFramebuffer;
+
+		// End render pass
+		vkCmdEndRenderPass(vk->commandBuffer);
+		vkEndCommandBuffer(vk->commandBuffer);
+
+		// Submit and wait
+		VkSubmitInfo submitInfo = {0};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &vk->commandBuffer;
+
+		vkQueueSubmit(vk->queue, 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(vk->queue);
+
+		vk->inRenderPass = 0;
+	}
+
+	// Allocate temporary command buffer for copy
+	VkCommandBuffer copyCmd;
+	VkCommandBufferAllocateInfo allocInfo = {0};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool = vk->commandPool;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = 1;
+
+	if (vkAllocateCommandBuffers(vk->device, &allocInfo, &copyCmd) != VK_SUCCESS) {
+		return 0;
+	}
+
+	// Begin command buffer
+	VkCommandBufferBeginInfo beginInfo = {0};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(copyCmd, &beginInfo);
+
+	// Transition source to transfer src
+	VkImageMemoryBarrier srcBarrier = {0};
+	srcBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	srcBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	srcBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	srcBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	srcBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	srcBarrier.image = srcTex->image;
+	srcBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	srcBarrier.subresourceRange.levelCount = 1;
+	srcBarrier.subresourceRange.layerCount = 1;
+	srcBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	srcBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+	vkCmdPipelineBarrier(copyCmd,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &srcBarrier);
+
+	// Transition dest to transfer dst
+	VkImageMemoryBarrier dstBarrier = {0};
+	dstBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	dstBarrier.oldLayout = (dstTex->flags & 0x8000) ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+	dstBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dstBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dstBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dstBarrier.image = dstTex->image;
+	dstBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	dstBarrier.subresourceRange.levelCount = 1;
+	dstBarrier.subresourceRange.layerCount = 1;
+	dstBarrier.srcAccessMask = (dstTex->flags & 0x8000) ? VK_ACCESS_SHADER_READ_BIT : 0;
+	dstBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+	vkCmdPipelineBarrier(copyCmd,
+	                     (dstTex->flags & 0x8000) ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &dstBarrier);
+
+	// Copy image region
+	VkImageCopy region = {0};
+	region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.srcSubresource.layerCount = 1;
+	region.srcOffset.x = srcX;
+	region.srcOffset.y = srcY;
+	region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.dstSubresource.layerCount = 1;
+	region.dstOffset.x = dstX;
+	region.dstOffset.y = dstY;
+	region.extent.width = w;
+	region.extent.height = h;
+	region.extent.depth = 1;
+
+	vkCmdCopyImage(copyCmd,
+	               srcTex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	               dstTex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	               1, &region);
+
+	// Transition source back to shader read
+	srcBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	srcBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	srcBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	srcBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(copyCmd,
+	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &srcBarrier);
+
+	// Transition dest to shader read
+	dstBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dstBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	dstBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	dstBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+	vkCmdPipelineBarrier(copyCmd,
+	                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+	                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	                     0, 0, NULL, 0, NULL, 1, &dstBarrier);
+
+	vkEndCommandBuffer(copyCmd);
+
+	// Mark dest texture as initialized
+	dstTex->flags |= 0x8000;
+
+	// Submit copy commands
+	VkSubmitInfo submitInfo = {0};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &copyCmd;
+
+	vkResetFences(vk->device, 1, &vk->uploadFence);
+	vkQueueSubmit(vk->queue, 1, &submitInfo, vk->uploadFence);
+
+	// Wait for copy to complete
+	vkWaitForFences(vk->device, 1, &vk->uploadFence, VK_TRUE, UINT64_MAX);
+
+	// Free temporary command buffer
+	vkFreeCommandBuffers(vk->device, vk->commandPool, 1, &copyCmd);
+
+	// Restart render pass if needed
+	if (wasInRenderPass) {
+		VkCommandBufferBeginInfo restartBegin = {0};
+		restartBegin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		restartBegin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(vk->commandBuffer, &restartBegin);
+
+		VkRenderPassBeginInfo rpBeginInfo = {0};
+		rpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		rpBeginInfo.renderPass = savedRenderPass;
+		rpBeginInfo.framebuffer = savedFramebuffer;
+		rpBeginInfo.renderArea = vk->renderArea;
+		rpBeginInfo.clearValueCount = vk->clearValueCount;
+		rpBeginInfo.pClearValues = vk->clearValues;
+
+		vkCmdBeginRenderPass(vk->commandBuffer, &rpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vk->inRenderPass = 1;
+
+		vkCmdSetViewport(vk->commandBuffer, 0, 1, &vk->viewport);
+		vkCmdSetScissor(vk->commandBuffer, 0, 1, &vk->scissor);
+
+		vk->currentPipeline = -1;
+	}
+
 	return 1;
 }

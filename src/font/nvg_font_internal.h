@@ -147,4 +147,7 @@ struct NVGFontSystem {
 	VkColorSpaceKHR targetColorSpace;  // Target swapchain color space for rendering
 };
 
+// Atlas helper functions (used by nanovg.c for atlas growth)
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
+
 #endif // NVG_FONT_INTERNAL_H

@@ -322,8 +322,8 @@ int main(void) {
 
 	// Dump atlases for debugging
 	printf("\nDumping atlas textures...\n");
-	nvgVkDumpAtlasTextureByIndex(vg, 0, "screendumps/atlas_alpha.png");
-	nvgVkDumpAtlasTextureByIndex(vg, 1, "screendumps/atlas_rgba.png");
+	nvgVkDumpAtlasTextureByIndex(vg, 0, "screendumps/atlas_alpha.ppm");
+	nvgVkDumpAtlasTextureByIndex(vg, 1, "screendumps/atlas_rgba.ppm");
 
 	vkCmdEndRenderPass(cmd);
 	vkEndCommandBuffer(cmd);
@@ -346,7 +346,7 @@ int main(void) {
 
 	// Save screenshot
 	printf("Saving screenshot...\n");
-	if (window_save_screenshot(winCtx, imageIndex, "screendumps/atlas_growth_test.png")) {
+	if (window_save_screenshot(winCtx, imageIndex, "screendumps/atlas_growth_test.ppm")) {
 		printf("Screenshot saved to screendumps/atlas_growth_test.ppm\n");
 	} else {
 		printf("Failed to save screenshot\n");

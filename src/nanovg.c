@@ -146,7 +146,6 @@ struct NVGcontext {
 };
 
 // Forward declarations for font system callbacks
-NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
 void nvgAtlasReset(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int width, int height);
 static void nvg__textureUpdate(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
 static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight);
@@ -2551,17 +2550,22 @@ static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpac
 	NVGcontext* ctx = (NVGcontext*)uptr;
 	int iw, ih;
 
+	printf("[nvg__atlasGrow] Starting atlas grow: srcCS=%u dstCS=%u fmt=%d subpixel=%d\n",
+	       srcColorSpace, dstColorSpace, format, subpixelMode);
+
 	nvg__flushTextTexture(ctx);
 
 	// Get current atlas texture
 	int currentTextureId = nvgFontGetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode);
 	if (currentTextureId == 0) {
 		// No texture yet, should not happen
+		printf("[nvg__atlasGrow] ERROR: No current texture ID\n");
 		return 0;
 	}
 
 	// Get current size and calculate new size
 	nvgImageSize(ctx, currentTextureId, &iw, &ih);
+	int oldWidth = iw, oldHeight = ih;
 	if (iw > ih)
 		ih *= 2;
 	else
@@ -2569,25 +2573,74 @@ static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpac
 	if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
 		iw = ih = NVG_MAX_FONTIMAGE_SIZE;
 
+	printf("[nvg__atlasGrow] Growing from %dx%d to %dx%d\n", oldWidth, oldHeight, iw, ih);
+
 	// Create new larger texture
 	int texType = (format == VK_FORMAT_R8G8B8A8_UNORM) ? NVG_TEXTURE_RGBA : NVG_TEXTURE_ALPHA;
 	int newTextureId = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, iw, ih, 0, NULL);
 	if (newTextureId == 0) {
+		printf("[nvg__atlasGrow] ERROR: Failed to create new texture\n");
 		return 0;
+	}
+	printf("[nvg__atlasGrow] Created new texture ID %d\n", newTextureId);
+
+	// Copy old texture data to new texture (preserve existing glyphs)
+	if (ctx->params.renderCopyTexture) {
+		printf("[nvg__atlasGrow] Copying old texture %d to new texture %d (%dx%d)\n",
+		       currentTextureId, newTextureId, oldWidth, oldHeight);
+		ctx->params.renderCopyTexture(ctx->params.userPtr, currentTextureId, newTextureId,
+		                               0, 0, 0, 0, oldWidth, oldHeight);
+	} else {
+		printf("[nvg__atlasGrow] WARNING: No renderCopyTexture function available!\n");
 	}
 
 	// Delete old texture
 	nvgDeleteImage(ctx, currentTextureId);
+	printf("[nvg__atlasGrow] Deleted old texture %d\n", currentTextureId);
 
 	// Store new texture ID in atlas
 	nvgFontSetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode, newTextureId);
 
-	// Reset the specific atlas that was grown
-	nvgAtlasReset(ctx->fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode, iw, ih);
+	// Update atlas dimensions
+	NVGAtlas* atlas = nvg__getAtlas(ctx->fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode);
+	if (atlas) {
+		printf("[nvg__atlasGrow] Updating atlas dimensions from %dx%d to %dx%d (preserving %d nodes)\n",
+		       atlas->width, atlas->height, iw, ih, atlas->nnodes);
+		atlas->width = iw;
+		atlas->height = ih;
+	}
+
+	// Scale cached texture coordinates to account for new atlas size
+	// Old texture at (0,0) in new texture, so coords scale by (oldWidth/newWidth, oldHeight/newHeight)
+	// ONLY scale glyphs that belong to THIS atlas (matching srcCS, dstCS, format, subpixel)
+	if (ctx->fs->glyphCache) {
+		float scaleX = (float)oldWidth / (float)iw;
+		float scaleY = (float)oldHeight / (float)ih;
+		int scaledCount = 0;
+
+		for (int i = 0; i < ctx->fs->glyphCache->count; i++) {
+			NVGGlyphCacheEntry* entry = &ctx->fs->glyphCache->entries[i];
+			if (entry->valid &&
+			    entry->srcColorSpace == srcColorSpace &&
+			    entry->dstColorSpace == dstColorSpace &&
+			    entry->format == format &&
+			    entry->subpixelMode == subpixelMode) {
+				entry->s0 *= scaleX;
+				entry->s1 *= scaleX;
+				entry->t0 *= scaleY;
+				entry->t1 *= scaleY;
+				scaledCount++;
+			}
+		}
+
+		printf("[nvg__atlasGrow] Scaled %d cached glyph texture coords by (%.3f, %.3f) for this atlas\n",
+		       scaledCount, scaleX, scaleY);
+	}
 
 	if (newWidth) *newWidth = iw;
 	if (newHeight) *newHeight = ih;
 
+	printf("[nvg__atlasGrow] Atlas grow completed successfully\n");
 	return 1;
 }
 
@@ -2607,12 +2660,13 @@ static void nvg__renderText(NVGcontext* ctx, NVGvertex* verts, int nverts, VkCol
 		       render_call_count, nverts, srcColorSpace, dstColorSpace, format, subpixelMode, textureId);
 	}
 
-	// For COLR emoji (sRGB source), use white as inner color so the emoji colors show through
-	if (srcColorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+	// For COLR emoji (valid srcColorSpace), use white as inner color so the emoji colors show through
+	// LCD/grayscale/MSDF have srcColorSpace=(VkColorSpaceKHR)-1 and should use the text color
+	if (srcColorSpace != (VkColorSpaceKHR)-1) {
 		float alpha = paint.innerColor.a * state->alpha;
 		paint.innerColor = nvgRGBAf(1.0f, 1.0f, 1.0f, alpha);
 	} else {
-		// Apply global alpha for non-color glyphs
+		// Apply global alpha for non-color glyphs (LCD, grayscale, MSDF)
 		paint.innerColor.a *= state->alpha;
 		paint.outerColor.a *= state->alpha;
 	}
