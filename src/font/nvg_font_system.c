@@ -202,6 +202,9 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 	fs->state.subpixelMode = NVG_SUBPIXEL_NONE;
 	fs->shapingState.bidi_enabled = 1;
 	fs->shapingState.base_dir = FRIBIDI_TYPE_ON;
+	fs->shapingState.runs = NULL;
+	fs->shapingState.runCount = 0;
+	fs->shapingState.runCapacity = 0;
 
 	// Initialize Cairo for COLR emoji rendering
 	nvg__initCairoState(fs);
@@ -247,6 +250,19 @@ void nvgFontDestroy(NVGFontSystem* fs) {
 	// Free HarfBuzz buffer
 	if (fs->shapingState.hb_buffer) {
 		hb_buffer_destroy(fs->shapingState.hb_buffer);
+	}
+
+	// Free font runs
+	if (fs->shapingState.runs) {
+		for (int i = 0; i < fs->shapingState.runCount; i++) {
+			if (fs->shapingState.runs[i].glyphs) {
+				free(fs->shapingState.runs[i].glyphs);
+			}
+			if (fs->shapingState.runs[i].positions) {
+				free(fs->shapingState.runs[i].positions);
+			}
+		}
+		free(fs->shapingState.runs);
 	}
 
 	// Destroy Cairo state

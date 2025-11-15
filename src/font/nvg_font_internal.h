@@ -97,11 +97,24 @@ struct NVGAtlasManager {
 	void* growUserdata;
 };
 
+// Font run for segmented shaping
+typedef struct {
+	int fontId;              // Which font to use for this run
+	int byteStart;           // Start position in UTF-8 string
+	int byteLength;          // Length in bytes
+	hb_glyph_info_t* glyphs; // Shaped glyph infos
+	hb_glyph_position_t* positions; // Shaped glyph positions
+	unsigned int glyphCount; // Number of glyphs in this run
+} NVGFontRun;
+
 // HarfBuzz/FriBidi state
 typedef struct {
 	hb_buffer_t* hb_buffer;
 	FriBidiCharType base_dir;
 	int bidi_enabled;
+	NVGFontRun* runs;        // Array of font runs
+	int runCount;            // Number of font runs
+	int runCapacity;         // Allocated capacity for runs
 } NVGTextShapingState;
 
 // OpenType feature

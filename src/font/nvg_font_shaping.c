@@ -27,6 +27,104 @@ static int nvg__decodeUTF8(const char* str, unsigned int* codepoint) {
 	}
 }
 
+// Segment text into font runs based on which font is needed for each character
+static void nvg__segmentTextByFont(NVGFontSystem* fs, const char* string, const char* end) {
+	// Clear previous runs
+	for (int i = 0; i < fs->shapingState.runCount; i++) {
+		if (fs->shapingState.runs[i].glyphs) {
+			free(fs->shapingState.runs[i].glyphs);
+			fs->shapingState.runs[i].glyphs = NULL;
+		}
+		if (fs->shapingState.runs[i].positions) {
+			free(fs->shapingState.runs[i].positions);
+			fs->shapingState.runs[i].positions = NULL;
+		}
+	}
+	fs->shapingState.runCount = 0;
+
+	if (fs->state.fontId < 0 || fs->state.fontId >= fs->nfonts) {
+		return;  // No valid font
+	}
+
+	const char* p = string;
+	const char* runStart = string;
+	int currentFontId = -1;
+	int runByteStart = 0;
+
+	while (p < end) {
+		unsigned int codepoint = 0;
+		int bytes = nvg__decodeUTF8(p, &codepoint);
+
+		// Determine which font this character needs
+		int neededFontId = nvg__findFontForCodepoint(fs, fs->state.fontId, codepoint);
+		if (neededFontId < 0) {
+			neededFontId = fs->state.fontId;  // Fallback to base font
+		}
+
+		// If font changed, end current run and start new one
+		if (currentFontId != neededFontId && currentFontId != -1) {
+			// End current run
+			if (fs->shapingState.runCount >= fs->shapingState.runCapacity) {
+				// Grow runs array
+				int newCapacity = fs->shapingState.runCapacity == 0 ? 4 : fs->shapingState.runCapacity * 2;
+				NVGFontRun* newRuns = (NVGFontRun*)realloc(fs->shapingState.runs, sizeof(NVGFontRun) * newCapacity);
+				if (newRuns) {
+					fs->shapingState.runs = newRuns;
+					fs->shapingState.runCapacity = newCapacity;
+				} else {
+					return;  // Out of memory
+				}
+			}
+
+			NVGFontRun* run = &fs->shapingState.runs[fs->shapingState.runCount++];
+			run->fontId = currentFontId;
+			run->byteStart = runByteStart;
+			run->byteLength = (int)(p - runStart);
+			run->glyphs = NULL;
+			run->positions = NULL;
+			run->glyphCount = 0;
+
+			// Start new run
+			runStart = p;
+			runByteStart = (int)(p - string);
+		}
+
+		currentFontId = neededFontId;
+		p += bytes;
+	}
+
+	// Add final run
+	if (currentFontId != -1 && p > runStart) {
+		if (fs->shapingState.runCount >= fs->shapingState.runCapacity) {
+			int newCapacity = fs->shapingState.runCapacity == 0 ? 4 : fs->shapingState.runCapacity * 2;
+			NVGFontRun* newRuns = (NVGFontRun*)realloc(fs->shapingState.runs, sizeof(NVGFontRun) * newCapacity);
+			if (newRuns) {
+				fs->shapingState.runs = newRuns;
+				fs->shapingState.runCapacity = newCapacity;
+			} else {
+				return;
+			}
+		}
+
+		NVGFontRun* run = &fs->shapingState.runs[fs->shapingState.runCount++];
+		run->fontId = currentFontId;
+		run->byteStart = runByteStart;
+		run->byteLength = (int)(p - runStart);
+		run->glyphs = NULL;
+		run->positions = NULL;
+		run->glyphCount = 0;
+	}
+
+	printf("[Font Run Segmentation] Created %d runs\n", fs->shapingState.runCount);
+	for (int i = 0; i < fs->shapingState.runCount; i++) {
+		printf("  Run %d: fontId=%d, bytes [%d..%d) (%d bytes)\n",
+		       i, fs->shapingState.runs[i].fontId,
+		       fs->shapingState.runs[i].byteStart,
+		       fs->shapingState.runs[i].byteStart + fs->shapingState.runs[i].byteLength,
+		       fs->shapingState.runs[i].byteLength);
+	}
+}
+
 // Text shaping with HarfBuzz and FriBidi
 
 // Helper: Build cache key from current font system state
@@ -80,6 +178,7 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 	iter->str = string;
 	iter->next = string;
 	iter->glyphIndex = 0;
+	iter->runIndex = 0;
 	iter->cachedShaping = NULL;
 
 	if (!end) end = string + strlen(string);
@@ -192,14 +291,8 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 		}
 	}
 
-	// Prepare HarfBuzz buffer
-	hb_buffer_clear_contents(fs->shapingState.hb_buffer);
-	hb_buffer_set_direction(fs->shapingState.hb_buffer, direction);
-	hb_buffer_set_script(fs->shapingState.hb_buffer, HB_SCRIPT_COMMON);
-	hb_buffer_set_language(fs->shapingState.hb_buffer, hb_language_from_string("en", -1));
-
-	// Add text to buffer
-	hb_buffer_add_utf8(fs->shapingState.hb_buffer, string, (int)(end - string), 0, (int)(end - string));
+	// Segment text into font runs
+	nvg__segmentTextByFont(fs, string, end);
 
 	// Apply OpenType features
 	hb_feature_t features[32];
@@ -222,45 +315,71 @@ void nvgFontShapedTextIterInit(NVGFontSystem* fs, NVGTextIter* iter, float x, fl
 		num_features++;
 	}
 
-	// Shape text if font is set
-	if (fs->state.fontId >= 0 && fs->state.fontId < fs->nfonts) {
-		FT_Face face = fs->fonts[fs->state.fontId].face;
+	// Shape each font run with its respective font
+	for (int runIdx = 0; runIdx < fs->shapingState.runCount; runIdx++) {
+		NVGFontRun* run = &fs->shapingState.runs[runIdx];
+
+		if (run->fontId < 0 || run->fontId >= fs->nfonts) {
+			continue;  // Skip invalid font
+		}
+
+		FT_Face face = fs->fonts[run->fontId].face;
 
 		static int shape_debug = 0;
 		if (shape_debug++ < 10) {
-			printf("[nvgFontShapedTextIterInit] Shaping with fontId=%d, varStateId=%u, size=%.1f\n",
-				fs->state.fontId, fs->fonts[fs->state.fontId].varStateId, fs->state.size);
+			printf("[Shaping Run %d] fontId=%d, bytes [%d..%d)\n",
+			       runIdx, run->fontId, run->byteStart, run->byteStart + run->byteLength);
 		}
 
-		// Set FreeType face size first
+		// Set FreeType face size
 		FT_Set_Pixel_Sizes(face, 0, (FT_UInt)fs->state.size);
 
-		// Re-apply variation coordinates to ensure FreeType face has correct settings
-		if (fs->fonts[fs->state.fontId].varCoordsCount > 0) {
-			FT_Fixed* ft_coords = (FT_Fixed*)malloc(sizeof(FT_Fixed) * fs->fonts[fs->state.fontId].varCoordsCount);
+		// Re-apply variation coordinates if any
+		if (fs->fonts[run->fontId].varCoordsCount > 0) {
+			FT_Fixed* ft_coords = (FT_Fixed*)malloc(sizeof(FT_Fixed) * fs->fonts[run->fontId].varCoordsCount);
 			if (ft_coords) {
-				for (unsigned int i = 0; i < fs->fonts[fs->state.fontId].varCoordsCount; i++) {
-					ft_coords[i] = (FT_Fixed)(fs->fonts[fs->state.fontId].varCoords[i] * 65536.0f);
+				for (unsigned int i = 0; i < fs->fonts[run->fontId].varCoordsCount; i++) {
+					ft_coords[i] = (FT_Fixed)(fs->fonts[run->fontId].varCoords[i] * 65536.0f);
 				}
-				FT_Set_Var_Design_Coordinates(face, fs->fonts[fs->state.fontId].varCoordsCount, ft_coords);
+				FT_Set_Var_Design_Coordinates(face, fs->fonts[run->fontId].varCoordsCount, ft_coords);
 				free(ft_coords);
 			}
 		}
 
-		// Create a fresh HarfBuzz font for this shaping to pick up current variation settings
-		// HarfBuzz will read metrics from the FreeType face at the current size and variation
+		// Prepare HarfBuzz buffer for this run
+		hb_buffer_clear_contents(fs->shapingState.hb_buffer);
+		hb_buffer_set_direction(fs->shapingState.hb_buffer, direction);
+		hb_buffer_set_script(fs->shapingState.hb_buffer, HB_SCRIPT_COMMON);
+		hb_buffer_set_language(fs->shapingState.hb_buffer, hb_language_from_string("en", -1));
+
+		// Add this run's text to buffer
+		hb_buffer_add_utf8(fs->shapingState.hb_buffer,
+		                   string + run->byteStart, run->byteLength,
+		                   0, run->byteLength);
+
+		// Create HarfBuzz font and shape
 		hb_font_t* hb_font = hb_ft_font_create(face, NULL);
 		if (hb_font) {
-			// Note: We don't call hb_font_set_scale() because hb_ft_font_create() already
-			// picks up the size from the FreeType face
-
 			if (num_features > 0) {
 				hb_shape(hb_font, fs->shapingState.hb_buffer, features, num_features);
 			} else {
 				hb_shape(hb_font, fs->shapingState.hb_buffer, NULL, 0);
 			}
 
-			// Destroy the temporary HarfBuzz font
+			// Store shaped results in the run
+			unsigned int count;
+			hb_glyph_info_t* info = hb_buffer_get_glyph_infos(fs->shapingState.hb_buffer, &count);
+			hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(fs->shapingState.hb_buffer, &count);
+
+			run->glyphCount = count;
+			run->glyphs = (hb_glyph_info_t*)malloc(sizeof(hb_glyph_info_t) * count);
+			run->positions = (hb_glyph_position_t*)malloc(sizeof(hb_glyph_position_t) * count);
+
+			if (run->glyphs && run->positions) {
+				memcpy(run->glyphs, info, sizeof(hb_glyph_info_t) * count);
+				memcpy(run->positions, pos, sizeof(hb_glyph_position_t) * count);
+			}
+
 			hb_font_destroy(hb_font);
 		}
 	}
@@ -284,63 +403,108 @@ int nvgFontShapedTextIterNext(NVGFontSystem* fs, NVGTextIter* iter, NVGCachedGly
 	if (!fs || !iter || !quad) return 0;
 	if (fs->state.fontId < 0 || fs->state.fontId >= fs->nfonts) return 0;
 
-	// Get shaped glyphs (from cache or shared buffer)
-	unsigned int glyph_count;
-	hb_glyph_info_t* glyph_info;
-	hb_glyph_position_t* glyph_pos;
-
+	// Handle cached shaping (Phase 14.2) - uses old single-buffer approach
 	if (iter->cachedShaping) {
-		// Use cached shaping
 		NVGShapedTextEntry* cached = (NVGShapedTextEntry*)iter->cachedShaping;
-		glyph_count = cached->glyphCount;
-		glyph_info = cached->glyphInfo;
-		glyph_pos = cached->glyphPos;
-	} else {
-		// Use shared HarfBuzz buffer (current behavior)
-		glyph_info = hb_buffer_get_glyph_infos(fs->shapingState.hb_buffer, &glyph_count);
-		glyph_pos = hb_buffer_get_glyph_positions(fs->shapingState.hb_buffer, &glyph_count);
+		unsigned int glyph_count = cached->glyphCount;
+		hb_glyph_info_t* glyph_info = cached->glyphInfo;
+		hb_glyph_position_t* glyph_pos = cached->glyphPos;
+
+		if (iter->glyphIndex >= glyph_count) {
+			return 0;
+		}
+
+		unsigned int glyph_id = glyph_info[iter->glyphIndex].codepoint;
+		unsigned int cluster = glyph_info[iter->glyphIndex].cluster;
+		float x_offset = (float)glyph_pos[iter->glyphIndex].x_offset / 64.0f;
+		float y_offset = (float)glyph_pos[iter->glyphIndex].y_offset / 64.0f;
+		float x_advance = (float)glyph_pos[iter->glyphIndex].x_advance / 64.0f;
+
+		unsigned int codepoint = 0;
+		nvg__decodeUTF8(iter->str + cluster, &codepoint);
+
+		if (!nvgFontRenderGlyph(fs, fs->state.fontId, glyph_id, codepoint,
+		                        iter->x + x_offset, iter->y + y_offset, quad)) {
+			iter->glyphIndex++;
+			iter->x += x_advance + fs->state.spacing;
+			return nvgFontShapedTextIterNext(fs, iter, quad);
+		}
+
+		iter->x += x_advance + fs->state.spacing;
+		iter->glyphIndex++;
+
+		iter->x0 = quad->x0;
+		iter->y0 = quad->y0;
+		iter->x1 = quad->x1;
+		iter->y1 = quad->y1;
+		iter->s0 = quad->s0;
+		iter->t0 = quad->t0;
+		iter->s1 = quad->s1;
+		iter->t1 = quad->t1;
+		iter->codepoint = quad->codepoint;
+
+		return 1;
 	}
 
-	// Check if we've iterated through all glyphs
-	if (iter->glyphIndex >= glyph_count) {
+	// Use font runs for proper fallback spacing
+	if (fs->shapingState.runCount == 0) {
 		return 0;
 	}
 
-	// Get current glyph
-	unsigned int glyph_id = glyph_info[iter->glyphIndex].codepoint;  // This is glyph INDEX, not codepoint!
-	unsigned int cluster = glyph_info[iter->glyphIndex].cluster;
-	float x_offset = (float)glyph_pos[iter->glyphIndex].x_offset / 64.0f;
-	float y_offset = (float)glyph_pos[iter->glyphIndex].y_offset / 64.0f;
-	float x_advance = (float)glyph_pos[iter->glyphIndex].x_advance / 64.0f;
+	// Find current run and glyph
+	while (iter->runIndex < (unsigned int)fs->shapingState.runCount) {
+		NVGFontRun* run = &fs->shapingState.runs[iter->runIndex];
 
-	// Decode the actual Unicode codepoint from the original string
-	unsigned int codepoint = 0;
-	nvg__decodeUTF8(iter->str + cluster, &codepoint);
+		// Check if we've finished this run
+		if (iter->glyphIndex >= run->glyphCount) {
+			// Move to next run
+			iter->runIndex++;
+			iter->glyphIndex = 0;
+			continue;
+		}
 
-	// Render glyph and get quad
-	if (!nvgFontRenderGlyph(fs, fs->state.fontId, glyph_id, codepoint,
-	                        iter->x + x_offset, iter->y + y_offset, quad)) {
-		iter->glyphIndex++;
+		// Get current glyph from this run
+		hb_glyph_info_t* glyph_info = &run->glyphs[iter->glyphIndex];
+		hb_glyph_position_t* glyph_pos = &run->positions[iter->glyphIndex];
+
+		unsigned int glyph_id = glyph_info->codepoint;  // This is glyph INDEX
+		unsigned int cluster = glyph_info->cluster;
+		float x_offset = (float)glyph_pos->x_offset / 64.0f;
+		float y_offset = (float)glyph_pos->y_offset / 64.0f;
+		float x_advance = (float)glyph_pos->x_advance / 64.0f;
+
+		// Decode the actual Unicode codepoint from the original string
+		unsigned int codepoint = 0;
+		nvg__decodeUTF8(iter->str + cluster, &codepoint);
+
+		// Render glyph using the run's fontId (this is the key fix!)
+		if (!nvgFontRenderGlyph(fs, run->fontId, glyph_id, codepoint,
+		                        iter->x + x_offset, iter->y + y_offset, quad)) {
+			iter->glyphIndex++;
+			iter->x += x_advance + fs->state.spacing;
+			return nvgFontShapedTextIterNext(fs, iter, quad);
+		}
+
+		// Update iterator position
 		iter->x += x_advance + fs->state.spacing;
-		return nvgFontShapedTextIterNext(fs, iter, quad);
+		iter->glyphIndex++;
+
+		// Update iterator bounds
+		iter->x0 = quad->x0;
+		iter->y0 = quad->y0;
+		iter->x1 = quad->x1;
+		iter->y1 = quad->y1;
+		iter->s0 = quad->s0;
+		iter->t0 = quad->t0;
+		iter->s1 = quad->s1;
+		iter->t1 = quad->t1;
+		iter->codepoint = quad->codepoint;
+
+		return 1;
 	}
 
-	// Update iterator position
-	iter->x += x_advance + fs->state.spacing;
-	iter->glyphIndex++;
-
-	// Update iterator bounds
-	iter->x0 = quad->x0;
-	iter->y0 = quad->y0;
-	iter->x1 = quad->x1;
-	iter->y1 = quad->y1;
-	iter->s0 = quad->s0;
-	iter->t0 = quad->t0;
-	iter->s1 = quad->s1;
-	iter->t1 = quad->t1;
-	iter->codepoint = quad->codepoint;
-
-	return 1;
+	// All runs exhausted
+	return 0;
 }
 
 void nvgFontTextIterFree(NVGTextIter* iter) {

@@ -51,7 +51,8 @@ typedef struct {
 	unsigned int codepoint;
 	const char* str;      // Current position in string
 	const char* next;     // Next position
-	unsigned int glyphIndex; // Current HarfBuzz glyph index for iteration
+	unsigned int glyphIndex; // Current HarfBuzz glyph index within current run
+	unsigned int runIndex;   // Current font run index
 	void* cachedShaping;  // Opaque pointer to NVGShapedTextEntry (NULL if using shared buffer)
 } NVGTextIter;
 
