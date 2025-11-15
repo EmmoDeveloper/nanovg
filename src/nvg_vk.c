@@ -712,3 +712,18 @@ void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename)
 {
 	nvgVkDumpAtlasTextureByIndex(ctx, 0, filename);
 }
+
+void nvgVkDumpAtlasByFormat(NVGcontext* ctx, VkFormat format, const char* filename)
+{
+	if (!ctx || !filename) return;
+
+	// Get the atlas texture ID for this format using the public API
+	int textureId = nvgGetAtlasTextureId(ctx, (int)format);
+	if (textureId == 0) {
+		printf("[nvgVkDumpAtlasByFormat] No atlas found for format %d\n", format);
+		return;
+	}
+
+	// Convert from 1-based to 0-based index
+	nvgVkDumpAtlasTextureByIndex(ctx, textureId - 1, filename);
+}

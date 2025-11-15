@@ -98,6 +98,9 @@ void nvgVkDumpAtlasTexture(NVGcontext* ctx, const char* filename);
 // Debug function to dump a specific texture by index to a PPM file
 void nvgVkDumpAtlasTextureByIndex(NVGcontext* ctx, int textureIndex, const char* filename);
 
+// Debug function to dump atlas by format (VK_FORMAT_R8_UNORM for ALPHA, VK_FORMAT_R8G8B8A8_UNORM for RGBA)
+void nvgVkDumpAtlasByFormat(NVGcontext* ctx, VkFormat format, const char* filename);
+
 #ifdef __cplusplus
 }
 #endif

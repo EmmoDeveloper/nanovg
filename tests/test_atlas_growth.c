@@ -322,8 +322,8 @@ int main(void) {
 
 	// Dump atlases for debugging
 	printf("\nDumping atlas textures...\n");
-	nvgVkDumpAtlasTextureByIndex(vg, 0, "screendumps/atlas_alpha.ppm");
-	nvgVkDumpAtlasTextureByIndex(vg, 1, "screendumps/atlas_rgba.ppm");
+	nvgVkDumpAtlasByFormat(vg, VK_FORMAT_R8_UNORM, "screendumps/atlas_alpha.ppm");
+	nvgVkDumpAtlasByFormat(vg, VK_FORMAT_R8G8B8A8_UNORM, "screendumps/atlas_rgba.ppm");
 
 	vkCmdEndRenderPass(cmd);
 	vkEndCommandBuffer(cmd);

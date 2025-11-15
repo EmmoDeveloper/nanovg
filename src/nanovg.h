@@ -897,6 +897,11 @@ NVGparams* nvgInternalParams(NVGcontext* ctx);
 // Debug function to dump cached path data.
 void nvgDebugDumpPathCache(NVGcontext* ctx);
 
+// Get atlas texture ID for a given format (for debugging)
+// format: VK_FORMAT_R8_UNORM for ALPHA, VK_FORMAT_R8G8B8A8_UNORM for RGBA
+// Returns texture ID (1-based) or 0 if not found
+int nvgGetAtlasTextureId(NVGcontext* ctx, int format);
+
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif

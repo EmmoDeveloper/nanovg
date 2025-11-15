@@ -2274,6 +2274,29 @@ void nvgDebugDumpPathCache(NVGcontext* ctx)
 	}
 }
 
+int nvgGetAtlasTextureId(NVGcontext* ctx, int format)
+{
+	if (!ctx || !ctx->fs) return 0;
+
+	int subpixelMode = 0;
+	VkFormat vkFormat = (VkFormat)format;
+	int textureId = 0;
+
+	// For RGBA format (color emojis), try actual color spaces
+	if (vkFormat == VK_FORMAT_R8G8B8A8_UNORM) {
+		// Try with sRGB color space (COLR emojis)
+		textureId = nvgFontGetAtlasTexture(ctx->fs, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+		                                    ctx->fs->targetColorSpace, vkFormat, subpixelMode);
+		if (textureId != 0) return textureId;
+	}
+
+	// For ALPHA format or if RGBA not found, use sentinel color space values
+	VkColorSpaceKHR srcCS = (VkColorSpaceKHR)-1;
+	VkColorSpaceKHR dstCS = (VkColorSpaceKHR)-1;
+
+	return nvgFontGetAtlasTexture(ctx->fs, srcCS, dstCS, vkFormat, subpixelMode);
+}
+
 void nvgFill(NVGcontext* ctx)
 {
 	NVGstate* state = nvg__getState(ctx);
@@ -2575,6 +2598,13 @@ static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpac
 
 	printf("[nvg__atlasGrow] Growing from %dx%d to %dx%d\n", oldWidth, oldHeight, iw, ih);
 
+	// Dump atlas BEFORE growth
+	char beforeFilename[256];
+	const char* formatName = (format == VK_FORMAT_R8G8B8A8_UNORM) ? "rgba" : "alpha";
+	snprintf(beforeFilename, sizeof(beforeFilename), "screendumps/atlas_%s_before_%dx%d.ppm", formatName, oldWidth, oldHeight);
+	nvgVkDumpAtlasTextureByIndex(ctx, currentTextureId - 1, beforeFilename);
+	printf("[nvg__atlasGrow] Dumped BEFORE: %s\n", beforeFilename);
+
 	// Create new larger texture
 	int texType = (format == VK_FORMAT_R8G8B8A8_UNORM) ? NVG_TEXTURE_RGBA : NVG_TEXTURE_ALPHA;
 	int newTextureId = ctx->params.renderCreateTexture(ctx->params.userPtr, texType, iw, ih, 0, NULL);
@@ -2594,9 +2624,11 @@ static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpac
 		printf("[nvg__atlasGrow] WARNING: No renderCopyTexture function available!\n");
 	}
 
-	// Delete old texture
-	nvgDeleteImage(ctx, currentTextureId);
-	printf("[nvg__atlasGrow] Deleted old texture %d\n", currentTextureId);
+	// NOTE: Don't delete old texture immediately - it may still be referenced by pending draw calls
+	// The old texture will be leaked, but this prevents rendering corruption
+	// TODO: Implement proper texture lifecycle management to delete old textures after frame completes
+	// nvgDeleteImage(ctx, currentTextureId);
+	printf("[nvg__atlasGrow] Old texture %d NOT deleted (may be referenced by pending draws)\n", currentTextureId);
 
 	// Store new texture ID in atlas
 	nvgFontSetAtlasTexture(ctx->fs, srcColorSpace, dstColorSpace, format, subpixelMode, newTextureId);
@@ -2636,6 +2668,12 @@ static int nvg__atlasGrow(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpac
 		printf("[nvg__atlasGrow] Scaled %d cached glyph texture coords by (%.3f, %.3f) for this atlas\n",
 		       scaledCount, scaleX, scaleY);
 	}
+
+	// Dump atlas AFTER growth
+	char afterFilename[256];
+	snprintf(afterFilename, sizeof(afterFilename), "screendumps/atlas_%s_after_%dx%d.ppm", formatName, iw, ih);
+	nvgVkDumpAtlasTextureByIndex(ctx, newTextureId - 1, afterFilename);
+	printf("[nvg__atlasGrow] Dumped AFTER: %s\n", afterFilename);
 
 	if (newWidth) *newWidth = iw;
 	if (newHeight) *newHeight = ih;
