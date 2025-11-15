@@ -19,10 +19,10 @@ int main(void) {
 		return 1;
 	}
 
-	// Load a font with OpenType features (using Inter which has extensive features)
-	int font = nvgCreateFont(vg, "sans", "fonts/variable/Inter/Inter-VariableFont_opsz,wght.ttf");
+	// Load a font with OpenType features (using Fraunces which has ligatures)
+	int font = nvgCreateFont(vg, "serif", "fonts/variable/Fraunces/static/Fraunces_72pt-Regular.ttf");
 	if (font == -1) {
-		printf("Failed to load Inter font\n");
+		printf("Failed to load Fraunces font\n");
 		nvgDeleteVk(vg);
 		window_destroy_context(winCtx);
 		return 1;
@@ -73,7 +73,7 @@ int main(void) {
 
 	// Title
 	nvgFontSize(vg, 32.0f);
-	nvgFontFace(vg, "sans");
+	nvgFontFace(vg, "serif");
 	nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
 	nvgText(vg, 50, 50, "OpenType Features Test", NULL);
 
@@ -217,7 +217,7 @@ int main(void) {
 	nvgFontSize(vg, 12.0f);
 	nvgFillColor(vg, nvgRGBA(120, 120, 120, 255));
 	nvgFontFeaturesReset(vg);
-	nvgText(vg, 50, 870, "Inter font supports liga, tnum, and zero features", NULL);
+	nvgText(vg, 50, 870, "Fraunces font supports liga feature", NULL);
 
 	nvgEndFrame(vg);
 
