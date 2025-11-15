@@ -648,6 +648,10 @@ WindowVulkanContext* window_create_context(int width, int height, const char* ti
 	uint32_t glfwExtensionCount = 0;
 	const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
+	// Check environment variable to enable/disable validation layers
+	const char* enableValidation = getenv("VULKAN_VALIDATION");
+	int validationRequested = (enableValidation && strcmp(enableValidation, "1") == 0);
+
 	uint32_t layerCount;
 	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
 	VkLayerProperties* availableLayers = malloc(sizeof(VkLayerProperties) * layerCount);
@@ -655,10 +659,12 @@ WindowVulkanContext* window_create_context(int width, int height, const char* ti
 
 	int validationLayerPresent = 0;
 	const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
-	for (uint32_t i = 0; i < layerCount; i++) {
-		if (strcmp(availableLayers[i].layerName, validationLayerName) == 0) {
-			validationLayerPresent = 1;
-			break;
+	if (validationRequested) {
+		for (uint32_t i = 0; i < layerCount; i++) {
+			if (strcmp(availableLayers[i].layerName, validationLayerName) == 0) {
+				validationLayerPresent = 1;
+				break;
+			}
 		}
 	}
 	free(availableLayers);
