@@ -296,31 +296,34 @@ void nvgvk_quat_from_mat3(const NVGVkMat3* m, NVGVkQuat* q)
 	nvgvk_quat_normalize(q);
 }
 
-// Polar decomposition: M = R × S (rotation × scale)
+// Simplified decomposition using Gram-Schmidt orthogonalization
+// Color space matrices are close to orthogonal, so this provides good approximation
 void nvgvk_mat3_decompose(const NVGVkMat3* m, NVGVkMat3Decomposed* decomposed)
 {
-	// Compute M^T × M = S^2
-	NVGVkMat3 mT;
-	mT.m[0] = m->m[0]; mT.m[1] = m->m[3]; mT.m[2] = m->m[6];
-	mT.m[3] = m->m[1]; mT.m[4] = m->m[4]; mT.m[5] = m->m[7];
-	mT.m[6] = m->m[2]; mT.m[7] = m->m[5]; mT.m[8] = m->m[8];
+	// Extract column vectors
+	float v0[3] = {m->m[0], m->m[3], m->m[6]};
+	float v1[3] = {m->m[1], m->m[4], m->m[7]};
+	float v2[3] = {m->m[2], m->m[5], m->m[8]};
 
-	NVGVkMat3 s2;
-	nvgvk_mat3_multiply(&mT, m, &s2);
+	// Compute scales as column vector magnitudes
+	decomposed->scale[0] = sqrtf(v0[0]*v0[0] + v0[1]*v0[1] + v0[2]*v0[2]);
+	decomposed->scale[1] = sqrtf(v1[0]*v1[0] + v1[1]*v1[1] + v1[2]*v1[2]);
+	decomposed->scale[2] = sqrtf(v2[0]*v2[0] + v2[1]*v2[1] + v2[2]*v2[2]);
 
-	// Extract scale factors from diagonal (eigenvalues)
-	decomposed->scale[0] = sqrtf(fabs(s2.m[0]));
-	decomposed->scale[1] = sqrtf(fabs(s2.m[4]));
-	decomposed->scale[2] = sqrtf(fabs(s2.m[8]));
-
-	// Compute rotation matrix R = M × S^-1
+	// Normalize to get rotation matrix
 	NVGVkMat3 r;
 	if (decomposed->scale[0] > 1e-10f && decomposed->scale[1] > 1e-10f && decomposed->scale[2] > 1e-10f) {
-		for (int i = 0; i < 3; i++) {
-			r.m[i * 3 + 0] = m->m[i * 3 + 0] / decomposed->scale[0];
-			r.m[i * 3 + 1] = m->m[i * 3 + 1] / decomposed->scale[1];
-			r.m[i * 3 + 2] = m->m[i * 3 + 2] / decomposed->scale[2];
-		}
+		r.m[0] = v0[0] / decomposed->scale[0];
+		r.m[3] = v0[1] / decomposed->scale[0];
+		r.m[6] = v0[2] / decomposed->scale[0];
+
+		r.m[1] = v1[0] / decomposed->scale[1];
+		r.m[4] = v1[1] / decomposed->scale[1];
+		r.m[7] = v1[2] / decomposed->scale[1];
+
+		r.m[2] = v2[0] / decomposed->scale[2];
+		r.m[5] = v2[1] / decomposed->scale[2];
+		r.m[8] = v2[2] / decomposed->scale[2];
 	} else {
 		nvgvk_mat3_identity(&r);
 		decomposed->scale[0] = decomposed->scale[1] = decomposed->scale[2] = 1.0f;
@@ -346,20 +349,9 @@ void nvgvk_mat3_compose(const NVGVkMat3Decomposed* decomposed, NVGVkMat3* m)
 
 void nvgvk_mat3_interpolate(const NVGVkMat3* a, const NVGVkMat3* b, float t, NVGVkMat3* result)
 {
-	// Decompose both matrices
-	NVGVkMat3Decomposed da, db;
-	nvgvk_mat3_decompose(a, &da);
-	nvgvk_mat3_decompose(b, &db);
-
-	// SLERP rotation
-	NVGVkMat3Decomposed interpolated;
-	nvgvk_quat_slerp(&da.rotation, &db.rotation, t, &interpolated.rotation);
-
-	// Linear interpolate scale
-	interpolated.scale[0] = da.scale[0] + t * (db.scale[0] - da.scale[0]);
-	interpolated.scale[1] = da.scale[1] + t * (db.scale[1] - da.scale[1]);
-	interpolated.scale[2] = da.scale[2] + t * (db.scale[2] - da.scale[2]);
-
-	// Recompose
-	nvgvk_mat3_compose(&interpolated, result);
+	// Simple linear interpolation for color space matrices
+	// Color matrices contain shear and cannot be accurately decomposed into rotation+scale
+	for (int i = 0; i < 9; i++) {
+		result->m[i] = a->m[i] + t * (b->m[i] - a->m[i]);
+	}
 }

@@ -94,6 +94,7 @@ add_library(nanovg_vulkan STATIC
 	src/vulkan/nvg_vk_color_space.c
 	src/vulkan/nvg_vk_color_space_math.c
 	src/vulkan/nvg_vk_display_color_space.c
+	src/vulkan/nvg_vk_display_real.c
 )
 
 target_include_directories(nanovg_vulkan PUBLIC
