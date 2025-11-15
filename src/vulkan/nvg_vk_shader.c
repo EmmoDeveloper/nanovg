@@ -14,6 +14,7 @@ static const char* nvgvk__shader_paths[][2] = {
 	{"src/shaders/simple.vert.spv", "src/shaders/simple.frag.spv"},        // FRINGE (uses simple shader with AA)
 	{"src/shaders/img.vert.spv", "src/shaders/text_msdf_simple.frag.spv"}, // TEXT_MSDF
 	{"src/shaders/img.vert.spv", "src/shaders/text_subpixel.frag.spv"},    // TEXT_SUBPIXEL
+	{"src/shaders/img.vert.spv", "src/shaders/text_alpha.frag.spv"},       // TEXT_ALPHA
 };
 
 int nvgvk_create_shaders(NVGVkContext* vk)

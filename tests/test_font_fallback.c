@@ -66,7 +66,7 @@ int main(void)
 	renderPassInfo.renderArea.extent = winCtx->swapchainExtent;
 
 	VkClearValue clearValues[2];
-	clearValues[0].color = (VkClearColorValue){{1.0f, 1.0f, 1.0f, 1.0f}};
+	clearValues[0].color = (VkClearColorValue){{0.0f, 0.0f, 0.0f, 1.0f}};
 	clearValues[1].depthStencil = (VkClearDepthStencilValue){1.0f, 0};
 	renderPassInfo.clearValueCount = 2;
 	renderPassInfo.pClearValues = clearValues;

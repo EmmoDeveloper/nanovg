@@ -273,15 +273,18 @@ void nvgvk_render_triangles(NVGVkContext* vk, NVGVkCall* call)
 		int texId = call->image - 1;
 		if (texId >= 0 && texId < NVGVK_MAX_TEXTURES) {
 			int texType = vk->textures[texId].type;
-			// Check texture type: 3 = MSDF, 4 = LCD subpixel
-			if (texType == 3) {
+			// Check texture type: 1 = ALPHA (grayscale text), 2 = RGBA, 3 = MSDF, 4 = LCD subpixel
+			if (texType == 1) {
+				printf("[TEXT_ALPHA] Using TEXT_ALPHA pipeline for texture %d (type=%d)\n", call->image, texType);
+				pipelineType = NVGVK_PIPELINE_TEXT_ALPHA;
+			} else if (texType == 3) {
 				printf("[MSDF] Using MSDF pipeline for texture %d (type=%d)\n", call->image, texType);
 				pipelineType = NVGVK_PIPELINE_TEXT_MSDF;
 			} else if (texType == 4) {
 				printf("[LCD] Using TEXT_SUBPIXEL pipeline for texture %d (type=%d)\n", call->image, texType);
 				pipelineType = NVGVK_PIPELINE_TEXT_SUBPIXEL;
 			} else {
-				printf("[MSDF] Using IMG pipeline for texture %d (type=%d)\n", call->image, texType);
+				printf("[IMG] Using IMG pipeline for texture %d (type=%d)\n", call->image, texType);
 				pipelineType = NVGVK_PIPELINE_IMG;
 			}
 		} else {
