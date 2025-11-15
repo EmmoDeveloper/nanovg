@@ -2802,10 +2802,12 @@ float nvgText(NVGcontext* ctx, float x, float y, const char* string, const char*
 			tmp = q.t0; q.t0 = q.t1; q.t1 = tmp;
 		}
 		// Transform corners.
-		nvgTransformPoint(&c[0],&c[1], state->xform, q.x0*invscale, q.y0*invscale);
-		nvgTransformPoint(&c[2],&c[3], state->xform, q.x1*invscale, q.y0*invscale);
-		nvgTransformPoint(&c[4],&c[5], state->xform, q.x1*invscale, q.y1*invscale);
-		nvgTransformPoint(&c[6],&c[7], state->xform, q.x0*invscale, q.y1*invscale);
+		// Apply baseline shift
+		float yShift = state->baselineShift * scale;
+		nvgTransformPoint(&c[0],&c[1], state->xform, q.x0*invscale, (q.y0 + yShift)*invscale);
+		nvgTransformPoint(&c[2],&c[3], state->xform, q.x1*invscale, (q.y0 + yShift)*invscale);
+		nvgTransformPoint(&c[4],&c[5], state->xform, q.x1*invscale, (q.y1 + yShift)*invscale);
+		nvgTransformPoint(&c[6],&c[7], state->xform, q.x0*invscale, (q.y1 + yShift)*invscale);
 		// Create triangles
 		if (nverts+6 <= cverts) {
 			nvg__vset(&verts[nverts], c[0], c[1], q.s0, q.t0); nverts++;
