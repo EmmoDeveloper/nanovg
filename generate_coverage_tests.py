@@ -360,12 +360,38 @@ def get_test_code(func_name, params):
 	nvgFill(vg);"""
 
 	elif func_name in text_funcs:
-		# Text rendering functions
-		return f"""	{func_call}
+		# Text rendering functions - use appropriate test text and font
+		test_text = "Test Text"
+		font_face = "sans"
+		font_path = "fonts/sans/NotoSans-Regular.ttf"
+
+		if func_name == 'nvgFontFeature':
+			# Use text and font that demonstrates the font feature (Inter has good OpenType support)
+			font_face = "inter"
+			font_path = "fonts/variable/Inter/Inter-VariableFont_opsz,wght.ttf"
+			if 'tag' in params:
+				tag = params['tag']
+				if tag == 'NVG_FEATURE_LIGA':
+					test_text = "fi fl ff ffi ffl"  # Standard ligatures
+				elif tag == 'NVG_FEATURE_CALT':
+					test_text = "The quick brown"  # Contextual alternates
+				elif tag == 'NVG_FEATURE_ZERO':
+					test_text = "0 O 0 O 0"  # Compare zero with letter O (slashed zero)
+
+		# For font feature tests, we need to load the appropriate font
+		if func_name == 'nvgFontFeature':
+			return f"""	int testFont = nvgCreateFont(vg, "{font_face}", "{font_path}");
+	{func_call}
+	nvgFontFace(vg, "{font_face}");
+	nvgFontSize(vg, 48.0f);
+	nvgFillColor(vg, nvgRGBA(255, 192, 0, 255));
+	nvgText(vg, 100, 300, "{test_text}", NULL);"""
+		else:
+			return f"""	{func_call}
 	nvgFontFace(vg, "sans");
 	nvgFontSize(vg, 48.0f);
 	nvgFillColor(vg, nvgRGBA(255, 192, 0, 255));
-	nvgText(vg, 100, 300, "Test Text", NULL);"""
+	nvgText(vg, 100, 300, "{test_text}", NULL);"""
 
 	else:
 		# Generic test - just call the function

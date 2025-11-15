@@ -50,11 +50,12 @@ int main(void)
 	nvgBeginFrame(vg, winCtx->swapchainExtent.width, winCtx->swapchainExtent.height, 1.0f);
 
 	// Test the API function
+	int testFont = nvgCreateFont(vg, "inter", "fonts/variable/Inter/Inter-VariableFont_opsz,wght.ttf");
 	nvgFontFeature(vg, NVG_FEATURE_ZERO, 0);
-	nvgFontFace(vg, "sans");
+	nvgFontFace(vg, "inter");
 	nvgFontSize(vg, 48.0f);
 	nvgFillColor(vg, nvgRGBA(255, 192, 0, 255));
-	nvgText(vg, 100, 300, "Test Text", NULL);
+	nvgText(vg, 100, 300, "0 O 0 O 0", NULL);
 
 	// Draw label
 	nvgFontSize(vg, 14.0f);
