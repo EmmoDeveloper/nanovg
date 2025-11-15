@@ -1385,7 +1385,14 @@ int window_save_screenshot(WindowVulkanContext* ctx, uint32_t imageIndex, const 
 	// Convert to PNG if needed
 	if (isPng) {
 		char cmd[1024];
-		snprintf(cmd, sizeof(cmd), "convert %s %s && rm %s", tempPpm, filename, tempPpm);
+		// Add sRGB color space metadata for proper display rendering
+		// -set colorspace sRGB ensures the PNG has proper color profile
+		// -quality 95 preserves visual quality
+		const char* colorspace = (ctx->swapchainImageFormat == VK_FORMAT_B8G8R8A8_SRGB ||
+		                          ctx->swapchainImageFormat == VK_FORMAT_R8G8B8A8_SRGB)
+		                         ? "sRGB" : "RGB";
+		snprintf(cmd, sizeof(cmd), "convert %s -set colorspace %s -quality 95 %s && rm %s",
+		         tempPpm, colorspace, filename, tempPpm);
 		if (system(cmd) != 0) {
 			fprintf(stderr, "Failed to convert to PNG: %s\n", filename);
 			return 0;
