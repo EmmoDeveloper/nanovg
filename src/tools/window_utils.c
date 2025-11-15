@@ -1357,9 +1357,17 @@ int window_save_screenshot(WindowVulkanContext* ctx, uint32_t imageIndex, const 
 	for (uint32_t y = 0; y < height; y++) {
 		const uint8_t* row = imageData + layout.offset + y * layout.rowPitch;
 		for (uint32_t x = 0; x < width; x++) {
-			fputc(row[x * 4 + 2], file); // R
-			fputc(row[x * 4 + 1], file); // G
-			fputc(row[x * 4 + 0], file); // B
+			// Check format: BGRA uses [2,1,0], RGBA uses [0,1,2]
+			if (ctx->swapchainImageFormat == VK_FORMAT_B8G8R8A8_UNORM ||
+			    ctx->swapchainImageFormat == VK_FORMAT_B8G8R8A8_SRGB) {
+				fputc(row[x * 4 + 2], file); // R (from BGRA)
+				fputc(row[x * 4 + 1], file); // G
+				fputc(row[x * 4 + 0], file); // B
+			} else {
+				fputc(row[x * 4 + 0], file); // R (from RGBA)
+				fputc(row[x * 4 + 1], file); // G
+				fputc(row[x * 4 + 2], file); // B
+			}
 		}
 	}
 

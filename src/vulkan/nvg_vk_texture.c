@@ -11,8 +11,8 @@ VkFormat nvgvk__get_vk_format(int type)
 	if (type == NVG_TEXTURE_LCD_SUBPIXEL) {  // LCD subpixel - use RGB order
 		return VK_FORMAT_R8G8B8A8_UNORM;
 	}
-	if (type == NVG_TEXTURE_RGBA || type == NVG_TEXTURE_MSDF) {  // RGBA or MSDF - use BGR for compatibility
-		return VK_FORMAT_B8G8R8A8_UNORM;
+	if (type == NVG_TEXTURE_RGBA || type == NVG_TEXTURE_MSDF) {  // RGBA or MSDF
+		return VK_FORMAT_R8G8B8A8_UNORM;  // Data is in RGBA format
 	}
 	return VK_FORMAT_R8_UNORM;  // ALPHA
 }
