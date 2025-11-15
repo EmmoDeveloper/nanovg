@@ -2136,13 +2136,13 @@ void nvgArc(NVGcontext* ctx, float cx, float cy, float r, float a0, float a1, in
 	// Clamp angles
 	da = a1 - a0;
 	if (dir == NVG_CW) {
-		if (nvg__absf(da) >= NVG_PI*2) {
+		if (nvg__absf(da) >= NVG_PI*2 - 0.01f) {
 			da = NVG_PI*2;
 		} else {
 			while (da < 0.0f) da += NVG_PI*2;
 		}
 	} else {
-		if (nvg__absf(da) >= NVG_PI*2) {
+		if (nvg__absf(da) >= NVG_PI*2 - 0.01f) {
 			da = -NVG_PI*2;
 		} else {
 			while (da > 0.0f) da -= NVG_PI*2;
@@ -2184,6 +2184,11 @@ void nvgArc(NVGcontext* ctx, float cx, float cy, float r, float a0, float a1, in
 		py = y;
 		ptanx = tanx;
 		ptany = tany;
+	}
+
+	// Close the path if we drew a full circle
+	if (nvg__absf(da) >= NVG_PI*2 - 0.01f) {
+		vals[nvals++] = NVG_CLOSE;
 	}
 
 	nvg__appendCommands(ctx, vals, nvals);
