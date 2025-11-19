@@ -55,18 +55,19 @@ set(GLFW_LIBRARIES "${GLFW_DIR}/build/src/libglfw3.a")
 
 # Font system library
 add_library(nanovg_font STATIC
-	src/font/nvg_font_system.c
-	src/font/nvg_font_glyph.c
-	src/font/nvg_font_shaping.c
-	src/font/nvg_font_info.c
-	src/font/nvg_font_colr.c
-	src/font/nvg_font_shape_cache.c
-	src/vknvg_msdf.c
+	src/nanovg/font/nvg_font_system.c
+	src/nanovg/font/nvg_font_glyph.c
+	src/nanovg/font/nvg_font_shaping.c
+	src/nanovg/font/nvg_font_info.c
+	src/nanovg/font/nvg_font_colr.c
+	src/nanovg/font/nvg_font_shape_cache.c
+	src/util/vknvg_msdf.c
 )
 
 target_include_directories(nanovg_font PUBLIC
 	${CMAKE_SOURCE_DIR}/src
-	${CMAKE_SOURCE_DIR}/src/font
+	${CMAKE_SOURCE_DIR}/src/nanovg
+	${CMAKE_SOURCE_DIR}/src/nanovg/font
 	${FREETYPE_INCLUDE_DIRS}
 	${CAIRO_INCLUDE_DIRS}
 	${HARFBUZZ_INCLUDE_DIRS}
@@ -82,24 +83,25 @@ target_link_libraries(nanovg_font PUBLIC
 
 # Vulkan backend library
 add_library(nanovg_vulkan STATIC
-	src/vulkan/vk_shader.c
-	src/vulkan/nvg_vk_context.c
-	src/vulkan/nvg_vk_buffer.c
-	src/vulkan/nvg_vk_texture.c
-	src/vulkan/nvg_vk_shader.c
-	src/vulkan/nvg_vk_pipeline.c
-	src/vulkan/nvg_vk_render.c
-	src/vulkan/nvg_vk_hdr_metadata.c
-	src/vulkan/nvg_vk_color_space_ubo.c
-	src/vulkan/nvg_vk_color_space.c
-	src/vulkan/nvg_vk_color_space_math.c
-	src/vulkan/nvg_vk_display_color_space.c
-	src/vulkan/nvg_vk_display_real.c
+	src/backends/vulkan/impl/vk_shader.c
+	src/backends/vulkan/impl/nvg_vk_context.c
+	src/backends/vulkan/impl/nvg_vk_buffer.c
+	src/backends/vulkan/impl/nvg_vk_texture.c
+	src/backends/vulkan/impl/nvg_vk_shader.c
+	src/backends/vulkan/impl/nvg_vk_pipeline.c
+	src/backends/vulkan/impl/nvg_vk_render.c
+	src/backends/vulkan/impl/nvg_vk_hdr_metadata.c
+	src/backends/vulkan/impl/nvg_vk_color_space_ubo.c
+	src/backends/vulkan/impl/nvg_vk_color_space.c
+	src/backends/vulkan/impl/nvg_vk_color_space_math.c
+	src/backends/vulkan/impl/nvg_vk_display_color_space.c
+	src/backends/vulkan/impl/nvg_vk_display_real.c
 )
 
 target_include_directories(nanovg_vulkan PUBLIC
 	${CMAKE_SOURCE_DIR}/src
-	${CMAKE_SOURCE_DIR}/src/vulkan
+	${CMAKE_SOURCE_DIR}/src/backends/vulkan
+	${CMAKE_SOURCE_DIR}/src/backends/vulkan/impl
 	${Vulkan_INCLUDE_DIRS}
 )
 
@@ -110,9 +112,9 @@ target_link_libraries(nanovg_vulkan PUBLIC
 
 # NanoVG core library
 add_library(nanovg STATIC
-	src/nanovg.c
-	src/nvg_vk.c
-	src/vknvg_msdf.c
+	src/nanovg/nanovg.c
+	src/backends/vulkan/nvg_vk.c
+	src/util/vknvg_msdf.c
 )
 
 target_include_directories(nanovg PUBLIC

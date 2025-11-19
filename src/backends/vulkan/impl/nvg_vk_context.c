@@ -127,6 +127,12 @@ void nvgvk_delete(void* userPtr)
 		vk->vertices = NULL;
 	}
 
+	// Free shader path
+	if (vk->shaderBasePath) {
+		free(vk->shaderBasePath);
+		vk->shaderBasePath = NULL;
+	}
+
 	// Destroy fence
 	if (vk->uploadFence) {
 		vkDestroyFence(vk->device, vk->uploadFence, NULL);

@@ -19,7 +19,7 @@
 #ifndef NVG_VK_H
 #define NVG_VK_H
 
-#include "nanovg.h"
+#include "../../nanovg/nanovg.h"
 #include <vulkan/vulkan.h>
 
 #ifdef __cplusplus
@@ -50,6 +50,15 @@ NVGcontext* nvgCreateVk(VkDevice device, VkPhysicalDevice physicalDevice,
 
 // Deletes NanoVG context and frees all resources.
 void nvgDeleteVk(NVGcontext* ctx);
+
+// Sets the base path for shader files.
+// Must be called before creating any pipelines (i.e., before nvgBeginFrame()).
+// Parameters:
+//   ctx - NanoVG context
+//   path - Base directory path for shader files (e.g., "/path/to/nanovg/src/shaders")
+//          If NULL, defaults to "src/shaders" (legacy behavior)
+// Note: The path string is copied internally and can be freed after this call returns.
+void nvgVkSetShaderPath(NVGcontext* ctx, const char* path);
 
 // Returns the Vulkan command buffer that contains the rendering commands.
 // This should be called after nvgEndFrame() to get the command buffer for submission.

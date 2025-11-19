@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "nanovg.h"
-#include "nvg_vk.h"
+#include "nanovg/nanovg.h"
+#include "backends/vulkan/nvg_vk.h"
 #include "../src/tools/window_utils.h"
 
 int main(void) {

@@ -1,5 +1,5 @@
 #include "window_utils.h"
-#include "vulkan/nvg_vk_hdr_metadata.h"
+#include "backends/vulkan/impl/nvg_vk_hdr_metadata.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

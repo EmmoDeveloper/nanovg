@@ -2,10 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "nanovg.h"
-#include "nvg_vk.h"
+#include "nanovg/nanovg.h"
+#include "backends/vulkan/nvg_vk.h"
 #include "../src/tools/window_utils.h"
-#include "../src/vulkan/nvg_vk_display_real.h"
+#include "backends/vulkan/impl/nvg_vk_display_real.h"
 
 int main(void) {
 	printf("=== Real Display Detection and Quaternion Color Space Test ===\n\n");

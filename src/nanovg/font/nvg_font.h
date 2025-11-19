@@ -2,16 +2,15 @@
 #define NVG_FONT_H
 
 #include "nvg_font_types.h"
-#include <vulkan/vulkan.h>
 
 // Font system lifecycle
 NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight);
 void nvgFontDestroy(NVGFontSystem* fs);
-void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode), void* userdata);
-void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight), void* userdata);
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode), void* userdata);
+void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int* newWidth, int* newHeight), void* userdata);
 
 // Color space configuration
-void nvgFontSetColorSpace(NVGFontSystem* fs, VkColorSpaceKHR colorSpace);
+void nvgFontSetColorSpace(NVGFontSystem* fs, NVGcolorSpace colorSpace);
 
 // Font loading
 int nvgFontAddFont(NVGFontSystem* fs, const char* name, const char* path);
@@ -60,8 +59,8 @@ void nvgFontSetTextDirection(NVGFontSystem* fs, int direction);
 void nvgFontSetSubpixelMode(NVGFontSystem* fs, int mode);  // NVGSubpixelMode
 
 // Atlas management
-int nvgFontGetAtlasTexture(NVGFontSystem* fs, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
-void nvgFontSetAtlasTexture(NVGFontSystem* fs, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int textureId);
+int nvgFontGetAtlasTexture(NVGFontSystem* fs, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode);
+void nvgFontSetAtlasTexture(NVGFontSystem* fs, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int textureId);
 
 // Font information
 const char* nvgFont__GetFamilyName(NVGFontSystem* fs, int fontId);

@@ -12,7 +12,6 @@
 #include <fribidi.h>
 #include <cairo.h>
 #include <cairo-ft.h>
-#include <vulkan/vulkan.h>
 #include "nvg_font_shape_cache.h"
 
 // Internal helpers
@@ -43,9 +42,9 @@ typedef struct {
 	int hinting;              // Hinting mode
 	int subpixelMode;         // Subpixel rendering mode (critical for cache correctness)
 	unsigned int varStateId;  // Variation state ID (for variable fonts)
-	VkColorSpaceKHR srcColorSpace;  // Source color space
-	VkColorSpaceKHR dstColorSpace;  // Destination color space
-	VkFormat format;          // Vulkan format this glyph is stored in
+	NVGcolorSpace srcColorSpace;  // Source color space
+	NVGcolorSpace dstColorSpace;  // Destination color space
+	NVGtextureFormat format;  // Texture format this glyph is stored in
 	float x, y, w, h;
 	float s0, t0, s1, t1;
 	float advanceX;
@@ -72,9 +71,9 @@ typedef struct NVGAtlasNode {
 
 // Individual atlas storage
 typedef struct NVGAtlas {
-	VkColorSpaceKHR srcColorSpace;
-	VkColorSpaceKHR dstColorSpace;
-	VkFormat format;
+	NVGcolorSpace srcColorSpace;
+	NVGcolorSpace dstColorSpace;
+	NVGtextureFormat format;
 	int subpixelMode;        // Subpixel rendering mode (part of composite key)
 	int width;
 	int height;
@@ -91,9 +90,9 @@ struct NVGAtlasManager {
 	int atlasCount;
 	int defaultAtlasWidth;
 	int defaultAtlasHeight;
-	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
+	void (*textureCallback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode);
 	void* textureUserdata;
-	int (*growCallback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight);
+	int (*growCallback)(void* uptr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int* newWidth, int* newHeight);
 	void* growUserdata;
 };
 
@@ -144,10 +143,10 @@ struct NVGFontSystem {
 	int nfeatures;
 	NVGCairoState cairoState;  // For COLR emoji rendering
 	NVGShapedTextCache* shapedTextCache;  // Shaped text cache (Phase 14.2)
-	VkColorSpaceKHR targetColorSpace;  // Target swapchain color space for rendering
+	NVGcolorSpace targetColorSpace;  // Target swapchain color space for rendering
 };
 
 // Atlas helper functions (used by nanovg.c for atlas growth)
-NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode);
 
 #endif // NVG_FONT_INTERNAL_H

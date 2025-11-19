@@ -1,5 +1,5 @@
-#include "../src/nvg_vk.h"
-#include "../src/nanovg.h"
+#include "backends/vulkan/nvg_vk.h"
+#include "nanovg/nanovg.h"
 #include "../src/tools/window_utils.h"
 #include <stdio.h>
 

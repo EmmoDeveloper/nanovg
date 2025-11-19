@@ -1,7 +1,7 @@
 #include "nvg_font.h"
 #include "nvg_font_internal.h"
 #include "nvg_font_colr.h"
-#include "../vknvg_msdf.h"
+#include "../../util/vknvg_msdf.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -9,10 +9,10 @@
 #include <freetype/ftlcdfil.h>
 
 // Forward declarations from nvg_font_system.c
-int nvgAtlasAlloc(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int w, int h, int* x, int* y);
-void nvgAtlasUpdate(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int x, int y, int w, int h, const unsigned char* data);
-int nvgAtlasGrow(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight);
-NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode);
+int nvgAtlasAlloc(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int w, int h, int* x, int* y);
+void nvgAtlasUpdate(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int x, int y, int w, int h, const unsigned char* data);
+int nvgAtlasGrow(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int* newWidth, int* newHeight);
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode);
 
 // Internal helpers
 // Skyline-based atlas packing (adapted from fontstash.h)
@@ -464,17 +464,17 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	// - Grayscale: No color space (single channel alpha)
 	int useSubpixel = (fs->state.subpixelMode != NVG_SUBPIXEL_NONE && !isCOLREmoji && !useMSDF);
 
-	VkColorSpaceKHR srcColorSpace;
-	VkColorSpaceKHR dstColorSpace;
+	NVGcolorSpace srcColorSpace;
+	NVGcolorSpace dstColorSpace;
 	if (isCOLREmoji) {
 		// COLR emoji uses sRGB (Cairo outputs sRGB)
-		srcColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+		srcColorSpace = NVG_COLOR_SPACE_SRGB_NONLINEAR;
 		dstColorSpace = fs->targetColorSpace;
 	} else {
 		// LCD, MSDF, and grayscale: intensity/coverage values, no color space conversion
-		// Use (VkColorSpaceKHR)-1 as sentinel to indicate "no color space"
-		srcColorSpace = (VkColorSpaceKHR)-1;
-		dstColorSpace = (VkColorSpaceKHR)-1;
+		// Use (NVGcolorSpace)-1 as sentinel to indicate "no color space"
+		srcColorSpace = (NVGcolorSpace)-1;
+		dstColorSpace = (NVGcolorSpace)-1;
 	}
 
 	// Determine format based on rendering mode:
@@ -482,9 +482,9 @@ int nvgFontRenderGlyph(NVGFontSystem* fs, int fontId, unsigned int glyph_index, 
 	// - MSDF: RGBA (4 channels for multi-channel distance field)
 	// - LCD subpixel: RGBA (3 RGB channels + alpha, stored as RGBA)
 	// - Grayscale: ALPHA (1 channel)
-	VkFormat format = isCOLREmoji ? VK_FORMAT_R8G8B8A8_UNORM :
-	                  (useMSDF ? VK_FORMAT_R8G8B8A8_UNORM :
-	                  (useSubpixel ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM));
+	NVGtextureFormat format = isCOLREmoji ? NVG_TEXTURE_FORMAT_R8G8B8A8_UNORM :
+	                  (useMSDF ? NVG_TEXTURE_FORMAT_R8G8B8A8_UNORM :
+	                  (useSubpixel ? NVG_TEXTURE_FORMAT_R8G8B8A8_UNORM : NVG_TEXTURE_FORMAT_R8_UNORM));
 
 	static int alloc_debug = 0;
 	if (alloc_debug++ < 20) {

@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vulkan/vulkan.h>
-#include "nanovg.h"
-#include "nvg_vk.h"
+#include "nanovg/nanovg.h"
+#include "backends/vulkan/nvg_vk.h"
 #include "window_utils.h"
 #include "display_detection.h"
 

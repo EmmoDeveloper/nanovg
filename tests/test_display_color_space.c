@@ -2,10 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "nanovg.h"
-#include "nvg_vk.h"
+#include "nanovg/nanovg.h"
+#include "backends/vulkan/nvg_vk.h"
 #include "../src/tools/window_utils.h"
-#include "../src/vulkan/nvg_vk_display_color_space.h"
+#include "backends/vulkan/impl/nvg_vk_display_color_space.h"
 
 int main(void) {
 	printf("=== Display Color Space Matrix/Quaternion System Test ===\n\n");

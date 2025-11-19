@@ -17,15 +17,16 @@
 //
 
 #include "nvg_vk.h"
-#include "vulkan/nvg_vk_context.h"
-#include "vulkan/nvg_vk_texture.h"
-#include "vulkan/nvg_vk_buffer.h"
-#include "vulkan/nvg_vk_pipeline.h"
-#include "vulkan/nvg_vk_render.h"
-#include "vulkan/nvg_vk_types.h"
-#include "font/nvg_font.h"
-#include "vulkan/nvg_vk_color_space_ubo.h"
-#include "vulkan/nvg_vk_color_space.h"
+#include "nvg_vk_adapter.h"
+#include "impl/nvg_vk_context.h"
+#include "impl/nvg_vk_texture.h"
+#include "impl/nvg_vk_buffer.h"
+#include "impl/nvg_vk_pipeline.h"
+#include "impl/nvg_vk_render.h"
+#include "impl/nvg_vk_types.h"
+#include "../../nanovg/font/nvg_font.h"
+#include "impl/nvg_vk_color_space_ubo.h"
+#include "impl/nvg_vk_color_space.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -130,6 +131,32 @@ error:
 void nvgDeleteVk(NVGcontext* ctx)
 {
 	nvgDeleteInternal(ctx);
+}
+
+void nvgVkSetShaderPath(NVGcontext* ctx, const char* path)
+{
+	if (!ctx) {
+		return;
+	}
+
+	NVGparams* params = nvgInternalParams(ctx);
+	NVGVkBackend* backend = (NVGVkBackend*)params->userPtr;
+	NVGVkContext* vk = &backend->vk;
+
+	// Free existing path if any
+	if (vk->shaderBasePath) {
+		free(vk->shaderBasePath);
+		vk->shaderBasePath = NULL;
+	}
+
+	// Copy new path if provided
+	if (path) {
+		size_t len = strlen(path);
+		vk->shaderBasePath = (char*)malloc(len + 1);
+		if (vk->shaderBasePath) {
+			memcpy(vk->shaderBasePath, path, len + 1);
+		}
+	}
 }
 
 VkCommandBuffer nvgVkGetCommandBuffer(NVGcontext* ctx)
@@ -573,7 +600,7 @@ static void nvgvk__renderFontSystemCreated(void* uptr, void* fontSystem)
 	// Set target color space for font rendering if available
 	if (backend->vk.colorSpace) {
 		NVGVkColorSpace* cs = (NVGVkColorSpace*)backend->vk.colorSpace;
-		nvgFontSetColorSpace((NVGFontSystem*)fontSystem, cs->swapchainColorSpace);
+		nvgFontSetColorSpace((NVGFontSystem*)fontSystem, nvgvk_from_vk_color_space(cs->swapchainColorSpace));
 	}
 }
 

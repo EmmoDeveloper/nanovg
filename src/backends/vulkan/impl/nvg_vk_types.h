@@ -209,6 +209,9 @@ struct NVGVkContext {
 	VkDescriptorSet colorSpaceDescriptorSet;  // Descriptor set for color space UBO
 	VkDescriptorSetLayout colorSpaceDescriptorLayout;  // Layout for color space descriptor
 	int colorSpaceChanged;			// Flag: rebuild conversion path
+
+	// Shader path configuration
+	char* shaderBasePath;			// Base path for shader files (NULL = use default "src/shaders")
 };
 
 #endif // NVG_VK_TYPES_H

@@ -2,7 +2,7 @@
 #define NVG_FONT_TYPES_H
 
 #include <stdint.h>
-#include <vulkan/vulkan.h>
+#include "../nanovg_backend_types.h"
 
 // Font system configuration
 #define NVG_FONT_MAX_FONTS 32
@@ -36,9 +36,9 @@ typedef struct {
 	float advanceX;
 	float bearingX;
 	float bearingY;
-	VkColorSpaceKHR srcColorSpace;  // Source color space (identifies atlas)
-	VkColorSpaceKHR dstColorSpace;  // Destination color space (identifies atlas)
-	VkFormat format;                 // Texture format (identifies atlas)
+	NVGcolorSpace srcColorSpace;     // Source color space (identifies atlas)
+	NVGcolorSpace dstColorSpace;     // Destination color space (identifies atlas)
+	NVGtextureFormat format;         // Texture format (identifies atlas)
 	int subpixelMode;                // Subpixel mode (identifies atlas)
 	unsigned int generation;         // For cache invalidation
 } NVGCachedGlyph;

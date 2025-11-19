@@ -7,7 +7,7 @@
 
 // Atlas manager internal helpers
 
-static NVGAtlas* nvg__getOrCreateAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int width, int height) {
+static NVGAtlas* nvg__getOrCreateAtlas(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int width, int height) {
 	if (!mgr) return NULL;
 
 	// Match by color spaces, format AND subpixelMode (to allow multiple atlases with different subpixel modes)
@@ -50,7 +50,7 @@ static NVGAtlas* nvg__getOrCreateAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR src
 
 // Get atlas by format + color spaces + subpixelMode (composite key)
 // Format and subpixelMode are ALWAYS part of the key to distinguish different atlas types
-NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode) {
+NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode) {
 	if (!mgr) return NULL;
 
 	for (int i = 0; i < mgr->atlasCount; i++) {
@@ -70,7 +70,7 @@ NVGAtlas* nvg__getAtlas(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkC
 int nvg__allocAtlasNode(NVGAtlas* atlas, int w, int h, int* x, int* y);
 void nvg__expandAtlasNodes(NVGAtlas* atlas, int n);
 
-int nvgAtlasAlloc(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int w, int h, int* x, int* y) {
+int nvgAtlasAlloc(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int w, int h, int* x, int* y) {
 	NVGAtlas* atlas = nvg__getAtlas(mgr, srcColorSpace, dstColorSpace, format, subpixelMode);
 	if (!atlas) {
 		// Atlas doesn't exist - create it on-demand
@@ -80,7 +80,7 @@ int nvgAtlasAlloc(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSp
 	return nvg__allocAtlasNode(atlas, w, h, x, y);
 }
 
-void nvgAtlasUpdate(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int x, int y, int w, int h, const unsigned char* data) {
+void nvgAtlasUpdate(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int x, int y, int w, int h, const unsigned char* data) {
 	if (!mgr || !mgr->textureCallback) {
 		printf("[nvgAtlasUpdate] ERROR: mgr=%p, callback=%p\n", (void*)mgr, (void*)(mgr ? mgr->textureCallback : NULL));
 		return;
@@ -90,12 +90,12 @@ void nvgAtlasUpdate(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColor
 	mgr->textureCallback(mgr->textureUserdata, x, y, w, h, data, srcColorSpace, dstColorSpace, format, subpixelMode);
 }
 
-int nvgAtlasGrow(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight) {
+int nvgAtlasGrow(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int* newWidth, int* newHeight) {
 	if (!mgr || !mgr->growCallback) return 0;
 	return mgr->growCallback(mgr->growUserdata, srcColorSpace, dstColorSpace, format, subpixelMode, newWidth, newHeight);
 }
 
-void nvgAtlasGetSize(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* w, int* h) {
+void nvgAtlasGetSize(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int* w, int* h) {
 	NVGAtlas* atlas = nvg__getAtlas(mgr, srcColorSpace, dstColorSpace, format, subpixelMode);
 	if (atlas && w && h) {
 		*w = atlas->width;
@@ -103,7 +103,7 @@ void nvgAtlasGetSize(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColo
 	}
 }
 
-void nvgAtlasReset(NVGAtlasManager* mgr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int width, int height) {
+void nvgAtlasReset(NVGAtlasManager* mgr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int width, int height) {
 	NVGAtlas* atlas = nvg__getAtlas(mgr, srcColorSpace, dstColorSpace, format, subpixelMode);
 	if (atlas) {
 		atlas->width = width;
@@ -149,9 +149,9 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 	// Create default atlases for sRGB color space (most common case)
 	// Grayscale atlas: sRGB -> sRGB, no subpixel
 	if (!nvg__getOrCreateAtlas(fs->atlasManager,
-	                            VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-	                            VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-	                            VK_FORMAT_R8_UNORM,
+	                            NVG_COLOR_SPACE_SRGB_NONLINEAR,
+	                            NVG_COLOR_SPACE_SRGB_NONLINEAR,
+	                            NVG_TEXTURE_FORMAT_R8_UNORM,
 	                            0,  // NVG_SUBPIXEL_NONE
 	                            atlasWidth, atlasHeight)) {
 		free(fs->atlasManager);
@@ -163,9 +163,9 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 
 	// RGBA atlas: sRGB -> sRGB, no subpixel
 	if (!nvg__getOrCreateAtlas(fs->atlasManager,
-	                            VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-	                            VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-	                            VK_FORMAT_R8G8B8A8_UNORM,
+	                            NVG_COLOR_SPACE_SRGB_NONLINEAR,
+	                            NVG_COLOR_SPACE_SRGB_NONLINEAR,
+	                            NVG_TEXTURE_FORMAT_R8G8B8A8_UNORM,
 	                            0,  // NVG_SUBPIXEL_NONE
 	                            atlasWidth, atlasHeight)) {
 		free(fs->atlasManager->atlases[0].nodes);
@@ -226,7 +226,7 @@ NVGFontSystem* nvgFontCreate(int atlasWidth, int atlasHeight) {
 	}
 
 	// Initialize target color space to sRGB (default)
-	fs->targetColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	fs->targetColorSpace = NVG_COLOR_SPACE_SRGB_NONLINEAR;
 
 	return fs;
 }
@@ -294,19 +294,19 @@ void nvgFontDestroy(NVGFontSystem* fs) {
 	free(fs);
 }
 
-void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode), void* userdata) {
+void nvgFontSetTextureCallback(NVGFontSystem* fs, void (*callback)(void* uptr, int x, int y, int w, int h, const unsigned char* data, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode), void* userdata) {
 	if (!fs || !fs->atlasManager) return;
 	fs->atlasManager->textureCallback = callback;
 	fs->atlasManager->textureUserdata = userdata;
 }
 
-void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int* newWidth, int* newHeight), void* userdata) {
+void nvgFontSetAtlasGrowCallback(NVGFontSystem* fs, int (*callback)(void* uptr, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int* newWidth, int* newHeight), void* userdata) {
 	if (!fs || !fs->atlasManager) return;
 	fs->atlasManager->growCallback = callback;
 	fs->atlasManager->growUserdata = userdata;
 }
 
-void nvgFontSetColorSpace(NVGFontSystem* fs, VkColorSpaceKHR colorSpace) {
+void nvgFontSetColorSpace(NVGFontSystem* fs, NVGcolorSpace colorSpace) {
 	if (!fs) return;
 	fs->targetColorSpace = colorSpace;
 }
@@ -519,13 +519,13 @@ void nvgFontSetSubpixelMode(NVGFontSystem* fs, int mode) {
 	fs->state.subpixelMode = (NVGSubpixelMode)mode;
 }
 
-int nvgFontGetAtlasTexture(NVGFontSystem* fs, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode) {
+int nvgFontGetAtlasTexture(NVGFontSystem* fs, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode) {
 	if (!fs || !fs->atlasManager) return 0;
 	NVGAtlas* atlas = nvg__getAtlas(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode);
 	return atlas ? atlas->textureId : 0;
 }
 
-void nvgFontSetAtlasTexture(NVGFontSystem* fs, VkColorSpaceKHR srcColorSpace, VkColorSpaceKHR dstColorSpace, VkFormat format, int subpixelMode, int textureId) {
+void nvgFontSetAtlasTexture(NVGFontSystem* fs, NVGcolorSpace srcColorSpace, NVGcolorSpace dstColorSpace, NVGtextureFormat format, int subpixelMode, int textureId) {
 	if (!fs || !fs->atlasManager) return;
 	NVGAtlas* atlas = nvg__getAtlas(fs->atlasManager, srcColorSpace, dstColorSpace, format, subpixelMode);
 	if (atlas) {
